@@ -1,0 +1,1 @@
+export ENABLE_DRAWING_ANALYZER=on
