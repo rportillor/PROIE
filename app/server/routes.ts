@@ -3346,7 +3346,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // [*] FIX: Add ALL remaining missing API endpoints to achieve ZERO integration issues
 
   // Admin notification endpoints
-  app.post('/api/admin/notifications/:alertId/acknowledge', authenticateToken, async (req, res) => {
+  app.post('/api/admin/notifications/:alertId/acknowledge', authenticateToken, requireAdmin, async (req, res) => {
     try {
       const { alertId } = req.params;
       res.json({ message: `Alert ${alertId} acknowledged` });
@@ -3355,7 +3355,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/admin/alerts', authenticateToken, async (req, res) => {
+  app.get('/api/admin/alerts', authenticateToken, requireAdmin, async (req, res) => {
     try {
       res.json([]);
     } catch (error) {
@@ -3363,7 +3363,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/admin/system/backup', authenticateToken, async (req, res) => {
+  app.post('/api/admin/system/backup', authenticateToken, requireAdmin, async (req, res) => {
     // v15.29: No backup system implemented. Use Neon PostgreSQL snapshots for DB backup.
     return res.status(501).json({
       error: 'System backup not implemented',
@@ -3371,7 +3371,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  app.get('/api/admin/system/logs', authenticateToken, async (req, res) => {
+  app.get('/api/admin/system/logs', authenticateToken, requireAdmin, async (req, res) => {
     try {
       res.json({ logs: [], totalCount: 0 });
     } catch (error) {
@@ -4051,7 +4051,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Resume BIM generation endpoint
-  app.post('/api/bim/resume/:modelId', async (req, res) => {
+  app.post('/api/bim/resume/:modelId', authenticateToken, async (req, res) => {
     const { modelId } = req.params;
     
     try {
@@ -4396,7 +4396,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Building codes endpoint for Standards Navigator
-  app.get("/api/building-codes", async (req, res) => {
+  app.get("/api/building-codes", authenticateToken, async (req, res) => {
     try {
       const jurisdiction = req.query.jurisdiction as string;
       const sections = await storage.getBuildingCodeSections(jurisdiction);
@@ -4757,8 +4757,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // 🚨 DEPRECATED PATH MONITORING API (temporary no auth for testing)
-  app.get("/api/monitoring/deprecated-paths", async (req, res) => {
+  // Deprecated path monitoring API
+  app.get("/api/monitoring/deprecated-paths", authenticateToken, requireAdmin, async (req, res) => {
     try {
       const { checkForDeprecatedUsage } = await import('./monitoring/deprecated-path-monitor');
       const monitoring = checkForDeprecatedUsage();
