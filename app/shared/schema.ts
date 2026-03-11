@@ -182,6 +182,8 @@ export const documents = pgTable("documents", {
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   projectIdIdx: index("documents_project_id_idx").on(table.projectId),
+  analysisStatusIdx: index("documents_analysis_status_idx").on(table.analysisStatus),
+  createdAtIdx: index("documents_created_at_idx").on(table.createdAt),
 }));
 
 // Document images table for storing per-page images with sheet metadata
@@ -515,6 +517,7 @@ export const bimElements = pgTable("bim_elements", {
 }, (table) => ({
   modelIdIdx: index("bim_elements_model_id_idx").on(table.modelId),
   elementTypeIdx: index("bim_elements_element_type_idx").on(table.elementType),
+  createdAtIdx: index("bim_elements_created_at_idx").on(table.createdAt),
 }));
 
 // Analysis Results Storage - for revision comparison
@@ -666,6 +669,7 @@ export const aiConfigurations = pgTable("ai_configurations", {
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   projectIdIdx: index("ai_configurations_project_id_idx").on(table.projectId),
+  isDefaultIdx: index("ai_configurations_is_default_idx").on(table.isDefault),
 }));
 
 export const processingJobs = pgTable("processing_jobs", {
