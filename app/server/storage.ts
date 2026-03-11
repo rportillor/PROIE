@@ -499,10 +499,10 @@ export class MemStorage implements Partial<IStorage> {
       municipalCode: insertProject.municipalCode || null,
       estimateValue: insertProject.estimateValue || null,
       buildingArea: insertProject.buildingArea || null,
-      rateSystem: (insertProject as any).rateSystem || "ciqs",
-      buildingClass: (insertProject as any).buildingClass || 'B',
-      complexity: (insertProject as any).complexity || 'medium',
-      riskProfile: (insertProject as any).riskProfile || 'medium',
+      rateSystem: insertProject.rateSystem || "ciqs",
+      buildingClass: insertProject.buildingClass || 'B',
+      complexity: insertProject.complexity || 'medium',
+      riskProfile: insertProject.riskProfile || 'medium',
       userId: insertProject.userId || null,
       createdAt: new Date(),
       updatedAt: new Date()
@@ -866,8 +866,8 @@ export class DBStorage implements Partial<IStorage> {
     return result[0];
   }
 
-  async getCompanies(): Promise<Company[]> {
-    return await db.select().from(companies);
+  async getCompanies(limit = 100, offset = 0): Promise<Company[]> {
+    return await db.select().from(companies).limit(limit).offset(offset);
   }
 
   async createCompany(insertCompany: InsertCompany): Promise<Company> {
@@ -2204,14 +2204,15 @@ export class DBStorage implements Partial<IStorage> {
   }
 
   async createNotification(data: {
-    userId: string; projectId?: string; type?: string;
-    title: string; message: string; link?: string; metadata?: any;
+    userId: string; projectId?: string;
+    type?: "bim_complete" | "estimate_ready" | "rfi_update" | "compliance_alert" | "document_processed" | "analysis_complete" | "system" | "mention";
+    title: string; message: string; link?: string; metadata?: Record<string, unknown>;
   }): Promise<any> {
     const { notifications } = await import("@shared/schema");
     const result = await db.insert(notifications).values({
       userId: data.userId,
       projectId: data.projectId ?? null,
-      type: (data.type as any) ?? "system",
+      type: data.type ?? "system",
       title: data.title,
       message: data.message,
       link: data.link ?? null,

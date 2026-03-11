@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import {
   Database, Search, Save, X, Pencil, Download, Upload, History,
 } from "lucide-react";
@@ -72,6 +73,7 @@ interface AuditEntry {
 // ─── MAIN COMPONENT ─────────────────────────────────────────────────────────
 
 export function RateManagerTab({ projectId, modelId }: { projectId: string; modelId: string }) {
+  const { toast } = useToast();
   const [subTab, setSubTab] = useState<RateSubTab>("unit");
   const [unitFilter, setUnitFilter] = useState("");
   const [mepFilter, setMepFilter] = useState("");
@@ -249,6 +251,9 @@ function UnitRatesSection({ data, filter, onFilterChange }: { data: UnitRate[]; 
       setEditingCode(null);
       setEditRow({});
     },
+    onError: (error: Error) => {
+      toast({ title: "Failed to save unit rate", description: error.message, variant: "destructive" });
+    },
   });
 
   const startEdit = (r: UnitRate) => { setEditingCode(r.csiCode); setEditRow({ ...r }); };
@@ -383,6 +388,9 @@ function MEPRatesSection({ data, filter, onFilterChange }: { data: MEPRate[]; fi
       queryClient.invalidateQueries({ queryKey: ["/api/rates/mep"] });
       setEditingCode(null);
       setEditRow({});
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to save MEP rate", description: error.message, variant: "destructive" });
     },
   });
 
@@ -522,6 +530,9 @@ function RegionalFactorsSection({ data, filter, onFilterChange }: { data: Region
       queryClient.invalidateQueries({ queryKey: ["/api/rates/regional"] });
       setEditingKey(null);
       setEditRow({});
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to save regional factor", description: error.message, variant: "destructive" });
     },
   });
 

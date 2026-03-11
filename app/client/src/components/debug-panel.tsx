@@ -46,9 +46,31 @@ export function DebugPanel() {
 
   const testDocumentView = async () => {
     try {
-      const token = localStorage.getItem('auth_token') || 'test-token';
-      const testUrl = '/api/projects/c7ec2523-8631-4181-8c6e-f705861654d7/documents/8ed368c3-0282-4efd-94ea-21e2af8ba76f/view';
-
+      // Extract project/document IDs from current URL context
+      const pathParts = window.location.pathname.split('/');
+      const projIdx = pathParts.indexOf('projects');
+      const projectId = projIdx >= 0 ? pathParts[projIdx + 1] : null;
+      if (!projectId) {
+        console.warn('No project context available — open a project first');
+        return;
+      }
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        console.warn('No auth token available');
+        return;
+      }
+      // Fetch the project's first document to test viewing
+      const docsRes = await fetch(`/api/projects/${projectId}/documents`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        credentials: 'include',
+      });
+      if (!docsRes.ok) throw new Error(`Failed to fetch documents: ${docsRes.status}`);
+      const docs = await docsRes.json();
+      if (!docs.length) {
+        console.warn('No documents found in this project');
+        return;
+      }
+      const testUrl = `/api/projects/${projectId}/documents/${docs[0].id}/view`;
       console.log('Testing document view URL:', testUrl);
       const resp = await fetch(testUrl, { headers: { 'Authorization': `Bearer ${token}` }, credentials: 'include' });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);

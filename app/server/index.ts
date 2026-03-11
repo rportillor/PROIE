@@ -136,8 +136,12 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      if (capturedJsonResponse && !path.includes("/auth") && !path.includes("/login") && !path.includes("/register")) {
+        const sanitized = { ...capturedJsonResponse };
+        for (const key of ['password', 'token', 'accessToken', 'refreshToken', 'apiKey', 'secret', 'stripeCustomerId']) {
+          if (key in sanitized) sanitized[key] = '[REDACTED]';
+        }
+        logLine += ` :: ${JSON.stringify(sanitized)}`;
       }
       if (logLine.length > 80) {
         logLine = logLine.slice(0, 79) + "\u2026";

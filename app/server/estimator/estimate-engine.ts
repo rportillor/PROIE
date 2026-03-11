@@ -2176,6 +2176,8 @@ export function generateEstimateFromElements(
       li.laborCost      = li.laborRate      * li.quantity;
       li.equipmentRate  = li.equipmentRate  * ctf.equipmentMultiplier;
       li.equipmentCost  = li.equipmentRate  * li.quantity;
+      // Recompute materialCost from materialRate to keep M+L+E consistent
+      li.materialCost   = li.materialRate   * li.quantity;
       if (li.productivityRate && li.productivityRate > 0) {
         li.productivityRate = li.productivityRate * ctf.productivityMultiplier;
         li.laborHours       = li.quantity / li.productivityRate;

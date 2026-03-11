@@ -18,6 +18,7 @@
 import { useState, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "wouter";
+import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
@@ -139,10 +140,7 @@ export default function BIMCoordinationPage() {
   const summaryQuery = useQuery<CoordinationSummary>({
     queryKey: ["bim-coordination-summary", projectId],
     queryFn: async () => {
-      const token = localStorage.getItem("auth_token");
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      const res = await fetch(`/api/bim-coordination/summary?projectId=${encodeURIComponent(projectId)}`, { headers, credentials: "include" });
+      const res = await apiRequest("GET", `/api/bim-coordination/summary?projectId=${encodeURIComponent(projectId)}`);
       if (!res.ok) return null;
       return res.json();
     },
