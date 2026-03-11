@@ -32,12 +32,13 @@ import { apiRequest } from "@/lib/queryClient";
 import {
   BarChart3, Shield, FileCheck, DollarSign, Scale, ClipboardList, FileText,
   ChevronRight, RefreshCw, Download, CheckCircle, XCircle, AlertTriangle,
-  Lock, Unlock, Send, Eye, TrendingUp, Layers, Cpu, Activity
+  Lock, Unlock, Send, Eye, TrendingUp, Layers, Cpu, Activity, Database
 } from "lucide-react";
+import { RateManagerTab } from "@/components/rate-manager";
 
 // ─── TAB DEFINITIONS ────────────────────────────────────────────────────────
 
-type TabKey = "lifecycle" | "classification" | "benchmark" | "trade" | "risk" | "sov" | "boe" | "engine";
+type TabKey = "lifecycle" | "classification" | "benchmark" | "trade" | "risk" | "sov" | "boe" | "engine" | "rates";
 
 const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "lifecycle",      label: "Estimate Lifecycle",  icon: <FileCheck     className="w-4 h-4" /> },
@@ -48,6 +49,7 @@ const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "sov",            label: "Schedule of Values",  icon: <ClipboardList className="w-4 h-4" /> },
   { key: "boe",            label: "Basis of Estimate",   icon: <FileText      className="w-4 h-4" /> },
   { key: "engine",         label: "Estimate Engine",     icon: <Cpu           className="w-4 h-4" /> },
+  { key: "rates",          label: "Rate Management",     icon: <Database      className="w-4 h-4" /> },
 ];
 
 // ─── MAIN DASHBOARD ─────────────────────────────────────────────────────────
@@ -120,6 +122,7 @@ export default function QSLevel5Dashboard() {
         {activeTab === "sov"            && <SOVTab            projectId={projectId} modelId={modelId} projectName={projectName} />}
         {activeTab === "boe"            && <BoETab            projectId={projectId} modelId={modelId} projectName={projectName} projectData={projectData} />}
         {activeTab === "engine"         && <EstimateEngineTab projectId={projectId} modelId={modelId} projectName={projectName} />}
+        {activeTab === "rates"          && <RateManagerTab    projectId={projectId} modelId={modelId} />}
       </div>
     </div>
   );

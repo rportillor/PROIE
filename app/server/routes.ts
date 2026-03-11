@@ -2143,6 +2143,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Note: 3 paths (boq-with-costs, cost/estimate, cost/update) also exist inline above;
   // Express matches inline handlers first, so the improved v15.29 versions take precedence.
   app.use('/api', authenticateToken, (await import('./routes/estimator-router')).estimatorRouter);
+  // rateManagementRouter — CRUD for DB-backed unit rates, MEP rates, regional factors, OH&P
+  app.use('/api/rates', authenticateToken, (await import('./routes/rate-management')).rateManagementRouter);
   // sequenceRouter — construction sequencing: propose, review, confirm, export to P6/MS Project
   // (applies its own authenticateToken internally)
   app.use('/api', (await import('./routes/sequence-routes')).sequenceRouter);

@@ -2272,3 +2272,125 @@ export const insertConstructionSequenceSchema = createInsertSchema(constructionS
 });
 export type InsertConstructionSequence = z.infer<typeof insertConstructionSequenceSchema>;
 export type ConstructionSequenceRow = typeof constructionSequences.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ESTIMATION RATE TABLES — Database-backed rates (replaces hardcoded CSI_RATES)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const rateSourceEnum = pgEnum("rate_source", [
+  "system_default",    // Seeded from hardcoded CSI_RATES baseline
+  "user_override",     // Manually edited by user/admin
+  "vendor_quote",      // From a vendor quote
+  "rsmeans",           // From RSMeans API
+]);
+
+// ── Unit Rates table — replaces CSI_RATES constant in estimate-engine.ts ──
+export const unitRates = pgTable("unit_rates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  csiCode: varchar("csi_code", { length: 50 }).notNull(),
+  description: text("description").notNull(),
+  unit: varchar("unit", { length: 20 }).notNull(),
+  materialRate: decimal("material_rate", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  laborRate: decimal("labor_rate", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  equipmentRate: decimal("equipment_rate", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  crewSize: decimal("crew_size", { precision: 5, scale: 1 }).notNull().default("1"),
+  productivityRate: decimal("productivity_rate", { precision: 8, scale: 3 }).notNull().default("1.000"),
+  source: rateSourceEnum("source").notNull().default("system_default"),
+  region: varchar("region", { length: 100 }),  // null = global baseline
+  effectiveDate: timestamp("effective_date").defaultNow(),
+  expiryDate: timestamp("expiry_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  csiCodeIdx: index("unit_rates_csi_code_idx").on(t.csiCode),
+  regionIdx: index("unit_rates_region_idx").on(t.region),
+  csiRegionUniq: unique("unit_rates_csi_region_uniq").on(t.csiCode, t.region),
+}));
+
+export const insertUnitRateSchema = createInsertSchema(unitRates).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertUnitRate = z.infer<typeof insertUnitRateSchema>;
+export type UnitRate = typeof unitRates.$inferSelect;
+
+// ── MEP Rates table — replaces hardcoded ontario-mep-rates arrays ──
+export const mepRates = pgTable("mep_rates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  csiCode: varchar("csi_code", { length: 50 }).notNull(),
+  division: varchar("division", { length: 10 }).notNull(),  // "21", "22", "23", "26", "27", "28"
+  description: text("description").notNull(),
+  unit: varchar("unit", { length: 20 }).notNull(),
+  materialRate: decimal("material_rate", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  labourRate: decimal("labour_rate", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  unitRate: decimal("unit_rate", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  labourHoursPerUnit: decimal("labour_hours_per_unit", { precision: 8, scale: 3 }).notNull().default("1.000"),
+  tradeLocal: varchar("trade_local", { length: 100 }),  // e.g., "UA Local 46"
+  collectiveAgreementYear: integer("collective_agreement_year"),
+  source: rateSourceEnum("source").notNull().default("system_default"),
+  region: varchar("region", { length: 100 }),
+  effectiveDate: timestamp("effective_date").defaultNow(),
+  expiryDate: timestamp("expiry_date"),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  csiCodeIdx: index("mep_rates_csi_code_idx").on(t.csiCode),
+  divisionIdx: index("mep_rates_division_idx").on(t.division),
+  csiRegionUniq: unique("mep_rates_csi_region_uniq").on(t.csiCode, t.region),
+}));
+
+export const insertMepRateSchema = createInsertSchema(mepRates).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertMepRate = z.infer<typeof insertMepRateSchema>;
+export type MepRate = typeof mepRates.$inferSelect;
+
+// ── Regional Factors table — replaces CANADIAN_PROVINCIAL_FACTORS constant ──
+export const regionalFactors = pgTable("regional_factors", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  regionKey: varchar("region_key", { length: 100 }).notNull(),
+  regionLabel: varchar("region_label", { length: 200 }).notNull(),
+  province: varchar("province", { length: 50 }).notNull(),
+  compositeIndex: decimal("composite_index", { precision: 5, scale: 3 }).notNull().default("1.000"),
+  materialIndex: decimal("material_index", { precision: 5, scale: 3 }).notNull().default("1.000"),
+  laborIndex: decimal("labor_index", { precision: 5, scale: 3 }).notNull().default("1.000"),
+  equipmentIndex: decimal("equipment_index", { precision: 5, scale: 3 }).notNull().default("1.000"),
+  transportFactor: decimal("transport_factor", { precision: 5, scale: 3 }).notNull().default("1.000"),
+  remoteFactor: decimal("remote_factor", { precision: 5, scale: 3 }).notNull().default("1.000"),
+  hstGstRate: decimal("hst_gst_rate", { precision: 5, scale: 3 }).notNull().default("0.130"),
+  pstRate: decimal("pst_rate", { precision: 5, scale: 3 }).notNull().default("0.000"),
+  taxDescription: varchar("tax_description", { length: 100 }),
+  source: varchar("source", { length: 255 }),
+  effectiveDate: timestamp("effective_date").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  regionKeyUniq: unique("regional_factors_region_key_uniq").on(t.regionKey),
+}));
+
+export const insertRegionalFactorSchema = createInsertSchema(regionalFactors).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertRegionalFactor = z.infer<typeof insertRegionalFactorSchema>;
+export type RegionalFactor = typeof regionalFactors.$inferSelect;
+
+// ── Project OH&P Configuration — replaces in-memory Map in ohp-configuration.ts ──
+export const projectOhpConfigs = pgTable("project_ohp_configs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  overheadPct: decimal("overhead_pct", { precision: 5, scale: 3 }).notNull().default("0.150"),
+  overheadSource: varchar("overhead_source", { length: 30 }).notNull().default("SYSTEM_FALLBACK"),
+  overheadConfidence: varchar("overhead_confidence", { length: 10 }).notNull().default("LOW"),
+  profitPct: decimal("profit_pct", { precision: 5, scale: 3 }).notNull().default("0.100"),
+  profitSource: varchar("profit_source", { length: 30 }).notNull().default("SYSTEM_FALLBACK"),
+  profitConfidence: varchar("profit_confidence", { length: 10 }).notNull().default("LOW"),
+  contingencyPct: decimal("contingency_pct", { precision: 5, scale: 3 }).notNull().default("0.050"),
+  contingencySource: varchar("contingency_source", { length: 30 }).notNull().default("SYSTEM_FALLBACK"),
+  contingencyConfidence: varchar("contingency_confidence", { length: 10 }).notNull().default("LOW"),
+  applyToSubcontractorCosts: boolean("apply_to_subcontractor_costs").notNull().default(true),
+  applyToEquipmentCosts: boolean("apply_to_equipment_costs").notNull().default(true),
+  projectNotes: text("project_notes"),
+  updatedBy: varchar("updated_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  projectIdUniq: unique("project_ohp_project_uniq").on(t.projectId),
+}));
+
+export const insertProjectOhpConfigSchema = createInsertSchema(projectOhpConfigs).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertProjectOhpConfig = z.infer<typeof insertProjectOhpConfigSchema>;
+export type ProjectOhpConfig = typeof projectOhpConfigs.$inferSelect;

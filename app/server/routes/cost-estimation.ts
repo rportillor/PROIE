@@ -98,12 +98,24 @@ costEstimationRouter.get("/search", async (req, res) => {
 costEstimationRouter.get("/trends/:region", async (req, res) => {
   try {
     const { region } = req.params;
-    const trends = await rsMeans.getMarketTrends(region);
+    const result = await rsMeans.getMarketTrends(region);
+
+    if (!result.available) {
+      return res.json({
+        success: true,
+        available: false,
+        region,
+        message: result.message,
+      });
+    }
 
     res.json({
       success: true,
+      available: true,
       region,
-      trends
+      trends: result.trends,
+      forecast: result.forecast,
+      lastUpdated: result.lastUpdated,
     });
 
   } catch (error: any) {

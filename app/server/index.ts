@@ -264,6 +264,11 @@ app.use(globalErrorHandler);
     // QA/QC Master Plan §10.3 — Graceful Shutdown (SIGTERM/SIGINT drain)
     setupGracefulShutdown(server, { timeout: 30000 });
 
+    // Seed DB rate tables from hardcoded constants (idempotent)
+    import('./seed-rates').then(m => m.seedRateTables()).catch(err => {
+      console.warn('[startup] Rate table seeding failed (non-blocking):', err.message);
+    });
+
     // Auto-resume any interrupted BIM processing on startup
     setTimeout(() => {
       autoResumeProcessing().catch(error => {

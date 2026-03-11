@@ -97,6 +97,10 @@ import {
   constructionSequences,
   type ConstructionSequenceRow,
   type InsertConstructionSequence,
+  unitRates, type UnitRate, type InsertUnitRate,
+  mepRates, type MepRate, type InsertMepRate,
+  regionalFactors, type RegionalFactor, type InsertRegionalFactor,
+  projectOhpConfigs, type ProjectOhpConfig, type InsertProjectOhpConfig,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { PRNG } from "./helpers/prng";
@@ -172,6 +176,21 @@ export interface IStorage {
   createEstimateRfi(data: InsertEstimateRfi): Promise<EstimateRfiRow>;
   getEstimateRfis(modelId: string): Promise<EstimateRfiRow[]>;
   countEstimateRfis(modelId: string): Promise<number>;
+
+  // Estimation Rate Tables (DB-backed rates)
+  getUnitRate(csiCode: string, region?: string | null): Promise<UnitRate | undefined>;
+  getUnitRates(filters?: { division?: string; region?: string; source?: string }): Promise<UnitRate[]>;
+  upsertUnitRate(rate: InsertUnitRate): Promise<UnitRate>;
+  getMepRateByCode(csiCode: string, region?: string | null): Promise<MepRate | undefined>;
+  getMepRates(division?: string): Promise<MepRate[]>;
+  upsertMepRate(rate: InsertMepRate): Promise<MepRate>;
+  getRegionalFactor(regionKey: string): Promise<RegionalFactor | undefined>;
+  getRegionalFactors(): Promise<RegionalFactor[]>;
+  upsertRegionalFactor(factor: InsertRegionalFactor): Promise<RegionalFactor>;
+
+  // Project OH&P Configuration (DB-persisted)
+  getProjectOhpConfig(projectId: string): Promise<ProjectOhpConfig | undefined>;
+  upsertProjectOhpConfig(config: InsertProjectOhpConfig): Promise<ProjectOhpConfig>;
 
   // Compliance Checks
   getComplianceChecks(projectId: string): Promise<ComplianceCheck[]>;
@@ -689,6 +708,19 @@ export class MemStorage implements Partial<IStorage> {
   async getEstimateRfis(_modelId: string): Promise<EstimateRfiRow[]> { return []; }
   async countEstimateRfis(_modelId: string): Promise<number> { return 0; }
 
+  // Rate tables (in-memory fallback — returns empty, engine falls back to hardcoded)
+  async getUnitRate(_csiCode: string, _region?: string | null): Promise<UnitRate | undefined> { return undefined; }
+  async getUnitRates(_filters?: any): Promise<UnitRate[]> { return []; }
+  async upsertUnitRate(rate: InsertUnitRate): Promise<UnitRate> { return { ...rate, id: randomUUID(), createdAt: new Date(), updatedAt: new Date() } as UnitRate; }
+  async getMepRateByCode(_csiCode: string, _region?: string | null): Promise<MepRate | undefined> { return undefined; }
+  async getMepRates(_division?: string): Promise<MepRate[]> { return []; }
+  async upsertMepRate(rate: InsertMepRate): Promise<MepRate> { return { ...rate, id: randomUUID(), createdAt: new Date(), updatedAt: new Date() } as MepRate; }
+  async getRegionalFactor(_regionKey: string): Promise<RegionalFactor | undefined> { return undefined; }
+  async getRegionalFactors(): Promise<RegionalFactor[]> { return []; }
+  async upsertRegionalFactor(factor: InsertRegionalFactor): Promise<RegionalFactor> { return { ...factor, id: randomUUID(), createdAt: new Date(), updatedAt: new Date() } as RegionalFactor; }
+  async getProjectOhpConfig(_projectId: string): Promise<ProjectOhpConfig | undefined> { return undefined; }
+  async upsertProjectOhpConfig(config: InsertProjectOhpConfig): Promise<ProjectOhpConfig> { return { ...config, id: randomUUID(), createdAt: new Date(), updatedAt: new Date() } as ProjectOhpConfig; }
+
   // 🔍 BOQ-BIM Validation Methods
   async createValidationResult(result: any): Promise<any> {
     const id = randomUUID();
@@ -1003,6 +1035,115 @@ export class DBStorage implements Partial<IStorage> {
   async countEstimateRfis(modelId: string): Promise<number> {
     const rows = await db.select().from(estimateRfis).where(eq(estimateRfis.modelId, modelId));
     return rows.length;
+  }
+
+  // ── Rate Tables — DB-backed estimation rates ──
+
+  async getUnitRate(csiCode: string, region?: string | null): Promise<UnitRate | undefined> {
+    const conditions = region
+      ? and(eq(unitRates.csiCode, csiCode), eq(unitRates.region, region))
+      : and(eq(unitRates.csiCode, csiCode));
+    const rows = await db.select().from(unitRates).where(conditions).limit(1);
+    return rows[0] ?? undefined;
+  }
+
+  async getUnitRates(filters?: { division?: string; region?: string; source?: string }): Promise<UnitRate[]> {
+    let query = db.select().from(unitRates);
+    // Apply filters if provided — filter in JS for simplicity with Drizzle
+    const rows = await query.orderBy(unitRates.csiCode);
+    if (!filters) return rows;
+    return rows.filter(r => {
+      if (filters.division && !r.csiCode.startsWith(filters.division)) return false;
+      if (filters.region && r.region !== filters.region) return false;
+      if (filters.source && r.source !== filters.source) return false;
+      return true;
+    });
+  }
+
+  async upsertUnitRate(rate: InsertUnitRate): Promise<UnitRate> {
+    // Try update first by csiCode + region
+    const existing = await this.getUnitRate(rate.csiCode, rate.region);
+    if (existing) {
+      const result = await db.update(unitRates)
+        .set({ ...rate, updatedAt: new Date() })
+        .where(eq(unitRates.id, existing.id))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(unitRates).values(rate).returning();
+    return result[0];
+  }
+
+  async getMepRateByCode(csiCode: string, region?: string | null): Promise<MepRate | undefined> {
+    const conditions = region
+      ? and(eq(mepRates.csiCode, csiCode), eq(mepRates.region, region))
+      : eq(mepRates.csiCode, csiCode);
+    const rows = await db.select().from(mepRates).where(conditions).limit(1);
+    return rows[0] ?? undefined;
+  }
+
+  async getMepRates(division?: string): Promise<MepRate[]> {
+    if (division) {
+      return await db.select().from(mepRates)
+        .where(eq(mepRates.division, division))
+        .orderBy(mepRates.csiCode);
+    }
+    return await db.select().from(mepRates).orderBy(mepRates.csiCode);
+  }
+
+  async upsertMepRate(rate: InsertMepRate): Promise<MepRate> {
+    const existing = await this.getMepRateByCode(rate.csiCode, rate.region);
+    if (existing) {
+      const result = await db.update(mepRates)
+        .set({ ...rate, updatedAt: new Date() })
+        .where(eq(mepRates.id, existing.id))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(mepRates).values(rate).returning();
+    return result[0];
+  }
+
+  async getRegionalFactor(regionKey: string): Promise<RegionalFactor | undefined> {
+    const rows = await db.select().from(regionalFactors)
+      .where(eq(regionalFactors.regionKey, regionKey)).limit(1);
+    return rows[0] ?? undefined;
+  }
+
+  async getRegionalFactors(): Promise<RegionalFactor[]> {
+    return await db.select().from(regionalFactors).orderBy(regionalFactors.regionKey);
+  }
+
+  async upsertRegionalFactor(factor: InsertRegionalFactor): Promise<RegionalFactor> {
+    const existing = await this.getRegionalFactor(factor.regionKey);
+    if (existing) {
+      const result = await db.update(regionalFactors)
+        .set({ ...factor, updatedAt: new Date() })
+        .where(eq(regionalFactors.id, existing.id))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(regionalFactors).values(factor).returning();
+    return result[0];
+  }
+
+  async getProjectOhpConfig(projectId: string): Promise<ProjectOhpConfig | undefined> {
+    const rows = await db.select().from(projectOhpConfigs)
+      .where(eq(projectOhpConfigs.projectId, projectId)).limit(1);
+    return rows[0] ?? undefined;
+  }
+
+  async upsertProjectOhpConfig(config: InsertProjectOhpConfig): Promise<ProjectOhpConfig> {
+    const existing = await this.getProjectOhpConfig(config.projectId);
+    if (existing) {
+      const result = await db.update(projectOhpConfigs)
+        .set({ ...config, updatedAt: new Date() })
+        .where(eq(projectOhpConfigs.id, existing.id))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(projectOhpConfigs).values(config).returning();
+    return result[0];
   }
 
   // Compliance Check methods
