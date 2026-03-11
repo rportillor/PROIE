@@ -148,7 +148,10 @@ function CompletionRing({ percent }: { percent: number }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 async function downloadCSV() {
-  const res = await fetch("/api/bim-coordination/penetrations?format=csv");
+  const token = localStorage.getItem("auth_token");
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch("/api/bim-coordination/penetrations?format=csv", { headers, credentials: "include" });
   if (!res.ok) return;
   const csv = await res.text();
   const blob = new Blob([csv], { type: "text/csv" });
@@ -168,7 +171,10 @@ export default function PenetrationMatrixPanel() {
   const matrixQuery = useQuery<PenetrationMatrix>({
     queryKey: ["bim-penetrations"],
     queryFn: async () => {
-      const res = await fetch("/api/bim-coordination/penetrations");
+      const t = localStorage.getItem("auth_token");
+      const h: Record<string, string> = {};
+      if (t) h["Authorization"] = `Bearer ${t}`;
+      const res = await fetch("/api/bim-coordination/penetrations", { headers: h, credentials: "include" });
       if (!res.ok) throw new Error("Failed to load penetrations");
       return res.json();
     },

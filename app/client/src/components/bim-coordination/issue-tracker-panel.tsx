@@ -16,6 +16,7 @@
 
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -290,6 +291,7 @@ function CreateIssueDialog({ onCreate }: {
 
 export default function IssueTrackerPanel() {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterPriority, setFilterPriority] = useState<string>("all");
   const [filterOwner, setFilterOwner] = useState<string>("");
@@ -300,51 +302,74 @@ export default function IssueTrackerPanel() {
   const issuesQuery = useQuery<{ total: number; issues: IssueRecord[] }>({
     queryKey: ["bim-issues"],
     queryFn: async () => {
-      const res = await fetch("/api/bim-coordination/issues");
+      const tk = localStorage.getItem("auth_token");
+      const ah: Record<string, string> = {};
+      if (tk) ah["Authorization"] = `Bearer ${tk}`;
+      const res = await fetch("/api/bim-coordination/issues", { headers: ah, credentials: "include" });
       if (!res.ok) throw new Error("Failed to load issues");
       return res.json();
     },
     refetchInterval: 15000,
   });
 
+  // ── Auth helper ────────────────────────────────────────────────────────
+  function authHeaders(extra?: Record<string, string>): Record<string, string> {
+    const tk = localStorage.getItem("auth_token");
+    const h: Record<string, string> = { "Content-Type": "application/json", ...extra };
+    if (tk) h["Authorization"] = `Bearer ${tk}`;
+    return h;
+  }
+
   // ── Mutations ────────────────────────────────────────────────────────
   const transitionMutation = useMutation({
     mutationFn: async ({ issueId, newStatus, comment }: { issueId: string; newStatus: string; comment: string }) => {
       const res = await fetch(`/api/bim-coordination/issues/${issueId}/status`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
+        credentials: "include",
         body: JSON.stringify({ newStatus, user: "BIM Coordinator", comment }),
       });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bim-issues"] }),
+    onError: (error: Error) => {
+      toast({ title: "Status transition failed", description: error.message, variant: "destructive" });
+    },
   });
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
       const res = await fetch("/api/bim-coordination/issues", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
+        credentials: "include",
         body: JSON.stringify(data),
       });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bim-issues"] }),
+    onError: (error: Error) => {
+      toast({ title: "Failed to create issue", description: error.message, variant: "destructive" });
+    },
   });
 
   const rfiMutation = useMutation({
     mutationFn: async (issueId: string) => {
       const res = await fetch(`/api/bim-coordination/issues/${issueId}/rfi`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
+        credentials: "include",
         body: JSON.stringify({ toParty: "Design Team", fromParty: "BIM Coordinator" }),
       });
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bim-issues"] }),
+    onError: (error: Error) => {
+      toast({ title: "Failed to generate RFI", description: error.message, variant: "destructive" });
+    },
   });
 
   // ── Filter & sort ────────────────────────────────────────────────────

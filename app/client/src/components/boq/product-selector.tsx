@@ -39,7 +39,7 @@ export function ProductSelector({ elementId, elementName, csiCode, currentCost }
   // Set product selection mutation
   const selectProductMutation = useMutation({
     mutationFn: async (data: any) => {
-      return apiRequest(`/api/elements/${elementId}/select-product`, 'POST', data);
+      return apiRequest('POST', `/api/elements/${elementId}/select-product`, data);
     },
     onSuccess: () => {
       toast({
@@ -62,7 +62,7 @@ export function ProductSelector({ elementId, elementName, csiCode, currentCost }
   // Custom cost update mutation
   const updateCostMutation = useMutation({
     mutationFn: async (data: { customCost: number; customProductName?: string }) => {
-      return apiRequest(`/api/elements/${elementId}/custom-cost`, 'PATCH', data);
+      return apiRequest('PATCH', `/api/elements/${elementId}/custom-cost`, data);
     },
     onSuccess: () => {
       toast({

@@ -4,7 +4,7 @@ import { storage } from "../storage";
 export const projectModelsRouter = Router();
 
 function devBypassOn() {
-  return String(process.env.DEV_AUTH_BYPASS || "off").toLowerCase() === "on" || process.env.NODE_ENV !== "production";
+  return String(process.env.DEV_AUTH_BYPASS || "off").toLowerCase() === "on";
 }
 
 function extractToken(req: any): string | null {
@@ -12,7 +12,7 @@ function extractToken(req: any): string | null {
   if (h.startsWith("Bearer ")) return h.slice(7);
   const c = req.headers?.cookie || "";
   const m = c.match(/(?:^|;\s*)auth_token=([^;]+)/i);
-  return m ? decodeURIComponent(m[2]) : null;
+  return m ? decodeURIComponent(m[1]) : null;
 }
 
 // NOTE: If you already have `authenticateToken`, replace this with it;

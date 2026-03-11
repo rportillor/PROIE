@@ -127,7 +127,10 @@ export function FloorGenerationButton({ projectId, onSuccess, disabled }: FloorG
       }
       
       const models = await modelsResponse.json();
-      const modelId = models[0]?.id || 'de205982-e02c-460d-9aa0-e364c6392095'; // Use existing model
+      if (!models[0]?.id) {
+        throw new Error('No BIM model found for this project. Please create one first.');
+      }
+      const modelId = models[0].id;
       
       const response = await fetch(`/api/bim/models/${modelId}/generate`, {
         method: 'POST',

@@ -5,27 +5,22 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  *  Replaces hardcoded overhead (15%) and profit (10%) fallbacks with a
- *  configurable, project-level settings module.
+ *  configurable, project-level settings module backed by the database.
  *
  *  QS Principle: No silent default values. If OH&P rates are not explicitly
  *  configured for a project, the system flags it and uses the regional
  *  defaults with a LOW_CONFIDENCE warning. The user should confirm rates
  *  before finalizing any estimate.
  *
- *  Hardcoded fallbacks replaced:
- *    cost-estimation-engine.ts L682: overheadFactor - 1.0 || 0.15
- *    cost-estimation-engine.ts L683: profitMargin || 0.10
- *    estimates.ts L30: overheadProfit ?? 0.15
- *
  *  Consumed by:
- *    - cost-estimation-engine.ts (CostEstimationEngine.calculateCost)
  *    - estimates.ts (POST /estimates/:modelId/run)
  *    - estimate-engine.ts (buildEstimateForElements)
  *
  *  @module ohp-configuration
- *  @version 1.0.0
+ *  @version 2.0.0 — DB-persisted via projectOhpConfigs table
  */
 
+import { storage } from '../storage';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  TYPES
@@ -34,7 +29,7 @@
 /** OH&P rate source — tracks where the rate came from for audit trail */
 export type OHPRateSource =
   | 'PROJECT_CONFIGURED'     // Explicitly set by user for this project
-  | 'REGIONAL_DEFAULT'       // From canadian-cost-data.ts or cost-estimation-engine.ts regions
+  | 'REGIONAL_DEFAULT'       // From canadian-cost-data.ts regional factors
   | 'SYSTEM_FALLBACK';       // Last resort — flagged as LOW_CONFIDENCE
 
 /** Individual rate with source tracking */
@@ -71,7 +66,7 @@ export interface ResolvedOHP {
   profitRate: number;         // Decimal (e.g., 0.10)
   contingencyRate: number;    // Decimal (e.g., 0.05)
   combinedMarkup: number;     // overhead + profit (e.g., 0.25)
-  overheadFactor: number;     // 1 + overhead (e.g., 1.15) — for cost-estimation-engine compatibility
+  overheadFactor: number;     // 1 + overhead (e.g., 1.15)
   confidence: 'HIGH' | 'MEDIUM' | 'LOW';
   warnings: string[];
   applyToSubs: boolean;
@@ -80,22 +75,58 @@ export interface ResolvedOHP {
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  PROJECT CONFIGURATION STORE
+//  PROJECT CONFIGURATION STORE — DB-backed with write-through cache
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * In-memory store for project OH&P configurations.
- * In production, this would be backed by the database (Drizzle ORM).
- * Key = projectId or modelId.
- */
-const projectConfigs = new Map<string, OHPConfiguration>();
+/** Write-through cache to avoid DB round-trip on every estimate call */
+const configCache = new Map<string, { config: OHPConfiguration; cachedAt: number }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-/** Set OH&P configuration for a project */
-export function setProjectOHP(
+function getCached(projectId: string): OHPConfiguration | undefined {
+  const entry = configCache.get(projectId);
+  if (!entry) return undefined;
+  if (Date.now() - entry.cachedAt > CACHE_TTL_MS) {
+    configCache.delete(projectId);
+    return undefined;
+  }
+  return entry.config;
+}
+
+function setCache(projectId: string, config: OHPConfiguration): void {
+  configCache.set(projectId, { config, cachedAt: Date.now() });
+}
+
+function dbRowToConfig(row: any): OHPConfiguration {
+  return {
+    overhead: {
+      value: parseFloat(row.overheadPct) || 0,
+      source: row.overheadSource as OHPRateSource,
+      confidence: (row.overheadConfidence || 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW',
+    },
+    profit: {
+      value: parseFloat(row.profitPct) || 0,
+      source: row.profitSource as OHPRateSource,
+      confidence: (row.profitConfidence || 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW',
+    },
+    contingency: {
+      value: parseFloat(row.contingencyPct) || 0,
+      source: row.contingencySource as OHPRateSource,
+      confidence: (row.contingencyConfidence || 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW',
+    },
+    applyToSubcontractorCosts: row.applyToSubcontractorCosts ?? true,
+    applyToEquipmentCosts: row.applyToEquipmentCosts ?? true,
+    projectNotes: row.projectNotes ?? undefined,
+    updatedAt: row.updatedAt?.toISOString?.() ?? new Date().toISOString(),
+    updatedBy: row.updatedBy ?? undefined,
+  };
+}
+
+/** Set OH&P configuration for a project — persists to database */
+export async function setProjectOHP(
   projectId: string,
   config: Partial<OHPConfiguration>,
-): OHPConfiguration {
-  const existing = projectConfigs.get(projectId);
+): Promise<OHPConfiguration> {
+  const existing = await getProjectOHP(projectId);
 
   const merged: OHPConfiguration = {
     overhead: config.overhead ?? existing?.overhead ?? {
@@ -118,23 +149,61 @@ export function setProjectOHP(
     updatedBy: config.updatedBy,
   };
 
-  projectConfigs.set(projectId, merged);
+  // Persist to database
+  try {
+    await storage.upsertProjectOhpConfig({
+      projectId,
+      overheadPct: String(merged.overhead.value),
+      overheadSource: merged.overhead.source,
+      overheadConfidence: merged.overhead.confidence,
+      profitPct: String(merged.profit.value),
+      profitSource: merged.profit.source,
+      profitConfidence: merged.profit.confidence,
+      contingencyPct: String(merged.contingency?.value ?? 0.05),
+      contingencySource: merged.contingency?.source ?? 'SYSTEM_FALLBACK',
+      contingencyConfidence: merged.contingency?.confidence ?? 'LOW',
+      applyToSubcontractorCosts: merged.applyToSubcontractorCosts,
+      applyToEquipmentCosts: merged.applyToEquipmentCosts,
+      projectNotes: merged.projectNotes ?? null,
+      updatedBy: merged.updatedBy ?? null,
+    });
+  } catch (err) {
+    console.warn('[OHP] DB write failed, config saved to cache only:', err);
+  }
+
+  setCache(projectId, merged);
   return merged;
 }
 
-/** Get OH&P configuration for a project (if set) */
-export function getProjectOHP(projectId: string): OHPConfiguration | undefined {
-  return projectConfigs.get(projectId);
+/** Get OH&P configuration for a project — reads from DB with cache */
+export async function getProjectOHP(projectId: string): Promise<OHPConfiguration | undefined> {
+  // Check cache first
+  const cached = getCached(projectId);
+  if (cached) return cached;
+
+  // Query database
+  try {
+    const row = await storage.getProjectOhpConfig(projectId);
+    if (row) {
+      const config = dbRowToConfig(row);
+      setCache(projectId, config);
+      return config;
+    }
+  } catch {
+    // DB unavailable — return undefined, resolveOHP will use fallbacks
+  }
+  return undefined;
 }
 
 /** Delete OH&P configuration for a project */
 export function clearProjectOHP(projectId: string): boolean {
-  return projectConfigs.delete(projectId);
+  configCache.delete(projectId);
+  return true;
 }
 
-/** List all configured projects */
+/** List all configured projects (from cache — for backward compat) */
 export function listConfiguredProjects(): string[] {
-  return [...projectConfigs.keys()];
+  return [...configCache.keys()];
 }
 
 
@@ -144,25 +213,20 @@ export function listConfiguredProjects(): string[] {
 
 /**
  * Resolve OH&P rates for a project.
+ * Now async — reads from database when cache is cold.
  *
  * Priority order (per QS principle — explicit over implicit):
  *   1. Project-level configuration (if set by user)
  *   2. Regional defaults (from cost factor data)
  *   3. System fallback (with LOW_CONFIDENCE warning)
- *
- * @param projectId   Project or model ID
- * @param regionalOverheadFactor  Regional overhead factor (e.g., 1.15 from CANADIAN_REGIONS)
- * @param regionalProfitMargin    Regional profit margin (e.g., 0.10)
- * @param regionalContingency     Regional contingency rate (e.g., 0.05)
- * @returns Resolved OH&P rates with confidence and warnings
  */
-export function resolveOHP(
+export async function resolveOHP(
   projectId: string,
   regionalOverheadFactor?: number,
   regionalProfitMargin?: number,
   regionalContingency?: number,
-): ResolvedOHP {
-  const config = projectConfigs.get(projectId);
+): Promise<ResolvedOHP> {
+  const config = await getProjectOHP(projectId);
   const warnings: string[] = [];
 
   // ─── Resolve overhead ─────────────────────────────────────────────────
@@ -174,7 +238,6 @@ export function resolveOHP(
     overheadRate = config.overhead.value;
     overheadSource = 'PROJECT_CONFIGURED';
   } else if (regionalOverheadFactor !== undefined && regionalOverheadFactor > 0) {
-    // Convert factor to rate (1.15 → 0.15)
     overheadRate = regionalOverheadFactor > 1
       ? regionalOverheadFactor - 1.0
       : regionalOverheadFactor;
@@ -232,7 +295,7 @@ export function resolveOHP(
     profitRate,
     contingencyRate,
     combinedMarkup: overheadRate + profitRate,
-    overheadFactor: 1 + overheadRate,   // Backward compatible with cost-estimation-engine
+    overheadFactor: 1 + overheadRate,
     confidence,
     warnings,
     applyToSubs: config?.applyToSubcontractorCosts ?? true,
@@ -245,14 +308,9 @@ export function resolveOHP(
 //  SYSTEM FALLBACK VALUES
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * These replace the previously hardcoded values.
- * They are LAST RESORT only — always flagged as LOW_CONFIDENCE.
- * The values match the old hardcoded defaults to avoid breaking existing estimates.
- */
-const SYSTEM_FALLBACK_OVERHEAD = 0.15;     // Was: cost-estimation-engine.ts L682
-const SYSTEM_FALLBACK_PROFIT = 0.10;       // Was: cost-estimation-engine.ts L683
-const SYSTEM_FALLBACK_CONTINGENCY = 0.05;  // Was: cost-estimation-engine.ts L684
+const SYSTEM_FALLBACK_OVERHEAD = 0.15;
+const SYSTEM_FALLBACK_PROFIT = 0.10;
+const SYSTEM_FALLBACK_CONTINGENCY = 0.05;
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -261,43 +319,29 @@ const SYSTEM_FALLBACK_CONTINGENCY = 0.05;  // Was: cost-estimation-engine.ts L68
 
 /**
  * Drop-in replacement for `estimates.ts` line 30.
- *
- * BEFORE: overheadProfit: Number(overheadProfit ?? 0.15)
- * AFTER:  overheadProfit: getOverheadProfitCombined(modelId, overheadProfit, regionalFactor)
  */
-export function getOverheadProfitCombined(
+export async function getOverheadProfitCombined(
   projectId: string,
   userProvided?: number,
   regionalOverheadFactor?: number,
   regionalProfitMargin?: number,
-): number {
-  // If user explicitly provided a value in the API call, use it
+): Promise<number> {
   if (userProvided !== undefined && userProvided !== null) {
     return Number(userProvided);
   }
-
-  const resolved = resolveOHP(projectId, regionalOverheadFactor, regionalProfitMargin);
+  const resolved = await resolveOHP(projectId, regionalOverheadFactor, regionalProfitMargin);
   return resolved.combinedMarkup;
 }
 
 /**
- * Drop-in replacement for cost-estimation-engine.ts lines 682-683.
- *
- * BEFORE:
- *   const overheadCost = subtotal * (costFactor.overheadFactor - 1.0 || 0.15);
- *   const profitAmount = subtotal * (costFactor.profitMargin || 0.10);
- *
- * AFTER:
- *   const ohp = getOverheadAndProfit(projectId, costFactor.overheadFactor, costFactor.profitMargin);
- *   const overheadCost = subtotal * ohp.overheadRate;
- *   const profitAmount = subtotal * ohp.profitRate;
+ * Drop-in for cost-estimation-engine.ts lines 682-683.
  */
-export function getOverheadAndProfit(
+export async function getOverheadAndProfit(
   projectId: string,
   regionalOverheadFactor?: number,
   regionalProfitMargin?: number,
-): { overheadRate: number; profitRate: number; warnings: string[] } {
-  const resolved = resolveOHP(projectId, regionalOverheadFactor, regionalProfitMargin);
+): Promise<{ overheadRate: number; profitRate: number; warnings: string[] }> {
+  const resolved = await resolveOHP(projectId, regionalOverheadFactor, regionalProfitMargin);
   return {
     overheadRate: resolved.overheadRate,
     profitRate: resolved.profitRate,

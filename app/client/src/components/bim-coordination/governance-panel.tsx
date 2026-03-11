@@ -195,7 +195,10 @@ export default function GovernancePanel({ projectId }: { projectId: string }) {
   const govQuery = useQuery<GovernanceStatus>({
     queryKey: ["bim-governance"],
     queryFn: async () => {
-      const res = await fetch("/api/bim-coordination/governance");
+      const tk = localStorage.getItem("auth_token");
+      const ah: Record<string, string> = {};
+      if (tk) ah["Authorization"] = `Bearer ${tk}`;
+      const res = await fetch("/api/bim-coordination/governance", { headers: ah, credentials: "include" });
       if (!res.ok) throw new Error("Failed to load governance");
       return res.json();
     },
@@ -206,7 +209,10 @@ export default function GovernancePanel({ projectId }: { projectId: string }) {
   const slaQuery = useQuery<{ total: number; items: SLAItem[] }>({
     queryKey: ["bim-sla"],
     queryFn: async () => {
-      const res = await fetch("/api/bim-coordination/sla");
+      const tk = localStorage.getItem("auth_token");
+      const ah: Record<string, string> = {};
+      if (tk) ah["Authorization"] = `Bearer ${tk}`;
+      const res = await fetch("/api/bim-coordination/sla", { headers: ah, credentials: "include" });
       if (!res.ok) throw new Error("Failed to load SLA");
       return res.json();
     },
@@ -216,9 +222,13 @@ export default function GovernancePanel({ projectId }: { projectId: string }) {
   // ── Meeting pack mutation ────────────────────────────────────────────
   const meetingPackMutation = useMutation<MeetingPack>({
     mutationFn: async () => {
+      const tk = localStorage.getItem("auth_token");
+      const ah: Record<string, string> = { "Content-Type": "application/json" };
+      if (tk) ah["Authorization"] = `Bearer ${tk}`;
       const res = await fetch("/api/bim-coordination/meeting-pack", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: ah,
+        credentials: "include",
         body: JSON.stringify({ projectId }),
       });
       if (!res.ok) throw new Error("Failed to generate meeting pack");

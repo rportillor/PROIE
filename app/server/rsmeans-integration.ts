@@ -325,30 +325,45 @@ Original error: ${error}
   }
 
   /**
-   * Get current market pricing trends
+   * Get current market pricing trends.
+   * Requires RSMEANS_API_KEY — returns unavailable status without it.
    */
   async getMarketTrends(region: string): Promise<{
-    trends: Record<string, number>;
-    forecast: Record<string, number>;
-    lastUpdated: string;
+    available: boolean;
+    message?: string;
+    trends?: Record<string, number>;
+    forecast?: Record<string, number>;
+    lastUpdated?: string;
   }> {
-    
-    // Mock market trends (in production, this would come from RSMeans API)
-    return {
-      trends: {
-        'labor': 5.2,        // 5.2% increase YoY
-        'materials': 8.7,    // 8.7% increase YoY
-        'equipment': 3.4,    // 3.4% increase YoY
-        'steel': 12.1,       // 12.1% increase YoY
-        'concrete': 6.8,     // 6.8% increase YoY
-        'lumber': -2.3       // 2.3% decrease YoY
-      },
-      forecast: {
-        'Q2_2025': 4.5,      // Expected 4.5% increase next quarter
-        'Q3_2025': 3.8,      // Expected 3.8% increase
-        'Q4_2025': 2.9       // Expected 2.9% increase
-      },
-      lastUpdated: new Date().toISOString()
-    };
+    if (!this.apiKey) {
+      return {
+        available: false,
+        message: 'Market trend data requires RSMeans API integration. Configure RSMEANS_API_KEY environment variable to enable live market data.',
+      };
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/market-trends?region=${encodeURIComponent(region)}`, {
+        headers: { 'Authorization': `Bearer ${this.apiKey}`, 'Accept': 'application/json' },
+      });
+      if (!response.ok) {
+        return {
+          available: false,
+          message: `RSMeans API returned ${response.status}: ${response.statusText}`,
+        };
+      }
+      const data = await response.json();
+      return {
+        available: true,
+        trends: data.trends,
+        forecast: data.forecast,
+        lastUpdated: data.lastUpdated || new Date().toISOString(),
+      };
+    } catch (err: any) {
+      return {
+        available: false,
+        message: `RSMeans API error: ${err.message}`,
+      };
+    }
   }
 }

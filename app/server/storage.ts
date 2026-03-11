@@ -97,12 +97,18 @@ import {
   constructionSequences,
   type ConstructionSequenceRow,
   type InsertConstructionSequence,
+  unitRates, type UnitRate, type InsertUnitRate,
+  mepRates, type MepRate, type InsertMepRate,
+  regionalFactors, type RegionalFactor, type InsertRegionalFactor,
+  projectOhpConfigs, type ProjectOhpConfig, type InsertProjectOhpConfig,
+  rateAuditLog, type RateAuditLog, type InsertRateAuditLog,
+  rateVersions, type RateVersion, type InsertRateVersion,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { PRNG } from "./helpers/prng";
 import bcrypt from "bcryptjs";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, isNull, inArray, sql } from "drizzle-orm";
 import postgres from "postgres";
 import { logger } from "./utils/enterprise-logger";
 
@@ -172,6 +178,28 @@ export interface IStorage {
   createEstimateRfi(data: InsertEstimateRfi): Promise<EstimateRfiRow>;
   getEstimateRfis(modelId: string): Promise<EstimateRfiRow[]>;
   countEstimateRfis(modelId: string): Promise<number>;
+
+  // Estimation Rate Tables (DB-backed rates)
+  getUnitRate(csiCode: string, region?: string | null): Promise<UnitRate | undefined>;
+  getUnitRates(filters?: { division?: string; region?: string; source?: string }): Promise<UnitRate[]>;
+  upsertUnitRate(rate: InsertUnitRate): Promise<UnitRate>;
+  getMepRateByCode(csiCode: string, region?: string | null): Promise<MepRate | undefined>;
+  getMepRates(division?: string): Promise<MepRate[]>;
+  upsertMepRate(rate: InsertMepRate): Promise<MepRate>;
+  getRegionalFactor(regionKey: string): Promise<RegionalFactor | undefined>;
+  getRegionalFactors(): Promise<RegionalFactor[]>;
+  upsertRegionalFactor(factor: InsertRegionalFactor): Promise<RegionalFactor>;
+
+  // Project OH&P Configuration (DB-persisted)
+  getProjectOhpConfig(projectId: string): Promise<ProjectOhpConfig | undefined>;
+  upsertProjectOhpConfig(config: InsertProjectOhpConfig): Promise<ProjectOhpConfig>;
+
+  // Rate Audit & Versioning
+  createRateAuditEntry(entry: InsertRateAuditLog): Promise<RateAuditLog>;
+  getRateAuditLog(tableName?: string, recordId?: string, limit?: number): Promise<RateAuditLog[]>;
+  createRateVersion(version: InsertRateVersion): Promise<RateVersion>;
+  getRateVersions(tableName: string, recordId: string): Promise<RateVersion[]>;
+  getLatestRateVersion(tableName: string, recordId: string): Promise<RateVersion | undefined>;
 
   // Compliance Checks
   getComplianceChecks(projectId: string): Promise<ComplianceCheck[]>;
@@ -471,10 +499,10 @@ export class MemStorage implements Partial<IStorage> {
       municipalCode: insertProject.municipalCode || null,
       estimateValue: insertProject.estimateValue || null,
       buildingArea: insertProject.buildingArea || null,
-      rateSystem: (insertProject as any).rateSystem || "ciqs",
-      buildingClass: (insertProject as any).buildingClass || 'B',
-      complexity: (insertProject as any).complexity || 'medium',
-      riskProfile: (insertProject as any).riskProfile || 'medium',
+      rateSystem: insertProject.rateSystem || "ciqs",
+      buildingClass: insertProject.buildingClass || 'B',
+      complexity: insertProject.complexity || 'medium',
+      riskProfile: insertProject.riskProfile || 'medium',
       userId: insertProject.userId || null,
       createdAt: new Date(),
       updatedAt: new Date()
@@ -689,6 +717,26 @@ export class MemStorage implements Partial<IStorage> {
   async getEstimateRfis(_modelId: string): Promise<EstimateRfiRow[]> { return []; }
   async countEstimateRfis(_modelId: string): Promise<number> { return 0; }
 
+  // Rate tables (in-memory fallback — returns empty, engine falls back to hardcoded)
+  async getUnitRate(_csiCode: string, _region?: string | null): Promise<UnitRate | undefined> { return undefined; }
+  async getUnitRates(_filters?: any): Promise<UnitRate[]> { return []; }
+  async upsertUnitRate(rate: InsertUnitRate): Promise<UnitRate> { return { ...rate, id: randomUUID(), createdAt: new Date(), updatedAt: new Date() } as UnitRate; }
+  async getMepRateByCode(_csiCode: string, _region?: string | null): Promise<MepRate | undefined> { return undefined; }
+  async getMepRates(_division?: string): Promise<MepRate[]> { return []; }
+  async upsertMepRate(rate: InsertMepRate): Promise<MepRate> { return { ...rate, id: randomUUID(), createdAt: new Date(), updatedAt: new Date() } as MepRate; }
+  async getRegionalFactor(_regionKey: string): Promise<RegionalFactor | undefined> { return undefined; }
+  async getRegionalFactors(): Promise<RegionalFactor[]> { return []; }
+  async upsertRegionalFactor(factor: InsertRegionalFactor): Promise<RegionalFactor> { return { ...factor, id: randomUUID(), createdAt: new Date(), updatedAt: new Date() } as RegionalFactor; }
+  async getProjectOhpConfig(_projectId: string): Promise<ProjectOhpConfig | undefined> { return undefined; }
+  async upsertProjectOhpConfig(config: InsertProjectOhpConfig): Promise<ProjectOhpConfig> { return { ...config, id: randomUUID(), createdAt: new Date(), updatedAt: new Date() } as ProjectOhpConfig; }
+
+  // Rate Audit & Versioning (in-memory stubs)
+  async createRateAuditEntry(entry: InsertRateAuditLog): Promise<RateAuditLog> { return { ...entry, id: randomUUID(), createdAt: new Date() } as RateAuditLog; }
+  async getRateAuditLog(_tableName?: string, _recordId?: string, _limit?: number): Promise<RateAuditLog[]> { return []; }
+  async createRateVersion(version: InsertRateVersion): Promise<RateVersion> { return { ...version, id: randomUUID(), createdAt: new Date() } as RateVersion; }
+  async getRateVersions(_tableName: string, _recordId: string): Promise<RateVersion[]> { return []; }
+  async getLatestRateVersion(_tableName: string, _recordId: string): Promise<RateVersion | undefined> { return undefined; }
+
   // 🔍 BOQ-BIM Validation Methods
   async createValidationResult(result: any): Promise<any> {
     const id = randomUUID();
@@ -818,8 +866,8 @@ export class DBStorage implements Partial<IStorage> {
     return result[0];
   }
 
-  async getCompanies(): Promise<Company[]> {
-    return await db.select().from(companies);
+  async getCompanies(limit = 100, offset = 0): Promise<Company[]> {
+    return await db.select().from(companies).limit(limit).offset(offset);
   }
 
   async createCompany(insertCompany: InsertCompany): Promise<Company> {
@@ -1003,6 +1051,152 @@ export class DBStorage implements Partial<IStorage> {
   async countEstimateRfis(modelId: string): Promise<number> {
     const rows = await db.select().from(estimateRfis).where(eq(estimateRfis.modelId, modelId));
     return rows.length;
+  }
+
+  // ── Rate Tables — DB-backed estimation rates ──
+
+  async getUnitRate(csiCode: string, region?: string | null): Promise<UnitRate | undefined> {
+    const conditions = region
+      ? and(eq(unitRates.csiCode, csiCode), eq(unitRates.region, region))
+      : and(eq(unitRates.csiCode, csiCode), isNull(unitRates.region));
+    const rows = await db.select().from(unitRates).where(conditions).limit(1);
+    return rows[0] ?? undefined;
+  }
+
+  async getUnitRates(filters?: { division?: string; region?: string; source?: string }): Promise<UnitRate[]> {
+    let query = db.select().from(unitRates);
+    // Apply filters if provided — filter in JS for simplicity with Drizzle
+    const rows = await query.orderBy(unitRates.csiCode);
+    if (!filters) return rows;
+    return rows.filter(r => {
+      if (filters.division && !r.csiCode.startsWith(filters.division)) return false;
+      if (filters.region && r.region !== filters.region) return false;
+      if (filters.source && r.source !== filters.source) return false;
+      return true;
+    });
+  }
+
+  async upsertUnitRate(rate: InsertUnitRate): Promise<UnitRate> {
+    // Try update first by csiCode + region
+    const existing = await this.getUnitRate(rate.csiCode, rate.region);
+    if (existing) {
+      const result = await db.update(unitRates)
+        .set({ ...rate, updatedAt: new Date() })
+        .where(eq(unitRates.id, existing.id))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(unitRates).values(rate).returning();
+    return result[0];
+  }
+
+  async getMepRateByCode(csiCode: string, region?: string | null): Promise<MepRate | undefined> {
+    const conditions = region
+      ? and(eq(mepRates.csiCode, csiCode), eq(mepRates.region, region))
+      : eq(mepRates.csiCode, csiCode);
+    const rows = await db.select().from(mepRates).where(conditions).limit(1);
+    return rows[0] ?? undefined;
+  }
+
+  async getMepRates(division?: string): Promise<MepRate[]> {
+    if (division) {
+      return await db.select().from(mepRates)
+        .where(eq(mepRates.division, division))
+        .orderBy(mepRates.csiCode);
+    }
+    return await db.select().from(mepRates).orderBy(mepRates.csiCode);
+  }
+
+  async upsertMepRate(rate: InsertMepRate): Promise<MepRate> {
+    const existing = await this.getMepRateByCode(rate.csiCode, rate.region);
+    if (existing) {
+      const result = await db.update(mepRates)
+        .set({ ...rate, updatedAt: new Date() })
+        .where(eq(mepRates.id, existing.id))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(mepRates).values(rate).returning();
+    return result[0];
+  }
+
+  async getRegionalFactor(regionKey: string): Promise<RegionalFactor | undefined> {
+    const rows = await db.select().from(regionalFactors)
+      .where(eq(regionalFactors.regionKey, regionKey)).limit(1);
+    return rows[0] ?? undefined;
+  }
+
+  async getRegionalFactors(): Promise<RegionalFactor[]> {
+    return await db.select().from(regionalFactors).orderBy(regionalFactors.regionKey);
+  }
+
+  async upsertRegionalFactor(factor: InsertRegionalFactor): Promise<RegionalFactor> {
+    const existing = await this.getRegionalFactor(factor.regionKey);
+    if (existing) {
+      const result = await db.update(regionalFactors)
+        .set({ ...factor, updatedAt: new Date() })
+        .where(eq(regionalFactors.id, existing.id))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(regionalFactors).values(factor).returning();
+    return result[0];
+  }
+
+  async getProjectOhpConfig(projectId: string): Promise<ProjectOhpConfig | undefined> {
+    const rows = await db.select().from(projectOhpConfigs)
+      .where(eq(projectOhpConfigs.projectId, projectId)).limit(1);
+    return rows[0] ?? undefined;
+  }
+
+  async upsertProjectOhpConfig(config: InsertProjectOhpConfig): Promise<ProjectOhpConfig> {
+    const existing = await this.getProjectOhpConfig(config.projectId);
+    if (existing) {
+      const result = await db.update(projectOhpConfigs)
+        .set({ ...config, updatedAt: new Date() })
+        .where(eq(projectOhpConfigs.id, existing.id))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(projectOhpConfigs).values(config).returning();
+    return result[0];
+  }
+
+  // Rate Audit Log methods
+  async createRateAuditEntry(entry: InsertRateAuditLog): Promise<RateAuditLog> {
+    const result = await db.insert(rateAuditLog).values(entry).returning();
+    return result[0];
+  }
+
+  async getRateAuditLog(tableName?: string, recordId?: string, limit: number = 100): Promise<RateAuditLog[]> {
+    let query = db.select().from(rateAuditLog);
+    const conditions = [];
+    if (tableName) conditions.push(eq(rateAuditLog.tableName, tableName));
+    if (recordId) conditions.push(eq(rateAuditLog.recordId, recordId));
+    if (conditions.length > 0) {
+      query = query.where(conditions.length === 1 ? conditions[0] : and(...conditions)) as any;
+    }
+    return await (query as any).orderBy(desc(rateAuditLog.createdAt)).limit(limit);
+  }
+
+  // Rate Version methods
+  async createRateVersion(version: InsertRateVersion): Promise<RateVersion> {
+    const result = await db.insert(rateVersions).values(version).returning();
+    return result[0];
+  }
+
+  async getRateVersions(tableName: string, recordId: string): Promise<RateVersion[]> {
+    return await db.select().from(rateVersions)
+      .where(and(eq(rateVersions.tableName, tableName), eq(rateVersions.recordId, recordId)))
+      .orderBy(desc(rateVersions.version));
+  }
+
+  async getLatestRateVersion(tableName: string, recordId: string): Promise<RateVersion | undefined> {
+    const rows = await db.select().from(rateVersions)
+      .where(and(eq(rateVersions.tableName, tableName), eq(rateVersions.recordId, recordId)))
+      .orderBy(desc(rateVersions.version))
+      .limit(1);
+    return rows[0] ?? undefined;
   }
 
   // Compliance Check methods
@@ -1544,7 +1738,7 @@ export class DBStorage implements Partial<IStorage> {
 
   async getDocumentHashes(documentIds: string[]): Promise<DocumentHash[]> {
     if (documentIds.length === 0) return [];
-    return await db.select().from(documentHashes).where(eq(documentHashes.documentId, documentIds[0])); // Simplified for now
+    return await db.select().from(documentHashes).where(inArray(documentHashes.documentId, documentIds));
   }
 
   // Project Document methods
@@ -1666,21 +1860,21 @@ export class DBStorage implements Partial<IStorage> {
   }
   // 🛠️ Product Catalog Operations
   async getProductsByCsiDivision(csiDivision: string): Promise<ProductCatalog[]> {
-    return await this.db
+    return await db
       .select()
       .from(productCatalog)
       .where(eq(productCatalog.csiDivision, csiDivision));
   }
 
   async getProductsByAssembly(assemblyReference: string): Promise<ProductCatalog[]> {
-    return await this.db
+    return await db
       .select()
       .from(productCatalog)
       .where(eq(productCatalog.assemblyReference, assemblyReference));
   }
 
   async getProduct(id: string): Promise<ProductCatalog | undefined> {
-    const [product] = await this.db
+    const [product] = await db
       .select()
       .from(productCatalog)
       .where(eq(productCatalog.id, id));
@@ -1688,7 +1882,7 @@ export class DBStorage implements Partial<IStorage> {
   }
 
   async createProduct(product: InsertProductCatalog): Promise<ProductCatalog> {
-    const [newProduct] = await this.db
+    const [newProduct] = await db
       .insert(productCatalog)
       .values(product)
       .returning();
@@ -1697,7 +1891,7 @@ export class DBStorage implements Partial<IStorage> {
 
   async upsertProductsFromClaude(products: InsertProductCatalog[]): Promise<void> {
     for (const product of products) {
-      await this.db
+      await db
         .insert(productCatalog)
         .values(product)
         .onConflictDoNothing();
@@ -1706,7 +1900,7 @@ export class DBStorage implements Partial<IStorage> {
 
   // 🎯 Element Product Selection Operations
   async getElementProductSelection(bimElementId: string): Promise<ElementProductSelection | undefined> {
-    const [selection] = await this.db
+    const [selection] = await db
       .select()
       .from(elementProductSelections)
       .where(eq(elementProductSelections.bimElementId, bimElementId));
@@ -1714,7 +1908,7 @@ export class DBStorage implements Partial<IStorage> {
   }
 
   async setElementProductSelection(selection: InsertElementProductSelection): Promise<ElementProductSelection> {
-    const [newSelection] = await this.db
+    const [newSelection] = await db
       .insert(elementProductSelections)
       .values(selection)
       .onConflictDoUpdate({
@@ -1735,7 +1929,7 @@ export class DBStorage implements Partial<IStorage> {
   }
 
   async updateElementCustomCost(bimElementId: string, customCost: number, customProductName?: string): Promise<ElementProductSelection> {
-    const [updatedSelection] = await this.db
+    const [updatedSelection] = await db
       .insert(elementProductSelections)
       .values({
         bimElementId,
@@ -1757,7 +1951,7 @@ export class DBStorage implements Partial<IStorage> {
   }
 
   async getProjectProductSelections(projectId: string): Promise<ElementProductSelection[]> {
-    const results = await this.db
+    const results = await db
       .select({
         id: elementProductSelections.id,
         createdAt: elementProductSelections.createdAt,
@@ -1959,16 +2153,27 @@ export class DBStorage implements Partial<IStorage> {
   }
 
   async updateBimStoreyElementCount(modelId: string): Promise<void> {
-    // Recompute elementCount for every storey in one round-trip.
-    // Called after upsertBimElements so the counts are always accurate.
+    // Batch update: count elements per storey in one query, then update all storeys
+    const counts = await db
+      .select({
+        storeyName: bimElements.storeyName,
+        count: sql<number>`cast(count(*) as int)`,
+      })
+      .from(bimElements)
+      .where(eq(bimElements.modelId, modelId))
+      .groupBy(bimElements.storeyName);
+
+    const countMap = new Map(counts.map(c => [c.storeyName, c.count]));
     const storeyRows = await this.getBimStoreys(modelId);
-    for (const storey of storeyRows) {
-      const elements = await this.getBimElementsByStorey(modelId, storey.name);
-      await db
-        .update(bimStoreys)
-        .set({ elementCount: elements.length, updatedAt: new Date() })
-        .where(and(eq(bimStoreys.modelId, modelId), eq(bimStoreys.name, storey.name)));
-    }
+    const now = new Date();
+
+    await Promise.all(
+      storeyRows.map(storey =>
+        db.update(bimStoreys)
+          .set({ elementCount: countMap.get(storey.name) ?? 0, updatedAt: now })
+          .where(and(eq(bimStoreys.modelId, modelId), eq(bimStoreys.name, storey.name)))
+      )
+    );
   }
 
 
@@ -1999,14 +2204,15 @@ export class DBStorage implements Partial<IStorage> {
   }
 
   async createNotification(data: {
-    userId: string; projectId?: string; type?: string;
-    title: string; message: string; link?: string; metadata?: any;
+    userId: string; projectId?: string;
+    type?: "bim_complete" | "estimate_ready" | "rfi_update" | "compliance_alert" | "document_processed" | "analysis_complete" | "system" | "mention";
+    title: string; message: string; link?: string; metadata?: Record<string, unknown>;
   }): Promise<any> {
     const { notifications } = await import("@shared/schema");
     const result = await db.insert(notifications).values({
       userId: data.userId,
       projectId: data.projectId ?? null,
-      type: (data.type as any) ?? "system",
+      type: data.type ?? "system",
       title: data.title,
       message: data.message,
       link: data.link ?? null,

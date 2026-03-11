@@ -198,7 +198,10 @@ export default function ModelGatePanel() {
   const gapQuery = useQuery<GapRegister>({
     queryKey: ["bim-gaps"],
     queryFn: async () => {
-      const res = await fetch("/api/bim-coordination/gaps");
+      const tk = localStorage.getItem("auth_token");
+      const ah: Record<string, string> = {};
+      if (tk) ah["Authorization"] = `Bearer ${tk}`;
+      const res = await fetch("/api/bim-coordination/gaps", { headers: ah, credentials: "include" });
       if (!res.ok) throw new Error("Failed to load gaps");
       return res.json();
     },

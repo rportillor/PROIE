@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { 
   Bell,
   Shield,
@@ -52,17 +53,8 @@ export default function SettingsPage() {
   const { data: settings, isLoading } = useQuery({
     queryKey: ['/api/user/settings'],
     queryFn: async () => {
-      try {
-        const response = await fetch('/api/user/settings').catch(err => {
-          console.error('Failed to fetch settings:', err);
-          throw err;
-        });
-        if (!response.ok) throw new Error('Failed to fetch settings');
-        return response.json();
-      } catch (error) {
-        console.error('Failed to fetch settings:', error);
-        throw error;
-      }
+      const response = await apiRequest('GET', '/api/user/settings');
+      return response.json();
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
@@ -93,23 +85,8 @@ export default function SettingsPage() {
 
   const updateSettingsMutation = useMutation({
     mutationFn: async (data: SettingsData) => {
-      try {
-        const response = await fetch('/api/user/settings', {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(data)
-        }).catch(err => {
-          console.error('Failed to update settings:', err);
-          throw err;
-        });
-        if (!response.ok) throw new Error('Failed to update settings');
-        return response.json();
-      } catch (error) {
-        console.error('Failed to update settings:', error);
-        throw error;
-      }
+      const response = await apiRequest('PUT', '/api/user/settings', data);
+      return response.json();
     },
     onSuccess: () => {
       toast({
@@ -130,19 +107,8 @@ export default function SettingsPage() {
 
   const deleteAccountMutation = useMutation({
     mutationFn: async () => {
-      try {
-        const response = await fetch('/api/user/account', {
-          method: 'DELETE'
-        }).catch(err => {
-          console.error('Failed to delete account:', err);
-          throw err;
-        });
-        if (!response.ok) throw new Error('Failed to delete account');
-        return response.json();
-      } catch (error) {
-        console.error('Failed to delete account:', error);
-        throw error;
-      }
+      const response = await apiRequest('DELETE', '/api/user/account');
+      return response.json();
     },
     onSuccess: () => {
       toast({

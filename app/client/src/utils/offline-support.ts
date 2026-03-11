@@ -149,26 +149,24 @@ class OfflineManager {
     }
 
     try {
-      const token = localStorage.getItem('auth_token') || 'test-token';
-      const response = await fetch(`/api/projects/${projectId}/documents/${documentId}/view?token=${encodeURIComponent(token)}`).catch(err => {
-        console.error('Failed to fetch document view:', err);
-        throw err;
-      })
-        .catch(err => {
-          console.error('Failed to fetch document:', err);
-          throw err;
-        });
+      const token = localStorage.getItem('auth_token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const response = await fetch(`/api/projects/${projectId}/documents/${documentId}/view`, {
+        headers, credentials: 'include'
+      });
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
 
       // Get document metadata
-      const metaResponse = await fetch(`/api/projects/${projectId}/documents/${documentId}`)
-        .catch(err => {
-          console.error('Failed to fetch document metadata:', err);
-          throw err;
-        });
+      const metaHeaders: Record<string, string> = {};
+      const metaToken = localStorage.getItem('auth_token');
+      if (metaToken) metaHeaders['Authorization'] = `Bearer ${metaToken}`;
+      const metaResponse = await fetch(`/api/projects/${projectId}/documents/${documentId}`, {
+        headers: metaHeaders, credentials: 'include'
+      });
       const metadata = await metaResponse.json();
 
       // For small files, cache the content
@@ -236,11 +234,12 @@ class OfflineManager {
 
     try {
       // Sync project data
-      const response = await fetch('/api/projects')
-        .catch(err => {
-          console.error('Failed to fetch projects:', err);
-          throw err;
-        });
+      const syncToken = localStorage.getItem('auth_token');
+      const syncHeaders: Record<string, string> = {};
+      if (syncToken) syncHeaders['Authorization'] = `Bearer ${syncToken}`;
+      const response = await fetch('/api/projects', {
+        headers: syncHeaders, credentials: 'include'
+      });
       if (response && response.ok) {
         const projects = await response.json();
         const offlineData = this.getOfflineData();

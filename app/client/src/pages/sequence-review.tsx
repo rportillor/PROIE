@@ -18,6 +18,7 @@ import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -304,6 +305,7 @@ function ActivityRow({
 export default function SequenceReview() {
   const [location] = useLocation();
   const qc = useQueryClient();
+  const { toast } = useToast();
 
   // Extract projectId from URL /projects/:id/sequence
   const projectId = location.split("/projects/")[1]?.split("/")[0] || "";
@@ -324,7 +326,7 @@ export default function SequenceReview() {
     retry:    false,
     queryFn:  async () => {
       const res = await fetch(`/api/projects/${projectId}/sequence`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
       });
       if (!res.ok) return null;
       const data = await res.json();
@@ -360,6 +362,9 @@ export default function SequenceReview() {
       setSequenceStatus("proposed");
       setConfirmed(false);
     },
+    onError: (error: Error) => {
+      toast({ title: "Sequence proposal failed", description: error.message, variant: "destructive" });
+    },
   });
 
   // ── Confirm mutation ──────────────────────────────────────────────────────
@@ -374,6 +379,9 @@ export default function SequenceReview() {
       setSequenceStatus("confirmed");
       setConfirmed(true);
       qc.invalidateQueries({ queryKey: [`/api/projects/${projectId}/sequence`] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Sequence confirmation failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -404,7 +412,7 @@ export default function SequenceReview() {
     const url = `/api/projects/${projectId}/sequence/${sequenceId}/export/${format}`;
     const res = await fetch(url, {
       method:  "POST",
-      headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
     });
     if (!res.ok) { alert("Export failed: " + (await res.text())); return; }
     const blob = await res.blob();

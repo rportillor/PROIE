@@ -1,5 +1,5 @@
 modules = ["nodejs-20", "web", "postgresql-16", "python-3.11", "python3"]
-run = "npm run dev"
+run = "cd app && npm run dev"
 hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
@@ -8,8 +8,8 @@ packages = ["boost", "cairo", "ffmpeg-full", "freetype", "ghostscript", "glibcLo
 
 [deployment]
 deploymentTarget = "autoscale"
-build = ["npm", "run", "build"]
-run = ["npm", "run", "start"]
+build = ["sh", "-c", "cd app && npm run build"]
+run = ["sh", "-c", "cd app && npm run start"]
 
 [[ports]]
 localPort = 5000
@@ -40,7 +40,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run dev"
+args = "cd app && npm run dev"
 waitForPort = 5000
 
 [agent]

@@ -15,6 +15,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -181,7 +182,10 @@ function ViewpointDialog({ groupId, open, onClose }: {
   const vpQuery = useQuery<ViewpointSet>({
     queryKey: ["bim-viewpoints", groupId],
     queryFn: async () => {
-      const res = await fetch(`/api/bim-coordination/viewpoints/${groupId}`);
+      const token = localStorage.getItem("auth_token");
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(`/api/bim-coordination/viewpoints/${groupId}`, { headers, credentials: "include" });
       if (!res.ok) throw new Error("Failed to load viewpoints");
       return res.json();
     },
@@ -233,10 +237,7 @@ export default function BCFViewerPanel() {
   // ── BCF Export mutation ──────────────────────────────────────────────
   const bcfMutation = useMutation<BCFExportResult>({
     mutationFn: async () => {
-      const res = await fetch("/api/bim-coordination/bcf-export", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+      const res = await apiRequest("POST", "/api/bim-coordination/bcf-export");
       if (!res.ok) throw new Error("Failed to generate BCF export");
       return res.json();
     },

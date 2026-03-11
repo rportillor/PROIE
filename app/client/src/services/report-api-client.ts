@@ -253,12 +253,20 @@ class ReportApiClient {
 
   // ── Core HTTP Methods ──────────────────────────────────────────────────
 
+  private getAuthHeaders(): Record<string, string> {
+    const token = localStorage.getItem('auth_token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  }
+
   private async post<T>(path: string, body?: any): Promise<ApiResponse<T>> {
     try {
       const res = await fetch(`${API_BASE}${path}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getAuthHeaders(),
         body: body ? JSON.stringify(body) : undefined,
+        credentials: 'include',
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
@@ -279,7 +287,10 @@ class ReportApiClient {
     }
 
     try {
-      const res = await fetch(`${API_BASE}${path}`);
+      const res = await fetch(`${API_BASE}${path}`, {
+        headers: this.getAuthHeaders(),
+        credentials: 'include',
+      });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
         return { data: null, error: err.error || `HTTP ${res.status}` };
@@ -296,8 +307,9 @@ class ReportApiClient {
     try {
       const res = await fetch(`${API_BASE}${path}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getAuthHeaders(),
         body: JSON.stringify(body),
+        credentials: 'include',
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
@@ -384,7 +396,10 @@ class ReportApiClient {
 
   async getReportText(reportId: string): Promise<ApiResponse<string>> {
     try {
-      const res = await fetch(`${API_BASE}/reports/by-id/${reportId}/text`);
+      const res = await fetch(`${API_BASE}/reports/by-id/${reportId}/text`, {
+        headers: this.getAuthHeaders(),
+        credentials: 'include',
+      });
       if (!res.ok) return { data: null, error: `HTTP ${res.status}` };
       const text = await res.text();
       return { data: text, error: null };

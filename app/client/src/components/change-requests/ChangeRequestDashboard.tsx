@@ -54,28 +54,28 @@ export function ChangeRequestDashboard({ projectId }: ChangeRequestDashboardProp
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const queryClient = useQueryClient();
 
-  // Fetch Change Requests
+  // Fetch Change Requests (SECURITY FIX: use apiRequest for auth headers)
   const { data: changeRequests = [], isLoading } = useQuery({
     queryKey: ["/api/projects", projectId, "change-requests"],
-    queryFn: () => fetch(`/api/projects/${projectId}/change-requests`).catch(err => {
-      console.error('Failed to fetch change requests:', err);
-      throw err;
-    }).then(r => r.json())
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/projects/${projectId}/change-requests`);
+      return res.json();
+    }
   });
 
-  // Fetch Change Request statistics
+  // Fetch Change Request statistics (SECURITY FIX: use apiRequest for auth headers)
   const { data: stats } = useQuery({
     queryKey: ["/api/projects", projectId, "change-requests", "stats"],
-    queryFn: () => fetch(`/api/projects/${projectId}/change-requests/stats`).catch(err => {
-      console.error('Failed to fetch change request stats:', err);
-      throw err;
-    }).then(r => r.json())
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/projects/${projectId}/change-requests/stats`);
+      return res.json();
+    }
   });
 
-  // Create Change Request mutation
+  // Create Change Request mutation (FIX: corrected argument order)
   const createCrMutation = useMutation({
-    mutationFn: (data: CreateChangeRequestForm) => 
-      apiRequest(`/api/projects/${projectId}/change-requests`, "POST", data),
+    mutationFn: (data: CreateChangeRequestForm) =>
+      apiRequest("POST", `/api/projects/${projectId}/change-requests`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "change-requests"] });
       setIsCreateDialogOpen(false);

@@ -88,7 +88,11 @@ export function useProgressTracking(modelId: string | null) {
     function startPolling() {
       const poll = async () => {
         try {
-          const response = await fetch(`/api/progress/${modelId}`);
+          const token = localStorage.getItem('auth_token');
+          const response = await fetch(`/api/progress/${modelId}`, {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+            credentials: 'include'
+          });
           const data = await response.json();
           updateProgress(data);
         } catch (error) {

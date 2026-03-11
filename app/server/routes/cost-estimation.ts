@@ -98,12 +98,24 @@ costEstimationRouter.get("/search", async (req, res) => {
 costEstimationRouter.get("/trends/:region", async (req, res) => {
   try {
     const { region } = req.params;
-    const trends = await rsMeans.getMarketTrends(region);
+    const result = await rsMeans.getMarketTrends(region);
+
+    if (!result.available) {
+      return res.json({
+        success: true,
+        available: false,
+        region,
+        message: result.message,
+      });
+    }
 
     res.json({
       success: true,
+      available: true,
       region,
-      trends
+      trends: result.trends,
+      forecast: result.forecast,
+      lastUpdated: result.lastUpdated,
     });
 
   } catch (error: any) {
@@ -140,7 +152,7 @@ costEstimationRouter.post("/quick", async (req, res) => {
         state: location
       },
       projectType: "commercial",
-      timeframe: "2025-Q1"
+      timeframe: `${new Date().getFullYear()}-Q${Math.ceil((new Date().getMonth() + 1) / 3)}`
     };
 
     const estimate = await rsMeans.getCostEstimate(quickRequest);

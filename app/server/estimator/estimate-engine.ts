@@ -54,7 +54,7 @@ export interface EstimateLineItem {
   crewSize?: number;
   productivityRate?: number;
   laborHours?: number;
-  verificationStatus: 'verified' | 'incomplete' | 'estimated';
+  verificationStatus: 'verified' | 'incomplete' | 'estimated' | 'missing_dimensions';
   gridRef?: string;                // Grid reference (e.g., "A-3") from detected grid data
 }
 
@@ -121,13 +121,14 @@ export interface EstimateSummary {
     slabsWithDeductions: number;
     totalVolumeDeducted: number;
   };
+  quantityWarnings?: { csiCode: string; description: string; floor: string; reason: string }[];
 }
 
 // ─── Rate Tables — Canadian Construction (CAD/unit, Ontario 2025 baseline) ───
 // Source baseline: CIQS Elemental Cost Analysis, RSMeans Canadian Edition
 // These are BASE rates before regional adjustment.
 
-interface RateEntry {
+export interface RateEntry {
   materialRate: number;
   laborRate: number;
   equipmentRate: number;
@@ -136,7 +137,7 @@ interface RateEntry {
   productivityRate: number; // units per crew-hour
 }
 
-const CSI_RATES: Record<string, RateEntry> = {
+export const CSI_RATES: Record<string, RateEntry> = {
 
   // ══════════════════════════════════════════════════════════════════════════════
   // DIV 01: GENERAL REQUIREMENTS
@@ -811,17 +812,98 @@ function buildMepRateEntry(item: MEPRateItem, fallback: RateEntry): RateEntry {
   };
 }
 
+// ─── DB Rate Cache — pre-loaded from unit_rates / mep_rates tables ───────────
+// Populated by preloadDbRates() before each estimate run.
+// DB rates take priority over hardcoded CSI_RATES when present.
+let _dbUnitRateCache: Map<string, RateEntry> = new Map();
+let _dbMepRateCache: Map<string, MEPRateItem> = new Map();
+let _dbRegionalCache: Map<string, { compositeIndex: number }> = new Map();
+let _dbRatesCacheAge = 0;
+const DB_RATE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Pre-load rates from the database into in-memory cache.
+ * Call before generateEstimateFromElements() for DB-backed rates.
+ * Falls back silently to hardcoded rates if DB is unavailable.
+ */
+async function preloadDbRates(): Promise<void> {
+  if (Date.now() - _dbRatesCacheAge < DB_RATE_CACHE_TTL_MS && _dbUnitRateCache.size > 0) {
+    return; // Cache still fresh
+  }
+  try {
+    const unitRows = await storage.getUnitRates();
+    if (unitRows.length > 0) {
+      _dbUnitRateCache = new Map();
+      for (const r of unitRows) {
+        _dbUnitRateCache.set(r.csiCode, {
+          materialRate: parseFloat(r.materialRate as string) || 0,
+          laborRate: parseFloat(r.laborRate as string) || 0,
+          equipmentRate: parseFloat(r.equipmentRate as string) || 0,
+          unit: r.unit,
+          crewSize: parseFloat(r.crewSize as string) || 1,
+          productivityRate: parseFloat(r.productivityRate as string) || 1,
+        });
+      }
+      console.log(`[estimate-engine] Loaded ${_dbUnitRateCache.size} unit rates from database`);
+    }
+
+    const mepRows = await storage.getMepRates();
+    if (mepRows.length > 0) {
+      _dbMepRateCache = new Map();
+      for (const r of mepRows) {
+        const materialCAD = parseFloat(r.materialRate as string) || 0;
+        const labourCAD = parseFloat(r.labourRate as string) || 0;
+        _dbMepRateCache.set(r.csiCode, {
+          csiCode: r.csiCode,
+          description: r.description,
+          unit: r.unit,
+          materialCAD,
+          labourCAD,
+          totalCAD: materialCAD + labourCAD,
+          labourHrs: parseFloat(r.labourHoursPerUnit as string) || 1,
+          notes: r.note ?? undefined,
+        });
+      }
+      console.log(`[estimate-engine] Loaded ${_dbMepRateCache.size} MEP rates from database`);
+    }
+
+    const regionalRows = await storage.getRegionalFactors();
+    if (regionalRows.length > 0) {
+      _dbRegionalCache = new Map();
+      for (const r of regionalRows) {
+        _dbRegionalCache.set(r.regionKey, {
+          compositeIndex: parseFloat(r.compositeIndex as string) || 1.0,
+        });
+      }
+      console.log(`[estimate-engine] Loaded ${_dbRegionalCache.size} regional factors from database`);
+    }
+
+    _dbRatesCacheAge = Date.now();
+  } catch (err) {
+    // DB unavailable — use hardcoded rates silently
+    console.warn('[estimate-engine] Could not load DB rates, using hardcoded fallback:', err);
+  }
+}
+
 /**
  * Look up the rate entry for a CSI rate code.
- * Div 21–28 MEP codes are resolved via the ontario-mep-rates bridge first
- * (calibrated Q1 2026 Ontario ICI rates); all other codes fall back to
- * the built-in CSI_RATES table.
+ * Resolution order:
+ *   1. DB unit_rates table (user overrides, vendor quotes)
+ *   2. Ontario MEP bridge for Div 21–28
+ *   3. Hardcoded CSI_RATES constant (system defaults)
+ *   4. Zero rate with warning
  */
 function getRate(code: string): RateEntry {
-  // 1. Ontario MEP bridge: calibrated CAD rates for Div 21–28
+  // 1. DB rate override (highest priority)
+  const dbRate = _dbUnitRateCache.get(code);
+  if (dbRate) return dbRate;
+
+  // 2. Ontario MEP bridge: calibrated CAD rates for Div 21–28
   const mepCsiCode = MEP_CSI_BRIDGE[code];
   if (mepCsiCode) {
-    const mepItem = getMepRate(mepCsiCode);
+    // Check DB MEP rates first, then hardcoded
+    const dbMep = _dbMepRateCache.get(mepCsiCode);
+    const mepItem = dbMep || getMepRate(mepCsiCode);
     if (mepItem) {
       const fallback = CSI_RATES[code] ?? {
         materialRate: 0, laborRate: 0, equipmentRate: 0,
@@ -830,14 +912,13 @@ function getRate(code: string): RateEntry {
       return buildMepRateEntry(mepItem, fallback);
     }
   }
-  // 2. Generic CSI_RATES fallback
+
+  // 3. Hardcoded CSI_RATES fallback
   const found = CSI_RATES[code];
   if (found) return found;
 
-  // Est-4 FIX: Unknown rate code — log warning so QS can see the gap.
-  // Returns {0,0,0} which push() will still emit as a $0 line item.
-  // The verificationStatus 'unrated' flags it in the BoQ for review.
-  console.warn(`⚠️ [estimate-engine] No rate found for CSI code "${code}" — line item will be $0 (unrated). Add rate to CSI_RATES or provide a vendor quote.`);
+  // 4. Unknown rate code — $0 line item flagged for QS review
+  console.warn(`⚠️ [estimate-engine] No rate found for CSI code "${code}" — line item will be $0 (unrated). Add rate to unit_rates table or provide a vendor quote.`);
   return { materialRate: 0, laborRate: 0, equipmentRate: 0, unit: 'ea', crewSize: 1, productivityRate: 1 };
 }
 
@@ -884,7 +965,7 @@ function pushItem(
     evidenceRefs,
     crewSize: rc.crewSize,
     productivityRate: rc.productivityRate,
-    laborHours: adjustedQty / rc.productivityRate,
+    laborHours: rc.productivityRate > 0 ? adjustedQty / rc.productivityRate : 0,
     verificationStatus: status,
     gridRef: gridRef || undefined,
   } as any);
@@ -1120,7 +1201,10 @@ export function generateEstimateFromElements(
   } = {}
 ): EstimateSummary {
   const region = options.region;
-  const regionalFactors = (region && CANADIAN_PROVINCIAL_FACTORS[region as keyof typeof CANADIAN_PROVINCIAL_FACTORS])
+  // DB regional factors take priority over hardcoded CANADIAN_PROVINCIAL_FACTORS
+  const dbRegional = region ? _dbRegionalCache.get(region) : undefined;
+  const regionalFactors = dbRegional
+    || (region && CANADIAN_PROVINCIAL_FACTORS[region as keyof typeof CANADIAN_PROVINCIAL_FACTORS])
     || { compositeIndex: 1.0 };
   let rf = num(regionalFactors.compositeIndex) || 1.0;
 
@@ -1197,7 +1281,7 @@ export function generateEstimateFromElements(
     if (type.includes('elevator') || type.includes('escalator') || type.includes('dumbwaiter') || type.includes('platform lift') || type.includes('wheelchair lift') || (type.includes('lift') && type.includes('convey')) || type.includes('scaffold')) {
       divisionsUsed.add('14');
       if (type.includes('scaffold')) {
-        pushItem(lines, '148000-SCAFFOLD', '14', 'Scaffolding', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '148000-SCAFFOLD', '14', 'Scaffolding', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('escalator')) {
         pushItem(lines, '143100-ESCALATOR', '14', 'Escalator', 1, floor, ids, ev, rf);
       } else if (type.includes('dumbwaiter')) {
@@ -1215,17 +1299,17 @@ export function generateEstimateFromElements(
     else if (type.includes('dock') || type.includes('marina') || type.includes('pier') || type.includes('bulkhead') || type.includes('seawall') || type.includes('marine') || type.includes('wharf') || type.includes('dredg') || type.includes('dam') || type.includes('spillway') || type.includes('weir')) {
       divisionsUsed.add('35');
       if (type.includes('dam') || type.includes('spillway') || type.includes('weir')) {
-        pushItem(lines, '357000-DAM', '35', 'Dam/spillway construction', volume > 0 ? volume : 1, floor, ids, ev, rf, volume > 0 ? undefined : 'estimated');
+        pushItem(lines, '357000-DAM', '35', 'Dam/spillway construction', volume, floor, ids, ev, rf, volume > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('dredg')) {
-        pushItem(lines, '351000-DREDGING', '35', 'Dredging', volume > 0 ? volume : 1, floor, ids, ev, rf, volume > 0 ? undefined : 'estimated');
+        pushItem(lines, '351000-DREDGING', '35', 'Dredging', volume, floor, ids, ev, rf, volume > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('dock') || type.includes('marina')) {
-        pushItem(lines, '353000-DOCK', '35', 'Dock/marina structure', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '353000-DOCK', '35', 'Dock/marina structure', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('pier')) {
-        pushItem(lines, '354000-PIER', '35', 'Pier structure', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '354000-PIER', '35', 'Pier structure', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('bulkhead') || type.includes('seawall')) {
-        pushItem(lines, '356000-BULKHEAD', '35', 'Bulkhead/seawall', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '356000-BULKHEAD', '35', 'Bulkhead/seawall', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else {
-        pushItem(lines, '355000-MARINE', '35', 'Marine construction', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '355000-MARINE', '35', 'Marine construction', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       }
     }
 
@@ -1235,15 +1319,15 @@ export function generateEstimateFromElements(
       if (type.includes('special instrument') || type.includes('seismograph') || type.includes('meteorological')) {
         pushItem(lines, '135000-SPECIAL-INSTRUM', '13', 'Special instrumentation', 1, floor, ids, ev, rf);
       } else if (type.includes('pool') || type.includes('swimming')) {
-        pushItem(lines, '131000-POOL', '13', 'Swimming pool', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '131000-POOL', '13', 'Swimming pool', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('greenhouse')) {
-        pushItem(lines, '135300-GREENHOUSE', '13', 'Greenhouse structure', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '135300-GREENHOUSE', '13', 'Greenhouse structure', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('clean room')) {
-        pushItem(lines, '134600-CLEAN-ROOM', '13', 'Clean room', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '134600-CLEAN-ROOM', '13', 'Clean room', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('fabric') || type.includes('tensile') || type.includes('membrane struct')) {
-        pushItem(lines, '133400-FABRIC-STRUCT', '13', 'Fabric/tensile structure', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '133400-FABRIC-STRUCT', '13', 'Fabric/tensile structure', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else {
-        pushItem(lines, '132000-PRE-ENG', '13', 'Pre-engineered structure', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '132000-PRE-ENG', '13', 'Pre-engineered structure', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       }
     }
 
@@ -1301,13 +1385,13 @@ export function generateEstimateFromElements(
       } else if (type.includes('auditorium seat') || type.includes('stadium seat') || type.includes('fixed seating') || type.includes('theater seat') || type.includes('bench seating')) {
         pushItem(lines, '126000-MULTI-SEAT', '12', 'Multiple/fixed seating', 1, floor, ids, ev, rf);
       } else if (type.includes('casework') || type.includes('cabinet')) {
-        pushItem(lines, '123200-CASEWORK', '12', 'Manufactured casework', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '123200-CASEWORK', '12', 'Manufactured casework', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('countertop')) {
-        pushItem(lines, '123600-COUNTERTOP', '12', 'Countertop', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '123600-COUNTERTOP', '12', 'Countertop', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('furniture')) {
         pushItem(lines, '124800-FURNITURE', '12', 'Furniture', 1, floor, ids, ev, rf);
       } else {
-        pushItem(lines, '125500-WINDOW-TREAT', '12', 'Window treatment', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '125500-WINDOW-TREAT', '12', 'Window treatment', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       }
     }
 
@@ -1327,7 +1411,7 @@ export function generateEstimateFromElements(
     else if (type.includes('generator') || type.includes('solar') || type.includes('photovoltaic') || type.includes('wind turbine') || type.includes('power gen')) {
       divisionsUsed.add('48');
       if (type.includes('solar') || type.includes('photovoltaic')) {
-        pushItem(lines, '482000-SOLAR', '48', 'Solar photovoltaic system', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '482000-SOLAR', '48', 'Solar photovoltaic system', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('wind')) {
         pushItem(lines, '483000-WIND', '48', 'Wind turbine', 1, floor, ids, ev, rf);
       } else {
@@ -1353,7 +1437,7 @@ export function generateEstimateFromElements(
     else if (type.includes('scrubber') || type.includes('pollution') || type.includes('oil separator') || type.includes('dust collect') || type.includes('air quality equip') || type.includes('noise control') || type.includes('sound barrier') || type.includes('noise abatement') || type.includes('solid waste control') || type.includes('waste reuse') || type.includes('recycling system')) {
       divisionsUsed.add('44');
       if (type.includes('noise control') || type.includes('sound barrier') || type.includes('noise abatement') || type.includes('acoustic barrier')) {
-        pushItem(lines, '442000-NOISE-CTRL', '44', 'Noise pollution control', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '442000-NOISE-CTRL', '44', 'Noise pollution control', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('solid waste control') || type.includes('waste reuse') || type.includes('recycling system')) {
         pushItem(lines, '445000-SOLID-WASTE', '44', 'Solid waste control/reuse system', 1, floor, ids, ev, rf);
       } else if (type.includes('oil separator') || type.includes('grease trap')) {
@@ -1381,7 +1465,7 @@ export function generateEstimateFromElements(
       if (type.includes('silo') || type.includes('hopper') || type.includes('material storage') || type.includes('bin storage')) {
         pushItem(lines, '415000-MATERIAL-STORE', '41', 'Material storage (silo/hopper)', 1, floor, ids, ev, rf);
       } else if (type.includes('conveyor')) {
-        pushItem(lines, '412000-CONVEYOR', '41', 'Conveyor system', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '412000-CONVEYOR', '41', 'Conveyor system', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('chute')) {
         pushItem(lines, '413000-CHUTE', '41', 'Chute', 1, floor, ids, ev, rf);
       } else {
@@ -1419,13 +1503,13 @@ export function generateEstimateFromElements(
     else if (type.includes('process pipe') || type.includes('process piping') || type.includes('pipe support') || type.includes('pipe hanger') || type.includes('slurry pipe') || type.includes('solid pipe') || type.includes('pneumatic convey') || type.includes('process control') || type.includes('process instrument')) {
       divisionsUsed.add('40');
       if (type.includes('slurry') || type.includes('solid pipe') || type.includes('pneumatic convey')) {
-        pushItem(lines, '403000-SOLID-PIPE', '40', 'Solid/mixed materials piping', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '403000-SOLID-PIPE', '40', 'Solid/mixed materials piping', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('process control') || type.includes('process instrument') || type.includes('plc')) {
         pushItem(lines, '409000-PROCESS-CONTROL', '40', 'Process instrumentation/control', 1, floor, ids, ev, rf);
       } else if (type.includes('support') || type.includes('hanger')) {
         pushItem(lines, '405000-PIPE-SUPPORT', '40', 'Pipe support/hanger', 1, floor, ids, ev, rf);
       } else {
-        pushItem(lines, '401000-PROCESS-PIPE', '40', 'Process piping', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '401000-PROCESS-PIPE', '40', 'Process piping', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       }
     }
 
@@ -1433,21 +1517,21 @@ export function generateEstimateFromElements(
     else if (type.includes('utility') || type.includes('water main') || type.includes('sewer main') || type.includes('storm drain') || type.includes('gas main') || type.includes('site service') || type.includes('well') || type.includes('borehole') || type.includes('hydronic') || type.includes('district heat') || type.includes('steam util')) {
       divisionsUsed.add('33');
       if (type.includes('well') || type.includes('borehole') || type.includes('water well')) {
-        pushItem(lines, '332000-WELLS', '33', 'Well drilling', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '332000-WELLS', '33', 'Well drilling', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('hydronic') || type.includes('district heat') || type.includes('steam util')) {
-        pushItem(lines, '336000-HYDRONIC-UTIL', '33', 'Hydronic/steam energy utility', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '336000-HYDRONIC-UTIL', '33', 'Hydronic/steam energy utility', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('sewer')) {
-        pushItem(lines, '333000-SEWER', '33', 'Sanitary sewer utility', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '333000-SEWER', '33', 'Sanitary sewer utility', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('storm')) {
-        pushItem(lines, '334000-STORM', '33', 'Storm drainage utility', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '334000-STORM', '33', 'Storm drainage utility', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('gas')) {
-        pushItem(lines, '335000-GAS-UTIL', '33', 'Gas distribution', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '335000-GAS-UTIL', '33', 'Gas distribution', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('elec') && type.includes('util')) {
-        pushItem(lines, '337000-ELEC-UTIL', '33', 'Electrical utility', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '337000-ELEC-UTIL', '33', 'Electrical utility', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('telecom') || type.includes('comm util')) {
-        pushItem(lines, '338000-TELECOM-UTIL', '33', 'Telecom utility', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '338000-TELECOM-UTIL', '33', 'Telecom utility', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else {
-        pushItem(lines, '331000-WATER-UTIL', '33', 'Water utility', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '331000-WATER-UTIL', '33', 'Water utility', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       }
     }
 
@@ -1457,9 +1541,9 @@ export function generateEstimateFromElements(
       if (type.includes('transport signal') || type.includes('signal control') || type.includes('traffic control')) {
         pushItem(lines, '344000-TRANSPORT-SIGNAL', '34', 'Transportation signaling/control', 1, floor, ids, ev, rf);
       } else if (type.includes('bridge') || type.includes('overpass') || type.includes('viaduct')) {
-        pushItem(lines, '348000-BRIDGE', '34', 'Bridge construction', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '348000-BRIDGE', '34', 'Bridge construction', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('rail')) {
-        pushItem(lines, '341100-RAIL', '34', 'Rail track', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '341100-RAIL', '34', 'Rail track', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('parking')) {
         pushItem(lines, '341300-PARKING-EQUIP', '34', 'Parking equipment', 1, floor, ids, ev, rf);
       } else {
@@ -1551,7 +1635,7 @@ export function generateEstimateFromElements(
       divisionsUsed.add('03');
       // Precast wall panels
       if (type.includes('precast') || type.includes('pre-cast') || type.includes('tilt-up')) {
-        pushItem(lines, '034000-PRECAST', '03', 'Precast wall panel', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '034000-PRECAST', '03', 'Precast wall panel', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       }
       // Cast-in-place walls
       else {
@@ -1690,7 +1774,7 @@ export function generateEstimateFromElements(
     else if (type.includes('window') || type.includes('glazing') || type.includes('curtain wall') || type.includes('storefront') || type.includes('skylight') || type.includes('roof window') || type.includes('louver') || (type.includes('vent') && !type.includes('event') && !type.includes('prevent'))) {
       divisionsUsed.add('08');
       if (type.includes('curtain wall') || type.includes('storefront')) {
-        pushItem(lines, '084000-CURTAIN-WALL', '08', 'Curtain wall/storefront system', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '084000-CURTAIN-WALL', '08', 'Curtain wall/storefront system', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('skylight') || type.includes('roof window')) {
         pushItem(lines, '086000-SKYLIGHT', '08', 'Skylight/roof window', 1, floor, ids, ev, rf);
       } else if (type.includes('louver') || (type.includes('vent') && !type.includes('event') && !type.includes('prevent'))) {
@@ -1730,13 +1814,13 @@ export function generateEstimateFromElements(
     else if (type.includes('underlayment') || type.includes('topping') || type.includes('leveling') || type.includes('grout') || type.includes('saw cut') || type.includes('core drill') || type.includes('concrete cut') || type.includes('mass concrete')) {
       divisionsUsed.add('03');
       if (type.includes('mass concrete') || type.includes('mass pour')) {
-        pushItem(lines, '037000-MASS-CONC', '03', 'Mass concrete placement', volume > 0 ? volume : 1, floor, ids, ev, rf, volume > 0 ? undefined : 'estimated');
+        pushItem(lines, '037000-MASS-CONC', '03', 'Mass concrete placement', volume, floor, ids, ev, rf, volume > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('underlayment') || type.includes('topping') || type.includes('leveling')) {
-        pushItem(lines, '035000-UNDERLAYMENT', '03', 'Concrete underlayment/topping', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '035000-UNDERLAYMENT', '03', 'Concrete underlayment/topping', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('grout') || type.includes('non-shrink')) {
-        pushItem(lines, '036000-GROUT', '03', 'Grouting', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '036000-GROUT', '03', 'Grouting', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else {
-        pushItem(lines, '038000-SAW-CUT', '03', 'Concrete cutting/coring', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '038000-SAW-CUT', '03', 'Concrete cutting/coring', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       }
     }
 
@@ -1748,7 +1832,7 @@ export function generateEstimateFromElements(
       } else if (type.includes('fire water storage') || type.includes('fire cistern') || type.includes('fire reservoir')) {
         pushItem(lines, '214000-FIRE-WATER-STOR', '21', 'Fire suppression water storage', 1, floor, ids, ev, rf);
       } else if (type.includes('standpipe')) {
-        pushItem(lines, '213000-STANDPIPE', '21', 'Standpipe system', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '213000-STANDPIPE', '21', 'Standpipe system', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (area > 0) {
         pushItem(lines, '211000-SPRINKLER', '21', 'Sprinkler coverage', area, floor, ids, ev, rf);
       } else {
@@ -1760,7 +1844,7 @@ export function generateEstimateFromElements(
     else if (type.includes('duct') || type.includes('hvac') || type.includes('mechanical') || type.includes('air handler') || type.includes('boiler') || type.includes('chiller') || type.includes('ahu') || type.includes('furnace') || type.includes('fuel system') || type.includes('fuel tank') || type.includes('fuel pipe') || type.includes('air filter') || type.includes('air cleaning') || type.includes('air scrubber') || type.includes('mini-split') || type.includes('ptac') || type.includes('vrf') || type.includes('ductless')) {
       divisionsUsed.add('23');
       if (type.includes('fuel system') || type.includes('fuel tank') || type.includes('fuel pipe')) {
-        pushItem(lines, '231000-FUEL-SYS', '23', 'Facility fuel system', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '231000-FUEL-SYS', '23', 'Facility fuel system', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('air filter') || type.includes('air cleaning') || type.includes('air scrubber') || type.includes('hepa')) {
         pushItem(lines, '234000-AIR-CLEAN', '23', 'HVAC air cleaning device', 1, floor, ids, ev, rf);
       } else if (type.includes('mini-split') || type.includes('ptac') || type.includes('vrf') || type.includes('ductless')) {
@@ -1784,13 +1868,13 @@ export function generateEstimateFromElements(
     else if (type.includes('plumb') || type.includes('pipe') || (type.includes('fixture') && !type.includes('light')) || type.includes('lavatory') || type.includes('toilet') || type.includes('sink') || type.includes('faucet') || type.includes('hydronic') || type.includes('pool plumb') || type.includes('fountain plumb') || type.includes('pool pump') || type.includes('gas system') || type.includes('vacuum system') || type.includes('medical gas') || type.includes('lab gas')) {
       divisionsUsed.add('22');
       if (type.includes('pool plumb') || type.includes('fountain plumb') || type.includes('pool pump') || type.includes('pool filter')) {
-        pushItem(lines, '225000-POOL-PLUMB', '22', 'Pool/fountain plumbing system', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '225000-POOL-PLUMB', '22', 'Pool/fountain plumbing system', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('gas system') || type.includes('vacuum system') || type.includes('medical gas') || type.includes('lab gas') || type.includes('compressed air')) {
-        pushItem(lines, '226000-GAS-VACUUM', '22', 'Gas/vacuum system piping', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '226000-GAS-VACUUM', '22', 'Gas/vacuum system piping', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if ((type.includes('fixture') && !type.includes('light')) || type.includes('lavatory') || type.includes('toilet') || type.includes('sink') || type.includes('faucet')) {
         pushItem(lines, '224000-PLUMB-FIXT', '22', 'Plumbing fixture', 1, floor, ids, ev, rf);
       } else if (type.includes('hydronic') || type.includes('hvac pipe') || type.includes('refrigerant')) {
-        pushItem(lines, '223000-HVAC-PIPE', '22', 'HVAC piping (hydronic/refrigerant)', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '223000-HVAC-PIPE', '22', 'HVAC piping (hydronic/refrigerant)', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (length > 0) {
         pushItem(lines, '221100-PLUMB-PIPE', '22', 'Plumbing piping', length, floor, ids, ev, rf);
       } else {
@@ -1820,7 +1904,7 @@ export function generateEstimateFromElements(
     else if (type.includes('electr') || type.includes('light') || type.includes('panel') || type.includes('outlet') || type.includes('receptacle') || type.includes('switchgear') || type.includes('transformer') || type.includes('conduit') || type.includes('wire') || type.includes('cable tray') || type.includes('cathodic')) {
       divisionsUsed.add('26');
       if (type.includes('cathodic') || type.includes('galvanic protection')) {
-        pushItem(lines, '264000-CATHODIC', '26', 'Cathodic protection system', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '264000-CATHODIC', '26', 'Cathodic protection system', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('light') || type.includes('luminaire')) {
         pushItem(lines, '265000-LIGHTING', '26', 'Light fixture', 1, floor, ids, ev, rf);
       } else if (type.includes('switchgear') || type.includes('distribution board')) {
@@ -1828,9 +1912,9 @@ export function generateEstimateFromElements(
       } else if (type.includes('transformer')) {
         pushItem(lines, '264000-TRANSFORM', '26', 'Transformer', 1, floor, ids, ev, rf);
       } else if (type.includes('conduit')) {
-        pushItem(lines, '261000-CONDUIT', '26', 'Electrical conduit', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '261000-CONDUIT', '26', 'Electrical conduit', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('wire') || type.includes('cable') || type.includes('cable tray')) {
-        pushItem(lines, '260500-WIRE', '26', 'Electrical wiring/cable', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '260500-WIRE', '26', 'Electrical wiring/cable', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else {
         pushItem(lines, '262000-POWER', '26', 'Electrical distribution', 1, floor, ids, ev, rf);
       }
@@ -1856,19 +1940,19 @@ export function generateEstimateFromElements(
     else if (type.includes('steel') || type.includes('metal deck') || type.includes('joist') || type.includes('railing') || type.includes('misc metal') || type.includes('cold-formed') || type.includes('steel stud') || type.includes('light gauge') || type.includes('ornamental') || type.includes('decorative metal')) {
       divisionsUsed.add('05');
       if (type.includes('railing') || type.includes('handrail') || type.includes('guardrail')) {
-        pushItem(lines, '055200-RAILING', '05', 'Metal railing', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '055200-RAILING', '05', 'Metal railing', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('metal deck') || type.includes('steel deck')) {
-        pushItem(lines, '053000-METAL-DECK', '05', 'Metal decking', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '053000-METAL-DECK', '05', 'Metal decking', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('cold-formed') || type.includes('steel stud') || type.includes('light gauge')) {
-        pushItem(lines, '054000-CFS-FRAME', '05', 'Cold-formed steel framing', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '054000-CFS-FRAME', '05', 'Cold-formed steel framing', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('joist')) {
         if (volume > 0) {
           pushItem(lines, '052100-JOIST', '05', 'Steel joist', volume * 7850, floor, ids, ev, rf);
         }
       } else if (type.includes('ornamental') || type.includes('decorative metal') || type.includes('architectural metal')) {
-        pushItem(lines, '057000-DECOR-MTL', '05', 'Decorative/ornamental metalwork', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '057000-DECOR-MTL', '05', 'Decorative/ornamental metalwork', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('misc') || type.includes('embed') || type.includes('bracket')) {
-        pushItem(lines, '055000-MISC-MTL', '05', 'Miscellaneous metals', volume > 0 ? volume * 7850 : 1, floor, ids, ev, rf, volume > 0 ? undefined : 'estimated');
+        pushItem(lines, '055000-MISC-MTL', '05', 'Miscellaneous metals', volume > 0 ? volume * 7850 : 0, floor, ids, ev, rf, volume > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('clad') || type.includes('deck')) {
         if (area > 0) {
           pushItem(lines, '054000-CLAD', '05', 'Metal cladding/deck', area, floor, ids, ev, rf);
@@ -1884,17 +1968,17 @@ export function generateEstimateFromElements(
     else if (type.includes('masonry') || type.includes('brick') || type.includes('block') || type.includes('cmu') || type.includes('stone veneer') || type.includes('manufactured stone') || type.includes('cultured stone') || type.includes('refractory') || type.includes('acid-resistant') || type.includes('corrosion-resistant')) {
       divisionsUsed.add('04');
       if (type.includes('refractory') || type.includes('firebrick') || type.includes('kiln lining')) {
-        pushItem(lines, '045000-REFRACTORY', '04', 'Refractory masonry', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '045000-REFRACTORY', '04', 'Refractory masonry', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('acid-resistant') || type.includes('corrosion-resistant') || type.includes('chemical resistant')) {
-        pushItem(lines, '046000-CORR-MASONRY', '04', 'Corrosion-resistant masonry', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '046000-CORR-MASONRY', '04', 'Corrosion-resistant masonry', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('brick')) {
-        pushItem(lines, '042000-BRICK', '04', 'Brick masonry', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '042000-BRICK', '04', 'Brick masonry', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('manufactured') || type.includes('cultured') || type.includes('veneer stone')) {
-        pushItem(lines, '047000-MFG-STONE', '04', 'Manufactured/cultured stone veneer', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '047000-MFG-STONE', '04', 'Manufactured/cultured stone veneer', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('stone')) {
-        pushItem(lines, '044000-STONE', '04', 'Stone masonry', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '044000-STONE', '04', 'Stone masonry', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else {
-        pushItem(lines, '042000-CMU', '04', 'CMU block masonry', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '042000-CMU', '04', 'CMU block masonry', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       }
     }
 
@@ -1902,19 +1986,19 @@ export function generateEstimateFromElements(
     else if (type.includes('wood frame') || type.includes('timber') || type.includes('framing') || type.includes('finish carpentr') || type.includes('millwork') || type.includes('architectural wood') || type.includes('truss') || type.includes('sip') || type.includes('clt') || type.includes('structural panel') || type.includes('glulam') || type.includes('lvl') || type.includes('engineered wood') || type.includes('i-joist') || type.includes('laminated') || type.includes('frp') || type.includes('fiberglass struct') || type.includes('structural plastic') || type.includes('plastic panel') || type.includes('plastic grating') || type.includes('plastic fabricat')) {
       divisionsUsed.add('06');
       if (type.includes('frp') || type.includes('fiberglass struct') || type.includes('structural plastic')) {
-        pushItem(lines, '065000-STRUCT-PLASTIC', '06', 'Structural plastics/FRP', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '065000-STRUCT-PLASTIC', '06', 'Structural plastics/FRP', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('plastic panel') || type.includes('plastic grating') || type.includes('plastic fabricat') || type.includes('plastic guard')) {
-        pushItem(lines, '066000-PLASTIC-FAB', '06', 'Plastic fabrications', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '066000-PLASTIC-FAB', '06', 'Plastic fabrications', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('finish') || type.includes('millwork') || type.includes('trim')) {
-        pushItem(lines, '062000-FINISH-CARP', '06', 'Finish carpentry/millwork', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '062000-FINISH-CARP', '06', 'Finish carpentry/millwork', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if ((type.includes('architectural') || type.includes('panel')) && !type.includes('structural')) {
-        pushItem(lines, '064000-ARCH-WOOD', '06', 'Architectural woodwork', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '064000-ARCH-WOOD', '06', 'Architectural woodwork', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('sip') || type.includes('clt') || type.includes('structural panel') || type.includes('glulam')) {
-        pushItem(lines, '061700-STRUCT-PANEL', '06', 'Structural wood panel (SIP/CLT/glulam)', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '061700-STRUCT-PANEL', '06', 'Structural wood panel (SIP/CLT/glulam)', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('engineered') || type.includes('lvl') || type.includes('i-joist') || type.includes('laminated')) {
-        pushItem(lines, '067000-ENG-WOOD', '06', 'Engineered wood (LVL/PSL/I-joist)', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '067000-ENG-WOOD', '06', 'Engineered wood (LVL/PSL/I-joist)', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else {
-        pushItem(lines, '061000-FRAMING', '06', 'Wood framing', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '061000-FRAMING', '06', 'Wood framing', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       }
     }
 
@@ -1922,19 +2006,19 @@ export function generateEstimateFromElements(
     else if (type.includes('insulation') || type.includes('waterproof') || type.includes('vapour barrier') || type.includes('vapor barrier') || type.includes('sealant') || type.includes('caulk') || type.includes('flashing') || type.includes('air barrier') || type.includes('weather barrier') || type.includes('tyvek') || type.includes('metal panel') || type.includes('metal siding') || type.includes('firestop') || type.includes('intumescent')) {
       divisionsUsed.add('07');
       if (type.includes('air barrier') || type.includes('weather barrier') || type.includes('tyvek') || type.includes('house wrap')) {
-        pushItem(lines, '072500-AIR-BARRIER', '07', 'Air/weather barrier', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '072500-AIR-BARRIER', '07', 'Air/weather barrier', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('metal panel') || type.includes('metal siding') || type.includes('metal clad')) {
-        pushItem(lines, '074000-METAL-PANEL', '07', 'Metal roofing/siding panels', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '074000-METAL-PANEL', '07', 'Metal roofing/siding panels', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('firestop') || type.includes('intumescent') || type.includes('fire seal')) {
-        pushItem(lines, '078000-FIRESTOP', '07', 'Firestopping/intumescent coating', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '078000-FIRESTOP', '07', 'Firestopping/intumescent coating', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('insulation')) {
-        pushItem(lines, '072000-INSULATION', '07', 'Insulation', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '072000-INSULATION', '07', 'Insulation', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('waterproof') || type.includes('vapour') || type.includes('vapor')) {
-        pushItem(lines, '071000-WATERPROOF', '07', 'Waterproofing/vapour barrier', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '071000-WATERPROOF', '07', 'Waterproofing/vapour barrier', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('sealant') || type.includes('caulk')) {
-        pushItem(lines, '079000-SEALANTS', '07', 'Joint sealant', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '079000-SEALANTS', '07', 'Joint sealant', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else {
-        pushItem(lines, '076000-FLASH-SHEET', '07', 'Flashing & sheet metal', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '076000-FLASH-SHEET', '07', 'Flashing & sheet metal', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       }
     }
 
@@ -1942,19 +2026,19 @@ export function generateEstimateFromElements(
     else if (type.includes('flooring') || type.includes('floor finish') || type.includes('carpet') || type.includes('tile') || type.includes('paint') || type.includes('plaster') || type.includes('stucco') || type.includes('drywall') || type.includes('gypsum') || type.includes('wallcovering') || type.includes('wall panel') || type.includes('wainscot') || type.includes('acoustic') || type.includes('sound')) {
       divisionsUsed.add('09');
       if (type.includes('acoustic') || type.includes('sound') || type.includes('noise')) {
-        pushItem(lines, '098000-ACOUSTIC', '09', 'Acoustic treatment', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '098000-ACOUSTIC', '09', 'Acoustic treatment', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('wallcovering') || type.includes('wall panel') || type.includes('wainscot') || type.includes('wall finish')) {
-        pushItem(lines, '097000-WALL-FINISH', '09', 'Wall finishes/covering', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '097000-WALL-FINISH', '09', 'Wall finishes/covering', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('tile')) {
-        pushItem(lines, '093000-TILE', '09', 'Ceramic/porcelain tile', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '093000-TILE', '09', 'Ceramic/porcelain tile', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('paint') || type.includes('coating')) {
-        pushItem(lines, '099000-PAINT', '09', 'Paint/coating', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '099000-PAINT', '09', 'Paint/coating', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('plaster') || type.includes('stucco')) {
-        pushItem(lines, '092000-PLASTER', '09', 'Plaster/stucco', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '092000-PLASTER', '09', 'Plaster/stucco', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('drywall') || type.includes('gypsum')) {
-        pushItem(lines, '092500-DRYWALL', '09', 'Drywall/gypsum board', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '092500-DRYWALL', '09', 'Drywall/gypsum board', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else {
-        pushItem(lines, '096000-FLOORING', '09', 'Floor finish', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '096000-FLOORING', '09', 'Floor finish', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       }
     }
 
@@ -1964,22 +2048,22 @@ export function generateEstimateFromElements(
       if (type.includes('assessment') || type.includes('survey') || type.includes('condition')) {
         pushItem(lines, '022000-ASSESS', '02', 'Site/building assessment', 1, floor, ids, ev, rf);
       } else if (type.includes('geotech') || type.includes('boring') || type.includes('soil test') || type.includes('subsurface')) {
-        pushItem(lines, '023000-GEOTECH', '02', 'Geotechnical investigation', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '023000-GEOTECH', '02', 'Geotechnical investigation', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('remediat') && (type.includes('water') || type.includes('ground'))) {
-        pushItem(lines, '027000-WATER-REMED', '02', 'Water/groundwater remediation', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '027000-WATER-REMED', '02', 'Water/groundwater remediation', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('contaminat') || (type.includes('removal') && type.includes('hazard'))) {
-        pushItem(lines, '026000-CONTAM-REMOVE', '02', 'Contaminated material removal', volume > 0 ? volume : 1, floor, ids, ev, rf, volume > 0 ? undefined : 'estimated');
+        pushItem(lines, '026000-CONTAM-REMOVE', '02', 'Contaminated material removal', volume, floor, ids, ev, rf, volume > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('facility remed') || type.includes('building remed')) {
-        pushItem(lines, '028000-FACILITY-REMED', '02', 'Facility remediation', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '028000-FACILITY-REMED', '02', 'Facility remediation', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('abatement') || type.includes('hazmat') || type.includes('asbestos') || type.includes('lead')) {
-        pushItem(lines, '024200-ABATE', '02', 'Hazardous material abatement', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '024200-ABATE', '02', 'Hazardous material abatement', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('selective')) {
-        pushItem(lines, '024100-DEMO-SEL', '02', 'Selective demolition', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '024100-DEMO-SEL', '02', 'Selective demolition', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (area > 0) {
         // Non-selective demo with area — use area-based rate
         pushItem(lines, '024100-DEMO-SEL', '02', 'Demolition (area-based)', area, floor, ids, ev, rf);
       } else {
-        pushItem(lines, '024100-DEMO', '02', 'Demolition', volume > 0 ? volume : 1, floor, ids, ev, rf, volume > 0 ? undefined : 'estimated');
+        pushItem(lines, '024100-DEMO', '02', 'Demolition', volume, floor, ids, ev, rf, volume > 0 ? undefined : 'missing_dimensions');
       }
     }
 
@@ -1987,19 +2071,19 @@ export function generateEstimateFromElements(
     else if (type.includes('excavat') || type.includes('grading') || type.includes('backfill') || type.includes('earthwork') || type.includes('pile') || type.includes('shoring') || type.includes('trench') || type.includes('site clearing') || type.includes('tree removal') || type.includes('stripping') || type.includes('tunnel') || type.includes('mining')) {
       divisionsUsed.add('31');
       if (type.includes('tunnel') || type.includes('mining') || type.includes('bore tunnel')) {
-        pushItem(lines, '317000-TUNNEL', '31', 'Tunneling/mining', volume > 0 ? volume : 1, floor, ids, ev, rf, volume > 0 ? undefined : 'estimated');
+        pushItem(lines, '317000-TUNNEL', '31', 'Tunneling/mining', volume, floor, ids, ev, rf, volume > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('site clearing') || type.includes('tree removal') || type.includes('stripping') || type.includes('brush clear')) {
-        pushItem(lines, '311000-SITE-CLEAR', '31', 'Site clearing', area > 0 ? area / 10000 : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '311000-SITE-CLEAR', '31', 'Site clearing', area > 0 ? area / 10000 : 0, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('pile') || type.includes('caisson') || type.includes('driven')) {
-        pushItem(lines, '315000-PILE', '31', 'Piling/caisson', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '315000-PILE', '31', 'Piling/caisson', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('shoring') || type.includes('bracing')) {
-        pushItem(lines, '316000-SHORING', '31', 'Shoring/bracing', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '316000-SHORING', '31', 'Shoring/bracing', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('backfill') || type.includes('compaction')) {
-        pushItem(lines, '313000-BACKFILL', '31', 'Backfill & compaction', volume > 0 ? volume : 1, floor, ids, ev, rf, volume > 0 ? undefined : 'estimated');
+        pushItem(lines, '313000-BACKFILL', '31', 'Backfill & compaction', volume, floor, ids, ev, rf, volume > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('grading') || type.includes('grade')) {
-        pushItem(lines, '312000-GRADING', '31', 'Grading', volume > 0 ? volume : 1, floor, ids, ev, rf, volume > 0 ? undefined : 'estimated');
+        pushItem(lines, '312000-GRADING', '31', 'Grading', volume, floor, ids, ev, rf, volume > 0 ? undefined : 'missing_dimensions');
       } else {
-        pushItem(lines, '312300-EXCAVATE', '31', 'Excavation', volume > 0 ? volume : 1, floor, ids, ev, rf, volume > 0 ? undefined : 'estimated');
+        pushItem(lines, '312300-EXCAVATE', '31', 'Excavation', volume, floor, ids, ev, rf, volume > 0 ? undefined : 'missing_dimensions');
       }
     }
 
@@ -2007,21 +2091,21 @@ export function generateEstimateFromElements(
     else if (type.includes('paving') || type.includes('asphalt') || type.includes('landscape') || type.includes('planting') || type.includes('fence') || type.includes('curb') || type.includes('sidewalk') || type.includes('retaining wall') || type.includes('irrigation') || type.includes('sprinkler system') || type.includes('wetland') || type.includes('bioswale')) {
       divisionsUsed.add('32');
       if (type.includes('wetland') || type.includes('bioswale') || type.includes('rain garden')) {
-        pushItem(lines, '327000-WETLANDS', '32', 'Wetlands/bioswale construction', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '327000-WETLANDS', '32', 'Wetlands/bioswale construction', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('irrigation') || (type.includes('sprinkler') && type.includes('landscape'))) {
-        pushItem(lines, '328000-IRRIGATION', '32', 'Irrigation system', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '328000-IRRIGATION', '32', 'Irrigation system', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('fence') || type.includes('gate')) {
-        pushItem(lines, '323000-SITE-FENCE', '32', 'Site fencing', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '323000-SITE-FENCE', '32', 'Site fencing', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('landscape') || type.includes('planting') || type.includes('tree')) {
         if (type.includes('tree') || type.includes('shrub')) {
           pushItem(lines, '329300-PLANT-TREE', '32', 'Tree/shrub planting', 1, floor, ids, ev, rf);
         } else {
-          pushItem(lines, '329000-LANDSCAPE', '32', 'Landscaping', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+          pushItem(lines, '329000-LANDSCAPE', '32', 'Landscaping', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
         }
       } else if (type.includes('curb') || type.includes('sidewalk')) {
-        pushItem(lines, '321400-CURB', '32', 'Curb & sidewalk', length > 0 ? length : 1, floor, ids, ev, rf, length > 0 ? undefined : 'estimated');
+        pushItem(lines, '321400-CURB', '32', 'Curb & sidewalk', length, floor, ids, ev, rf, length > 0 ? undefined : 'missing_dimensions');
       } else {
-        pushItem(lines, '321000-PAVING', '32', 'Paving', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '321000-PAVING', '32', 'Paving', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       }
     }
 
@@ -2031,9 +2115,9 @@ export function generateEstimateFromElements(
       if (type.includes('testing') || type.includes('inspection') || type.includes('quality')) {
         pushItem(lines, '014000-QA-TEST', '01', 'Quality testing/inspection', 1, floor, ids, ev, rf);
       } else if (type.includes('cleanup') || type.includes('clean-up')) {
-        pushItem(lines, '017000-CLEANUP', '01', 'Site cleanup', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '017000-CLEANUP', '01', 'Site cleanup', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('temporary') || type.includes('temp ')) {
-        pushItem(lines, '015000-TEMP', '01', 'Temporary facilities', area > 0 ? area : 1, floor, ids, ev, rf, area > 0 ? undefined : 'estimated');
+        pushItem(lines, '015000-TEMP', '01', 'Temporary facilities', area, floor, ids, ev, rf, area > 0 ? undefined : 'missing_dimensions');
       } else if (type.includes('admin') || type.includes('site office') || type.includes('supervision')) {
         pushItem(lines, '013000-ADMIN', '01', 'Project administration/supervision', 1, floor, ids, ev, rf);
       } else {
@@ -2094,11 +2178,14 @@ export function generateEstimateFromElements(
       li.laborCost      = li.laborRate      * li.quantity;
       li.equipmentRate  = li.equipmentRate  * ctf.equipmentMultiplier;
       li.equipmentCost  = li.equipmentRate  * li.quantity;
+      // Recompute materialCost from materialRate to keep M+L+E consistent
+      li.materialCost   = li.materialRate   * li.quantity;
       if (li.productivityRate && li.productivityRate > 0) {
         li.productivityRate = li.productivityRate * ctf.productivityMultiplier;
         li.laborHours       = li.quantity / li.productivityRate;
       }
-      // Recompute totals after rate adjustment
+      // Recompute rate and totals after crew factor adjustment
+      li.totalRate = li.materialRate + li.laborRate + li.equipmentRate;
       li.totalCost = li.materialCost + li.laborCost + li.equipmentCost;
       crewAdjustedCount++;
     }
@@ -2168,7 +2255,7 @@ export function generateEstimateFromElements(
     if (parkMatch) return -10 + parseInt(parkMatch[1]);
     // Basement levels: B1, B2 etc.
     const bsmtMatch = fl.match(/^b(\d)/i);
-    if (bsmtMatch) return -5 + parseInt(bsmtMatch[1]);
+    if (bsmtMatch) return -5 - parseInt(bsmtMatch[1]);
     // Numbered floors: level 3, floor 4, 5th floor etc.
     const numMatch = fl.match(/(?:level|floor)?\s*(\d{1,2})(?:st|nd|rd|th)?/i);
     if (numMatch) return parseInt(numMatch[1]);
@@ -2204,6 +2291,10 @@ export function generateEstimateFromElements(
     sanityCheck.warnings.forEach(w => console.warn(`  • ${w}`));
   }
 
+  const quantityWarnings = lines
+    .filter(li => li.verificationStatus === 'missing_dimensions')
+    .map(li => ({ csiCode: li.csiCode, description: li.description, floor: li.floor, reason: 'Zero dimensions — quantity excluded from total' }));
+
   return {
     floors,
     grandTotal: materialGT + laborGT + equipmentGT,
@@ -2222,6 +2313,7 @@ export function generateEstimateFromElements(
     csiDivisionsUsed: divisionsUsed.size,
     sanityCheck,
     openingDeductionsSummary: deductions.audit,
+    quantityWarnings: quantityWarnings.length > 0 ? quantityWarnings : undefined,
     totalLaborHours: totalProjectLaborHours,
     costPerM2: (projectGFA > 0 && (materialGT + laborGT + equipmentGT) > 0)
       ? (materialGT + laborGT + equipmentGT) / projectGFA
@@ -2232,6 +2324,9 @@ export function generateEstimateFromElements(
 // ─── Route-facing wrapper — fetches elements from DB then runs estimate ──────
 
 export async function buildEstimateForModel(modelId: string, opts?: { scheduleDocCounts?: { doors: number; windows: number }; grossFloorAreaOverride?: number }): Promise<EstimateSummary> {
+  // Pre-load DB rates before synchronous estimate loop
+  await preloadDbRates();
+
   let elements: any[] = await storage.getBimElements(modelId);
   if (!elements || elements.length === 0) {
     throw new Error(`No BIM elements found for model ${modelId}`);

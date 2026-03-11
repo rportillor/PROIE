@@ -59,7 +59,9 @@ app.use((_req, res, next) => {
 
 // CORS — SECURITY: Never allow wildcard origin with credentials
 app.use(cors({
-  origin: process.env.CLIENT_ORIGIN || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : false),
+  origin: (process.env.CLIENT_ORIGIN && process.env.CLIENT_ORIGIN !== "*")
+    ? process.env.CLIENT_ORIGIN
+    : (process.env.NODE_ENV === "development" ? "http://localhost:5000" : false),
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -96,6 +98,9 @@ app.use("/api/", speedLimiter);
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 
+// Stripe webhook needs raw body — must be registered BEFORE express.json()
+app.post("/api/webhook", express.raw({ type: "application/json" }));
+
 // Body parsing
 app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: false, limit: "5mb" }));
@@ -131,8 +136,12 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      if (capturedJsonResponse && !path.includes("/auth") && !path.includes("/login") && !path.includes("/register")) {
+        const sanitized = { ...capturedJsonResponse };
+        for (const key of ['password', 'token', 'accessToken', 'refreshToken', 'apiKey', 'secret', 'stripeCustomerId']) {
+          if (key in sanitized) sanitized[key] = '[REDACTED]';
+        }
+        logLine += ` :: ${JSON.stringify(sanitized)}`;
       }
       if (logLine.length > 80) {
         logLine = logLine.slice(0, 79) + "\u2026";
@@ -210,9 +219,6 @@ if (process.env.NODE_ENV === "production" || process.env.FORCE_BACKGROUND_PROCES
   })();
 }
 
-// Global error handler
-app.use(globalErrorHandler);
-
 // ── Async startup ─────────────────────────────────────────────────────────────
 (async () => {
   // registerRoutes() mounts ALL other routers WITH authenticateToken middleware.
@@ -236,6 +242,9 @@ app.use(globalErrorHandler);
     }
     app.get("/api/__routes", authenticateToken, (_req, res) => res.json(listRoutes(app)));
   }
+
+  // Global error handler — MUST be registered after all routes
+  app.use(globalErrorHandler);
 
   // Express error handler (after all routes)
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -263,6 +272,11 @@ app.use(globalErrorHandler);
 
     // QA/QC Master Plan §10.3 — Graceful Shutdown (SIGTERM/SIGINT drain)
     setupGracefulShutdown(server, { timeout: 30000 });
+
+    // Seed DB rate tables from hardcoded constants (idempotent)
+    import('./seed-rates').then(m => m.seedRateTables()).catch(err => {
+      console.warn('[startup] Rate table seeding failed (non-blocking):', err.message);
+    });
 
     // Auto-resume any interrupted BIM processing on startup
     setTimeout(() => {

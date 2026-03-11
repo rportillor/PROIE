@@ -35,10 +35,18 @@ export const runLiveErrorCheck = () => {
       console.log('🔧 Development mode:', isDevMode);
       
       // Test URL construction (no token in URL — use Authorization header)
-      const testProjectId = 'test-project-123';
-      const testDocumentId = 'test-doc-456';
+      // Derive IDs from actual page context instead of hardcoding test values
+      const pathParts = window.location.pathname.split('/');
+      const projectIdx = pathParts.indexOf('projects');
+      const testProjectId = projectIdx >= 0 ? pathParts[projectIdx + 1] : undefined;
+      const testDocumentId = pathParts.indexOf('documents') >= 0 ? pathParts[pathParts.indexOf('documents') + 1] : undefined;
 
-      const viewUrl = `/api/projects/${testProjectId}/documents/${testDocumentId}/view`;
+      if (!testProjectId) {
+        console.log('⚠️ No project context available in URL — skipping URL construction test');
+        return { hasToken: !!token, isDevMode, noProjectContext: true };
+      }
+
+      const viewUrl = `/api/projects/${testProjectId}/documents/${testDocumentId || 'unknown'}/view`;
       console.log('🔗 Generated view URL:', viewUrl);
       
       // Test with actual project data

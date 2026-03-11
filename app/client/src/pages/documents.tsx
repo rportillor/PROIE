@@ -98,21 +98,36 @@ export default function Documents() {
       
       console.log('🔗 Generated document URL:', fullUrl);
       
-      // Test URL accessibility before opening
+      // Fetch document with auth header, then open as blob URL
       try {
-        console.log('🧪 Testing document accessibility...');
-        const testResponse = await fetch(fullUrl, { method: 'HEAD', headers: { 'Authorization': `Bearer ${token}` } }).catch(err => {
-          console.error('Failed to test document:', err);
-          throw err;
+        console.log('🧪 Fetching document with auth...');
+        const response = await fetch(fullUrl, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          credentials: 'include',
         });
-        console.log('📡 Document accessibility test:', testResponse.status);
-        
-        if (!testResponse.ok) {
-          throw new Error(`Document not accessible: HTTP ${testResponse.status}`);
+
+        if (!response.ok) {
+          throw new Error(`Document not accessible: HTTP ${response.status}`);
         }
+
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+
+        const newTab = window.open(blobUrl, '_blank');
+        if (!newTab) {
+          // Fallback: trigger download if popup blocked
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = fileName || 'document';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        }
+        // Clean up blob URL after a delay
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
       } catch (fetchError) {
-        console.error('❌ Document accessibility test failed:', fetchError);
-        mobileLog('❌ Document test failed', { error: (fetchError as Error).message });
+        console.error('Document fetch failed:', fetchError);
+        mobileLog('Document fetch failed', { error: (fetchError as Error).message });
         logDocumentError(fetchError as Error, projectId, documentId);
         toast({
           title: "Document Access Error",
@@ -120,50 +135,6 @@ export default function Documents() {
           variant: "destructive",
         });
         return;
-      }
-      
-      // For mobile Safari, navigate directly to the document
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      const isIPhone = /iPhone|iPod/i.test(navigator.userAgent);
-      console.log('📱 Mobile device detected:', isMobile, 'iPhone:', isIPhone);
-      mobileLog('📱 Device check', { isMobile, isIPhone, userAgent: navigator.userAgent.substring(0, 50) });
-      
-      if (isMobile) {
-        // On mobile, especially iPhone, try to open in new tab first to avoid getting stuck
-        console.log('📱 Opening in new tab (mobile) to avoid Safari PDF takeover');
-        mobileLog('📱 Attempting new tab to avoid getting stuck');
-        
-        const newTab = window.open(fullUrl, '_blank');
-        
-        // If popup blocked or new tab failed, show user a choice
-        if (!newTab) {
-          const userChoice = confirm(
-            "⚠️ iPhone Safari Warning:\n\n" +
-            "Opening this PDF may cause you to get stuck in Safari's PDF viewer.\n\n" +
-            "• OK = Open anyway (you might get stuck)\n" +
-            "• Cancel = Stay on this page\n\n" +
-            "Tip: If you get stuck, force-close Safari and reopen."
-          );
-          
-          if (userChoice) {
-            console.log('📱 User chose to open despite warning');
-            mobileLog('📱 Opening with user consent despite warning');
-            window.location.href = fullUrl;
-          } else {
-            console.log('📱 User cancelled document opening');
-            mobileLog('📱 User cancelled to avoid getting stuck');
-            return;
-          }
-        }
-      } else {
-        // On desktop, try to open in new tab
-        console.log('💻 Opening in new tab (desktop)');
-        const newTab = window.open(fullUrl, '_blank');
-        if (!newTab) {
-          // Fallback to same window if popup blocked
-          console.log('🚫 Popup blocked, falling back to same window');
-          window.location.href = fullUrl;
-        }
       }
       
       console.log('✅ Document view initiated successfully');
@@ -797,7 +768,7 @@ export default function Documents() {
                     <Button 
                       variant="ghost" 
                       size="sm" 
-                      onClick={() => window.open(`/api/projects/${doc.projectId}/documents/${doc.id}/view`, '_blank')}
+                      onClick={() => handleViewDocument(doc.projectId?.toString() || projectId, doc.id, doc.fileName)}
                       data-testid={`view-${doc.id}`}
                     >
                       <Eye className="w-4 h-4" />
@@ -805,7 +776,22 @@ export default function Documents() {
                     <Button 
                       variant="ghost" 
                       size="sm" 
-                      onClick={() => window.open(`/api/projects/${doc.projectId}/documents/${doc.id}/download`, '_blank')}
+                      onClick={async () => {
+                        try {
+                          const token = localStorage.getItem("auth_token");
+                          if (!token) { toast({ title: "Authentication Required", variant: "destructive" }); return; }
+                          const resp = await fetch(`/api/projects/${doc.projectId}/documents/${doc.id}/download`, {
+                            headers: { 'Authorization': `Bearer ${token}` }, credentials: 'include'
+                          });
+                          if (!resp.ok) throw new Error(`Download failed: HTTP ${resp.status}`);
+                          const blob = await resp.blob();
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url; a.download = doc.fileName || "download";
+                          document.body.appendChild(a); a.click();
+                          document.body.removeChild(a); URL.revokeObjectURL(url);
+                        } catch (err) { toast({ title: "Download Failed", description: (err as Error).message, variant: "destructive" }); }
+                      }}
                       data-testid={`download-${doc.id}`}
                     >
                       <Download className="w-4 h-4" />

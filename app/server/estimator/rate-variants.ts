@@ -140,8 +140,9 @@ export function generateRateVariants(
       const factor = getVarianceFactor(item.csiDivision);
       const lowRate = item.totalRate * factor.lowFactor;
       const highRate = item.totalRate * factor.highFactor;
-      const lowCost = item.baseQuantity * lowRate;
-      const highCost = item.baseQuantity * highRate;
+      // Use item.quantity (includes waste) for all three variants — same basis as mid (totalCost)
+      const lowCost = item.quantity * lowRate;
+      const highCost = item.quantity * highRate;
       const pertCost = (lowCost + 4 * item.totalCost + highCost) / 6;
       const stdDev = (highCost - lowCost) / 6;
 
@@ -150,7 +151,7 @@ export function generateRateVariants(
         csiSubdivision: item.csiSubdivision,
         description: item.description,
         unit: item.unit,
-        quantity: item.baseQuantity,
+        quantity: item.quantity,
         midRate: item.totalRate,
         lowRate: Math.round(lowRate * 100) / 100,
         highRate: Math.round(highRate * 100) / 100,

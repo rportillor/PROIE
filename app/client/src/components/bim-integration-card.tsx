@@ -132,7 +132,10 @@ export default function BIMIntegrationCard({ projectId }: BIMIntegrationCardProp
       }
       
       const models = await modelsResponse.json();
-      const modelId = models[0]?.id || 'de205982-e02c-460d-9aa0-e364c6392095'; // Use existing model
+      const modelId = models[0]?.id;
+      if (!modelId) {
+        throw new Error('No BIM model found for this project. Please create one first.');
+      }
       
       // Track the modelId for progress tracking
       setCurrentGenerationModelId(modelId);

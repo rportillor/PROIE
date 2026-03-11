@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "wouter";
+import { apiRequest } from "@/lib/queryClient";
 import ComplianceOverview from "@/components/compliance/compliance-overview";
 import ComplianceDetails from "@/components/compliance/compliance-details";
 import ComplianceSelector from "@/components/compliance/compliance-selector";
@@ -20,11 +21,7 @@ export default function Compliance() {
     queryKey: ['/api/projects', projectId, 'compliance-checks'],
     queryFn: async () => {
       if (!projectId) return [];
-      const res = await fetch(`/api/projects/${projectId}/compliance-checks`, {
-        credentials: 'include',
-        headers: { Authorization: `Bearer ${localStorage.getItem('auth_token') ?? ''}` },
-      });
-      if (!res.ok) throw new Error(`Compliance fetch failed: ${res.status}`);
+      const res = await apiRequest("GET", `/api/projects/${projectId}/compliance-checks`);
       return res.json();
     },
     enabled: !!projectId,

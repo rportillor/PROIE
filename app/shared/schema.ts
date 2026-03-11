@@ -63,7 +63,7 @@ export const companies = pgTable("companies", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   role: companyRoleEnum("role").notNull().default("Solo_Practitioner"),
-  allowedDisciplines: json("allowed_disciplines").notNull().default("[\"General\"]"),
+  allowedDisciplines: jsonb("allowed_disciplines").notNull().default("[\"General\"]"),
   isSoloPractitioner: boolean("is_solo_practitioner").notNull().default(false),
   licenseNumber: text("license_number"),
   contactEmail: text("contact_email"),
@@ -79,7 +79,7 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   role: text("role").notNull().default("Construction Manager"),
   // Company association
-  companyId: varchar("company_id").references(() => companies.id),
+  companyId: varchar("company_id").references(() => companies.id, { onDelete: "set null" }),
   isCompanyAdmin: boolean("is_company_admin").notNull().default(false),
   email: text("email").unique(),
   stripeCustomerId: text("stripe_customer_id").unique(),
@@ -91,7 +91,9 @@ export const users = pgTable("users", {
   subscriptionEndsAt: timestamp("subscription_ends_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  companyIdIdx: index("users_company_id_idx").on(table.companyId),
+}));
 
 export const subscriptions = pgTable("subscriptions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -107,10 +109,13 @@ export const subscriptions = pgTable("subscriptions", {
   trialEnd: timestamp("trial_end"),
   canceledAt: timestamp("canceled_at"),
   cancelAtPeriodEnd: boolean("cancel_at_period_end").default(false),
-  metadata: json("metadata").default("{}"),
+  metadata: jsonb("metadata").default("{}"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  userIdIdx: index("subscriptions_user_id_idx").on(table.userId),
+  statusIdx: index("subscriptions_status_idx").on(table.status),
+}));
 
 export const planLimits = pgTable("plan_limits", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -119,10 +124,10 @@ export const planLimits = pgTable("plan_limits", {
   maxDocumentsPerProject: integer("max_documents_per_project").notNull(),
   maxStorageGB: integer("max_storage_gb").notNull(),
   aiAnalysisEnabled: boolean("ai_analysis_enabled").notNull().default(true),
-  exportFormats: json("export_formats").notNull().default("[]"), // ["pdf", "excel", "word"]
+  exportFormats: jsonb("export_formats").notNull().default("[]"), // ["pdf", "excel", "word"]
   bimIntegration: boolean("bim_integration").notNull().default(false),
   prioritySupport: boolean("priority_support").notNull().default(false),
-  features: json("features").notNull().default("[]"), // Additional feature flags
+  features: jsonb("features").notNull().default("[]"), // Additional feature flags
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -150,20 +155,20 @@ export const projects = pgTable("projects", {
   riskProfile: text("risk_profile").default("medium"),        // low, medium, high
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-  userId: varchar("user_id").references(() => users.id),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
 }, (table) => ({
   userIdIdx: index("projects_user_id_idx").on(table.userId),
 }));
 
 export const documents = pgTable("documents", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   filename: text("filename").notNull(),
   originalName: text("original_name").notNull(), // User's original filename
   fileType: text("file_type").notNull(),
   fileSize: integer("file_size"),
-  storageKey: text("storage_key"),
-  analysisStatus: text("analysis_status").default("Pending"),
+  storageKey: text("storage_key").notNull(),
+  analysisStatus: text("analysis_status").notNull().default("Pending"),
 
   // NEW: persist parsed content
   pageCount: integer("page_count"),
@@ -172,11 +177,13 @@ export const documents = pgTable("documents", {
   rasterPreviews: jsonb("raster_previews"), // [{ page: number, key: string }]
   vectorHints: jsonb("vector_hints"),  // optional: grids/levels parsed later
 
-  analysisResult: json("analysis_result"),
+  analysisResult: jsonb("analysis_result"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   projectIdIdx: index("documents_project_id_idx").on(table.projectId),
+  analysisStatusIdx: index("documents_analysis_status_idx").on(table.analysisStatus),
+  createdAtIdx: index("documents_created_at_idx").on(table.createdAt),
 }));
 
 // Document images table for storing per-page images with sheet metadata
@@ -212,13 +219,13 @@ export const documentRevisions = pgTable("document_revisions", {
   revisionNumber: integer("revision_number").notNull(),
   filePath: text("file_path").notNull(),
   fileHash: text("file_hash").notNull(),
-  uploadedBy: varchar("uploaded_by").references(() => users.id),
+  uploadedBy: varchar("uploaded_by").references(() => users.id, { onDelete: "set null" }),
   status: revisionStatusEnum("status").notNull().default("pending"),
   notes: text("notes"),
   fileMime: text("file_mime"),
   fileSize: integer("file_size"),
   changeDescription: text("change_description"),
-  impactAnalysis: json("impact_analysis"),
+  impactAnalysis: jsonb("impact_analysis"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   // Enhanced indexing strategy (inspired by Prisma approach)
@@ -231,7 +238,7 @@ export const documentRevisions = pgTable("document_revisions", {
 
 export const boqItems = pgTable("boq_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   itemCode: text("item_code").notNull(),
   description: text("description").notNull(),
   unit: text("unit").notNull(),
@@ -249,10 +256,10 @@ export const boqItems = pgTable("boq_items", {
 // BOQ Versions table for saving different BOQ versions
 export const boqVersions = pgTable("boq_versions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").references(() => projects.id),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   versionName: text("version_name").notNull(),
   description: text("description"),
-  savedBy: varchar("saved_by").references(() => users.id),
+  savedBy: varchar("saved_by").references(() => users.id, { onDelete: "set null" }),
   totalValue: decimal("total_value", { precision: 15, scale: 2 }),
   elementCount: integer("element_count"),
   isDefault: boolean("is_default").default(false),
@@ -265,7 +272,7 @@ export const boqVersions = pgTable("boq_versions", {
 // BOQ Version Items - stores the actual BOQ data for each version
 export const boqVersionItems = pgTable("boq_version_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  versionId: varchar("version_id").references(() => boqVersions.id, { onDelete: "cascade" }),
+  versionId: varchar("version_id").notNull().references(() => boqVersions.id, { onDelete: "cascade" }),
   itemCode: text("item_code").notNull(),
   description: text("description").notNull(),
   unit: text("unit").notNull(),
@@ -283,7 +290,7 @@ export const boqVersionItems = pgTable("boq_version_items", {
 
 export const complianceChecks = pgTable("compliance_checks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").references(() => projects.id),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   standard: text("standard").notNull(), // CSA, NBC, IBC, ASCE, etc.
   requirement: text("requirement").notNull(),
   status: text("status").notNull().default("Not Applicable"), // Keep as text for now to avoid migration issues
@@ -308,8 +315,8 @@ export const buildingCodeSections = pgTable("building_code_sections", {
   subsection: text("subsection"), // 9.10.3.1, etc.
   title: text("title").notNull(),
   content: text("content").notNull(),
-  requirements: json("requirements").notNull().default("[]"), // Array of requirement objects
-  references: json("references").notNull().default("[]"), // Array of reference codes
+  requirements: jsonb("requirements").notNull().default("[]"), // Array of requirement objects
+  references: jsonb("references").notNull().default("[]"), // Array of reference codes
   jurisdiction: text("jurisdiction").notNull(), // canada, usa, international
   category: text("category").notNull(), // building, structural, mechanical, etc.
   authority: text("authority").notNull(), // National Research Council Canada, etc.
@@ -318,59 +325,73 @@ export const buildingCodeSections = pgTable("building_code_sections", {
   lastUpdated: timestamp("last_updated").defaultNow(),
   applicability: text("applicability"), // What types of buildings this applies to
   measurementCriteria: text("measurement_criteria"), // How compliance is measured
-  exceptions: json("exceptions").notNull().default("[]"), // Array of exceptions
-  relatedSections: json("related_sections").notNull().default("[]"), // Array of related section IDs
+  exceptions: jsonb("exceptions").notNull().default("[]"), // Array of exceptions
+  relatedSections: jsonb("related_sections").notNull().default("[]"), // Array of related section IDs
   
   // 🏛️ LICENSING FIELDS
   licensingModel: licensingModelEnum("licensing_model").notNull().default("public_domain"),
   licenseOwner: text("license_owner"), // "EstimatorPro" or client company name
-  usageRights: json("usage_rights").notNull().default("{}"), // Detailed usage permissions
+  usageRights: jsonb("usage_rights").notNull().default("{}"), // Detailed usage permissions
   attributionRequired: boolean("attribution_required").notNull().default(true),
   licenseExpiry: timestamp("license_expiry"), // For subscription-based codes
   accessLevel: codeAccessLevelEnum("access_level").notNull().default("read_only"),
-});
+}, (table) => ({
+  codeIdIdx: index("building_code_sections_code_id_idx").on(table.codeId),
+  jurisdictionIdx: index("building_code_sections_jurisdiction_idx").on(table.jurisdiction),
+  categoryIdx: index("building_code_sections_category_idx").on(table.category),
+  sectionIdx: index("building_code_sections_section_idx").on(table.section),
+}));
 
 export const reports = pgTable("reports", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").references(() => projects.id),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   reportType: text("report_type").notNull(),
   filename: text("filename").notNull(),
   fileSize: integer("file_size").notNull(),
   status: text("status").notNull().default("Ready"), // Generating, Ready, Failed
   generatedAt: timestamp("generated_at").defaultNow(),
-});
+}, (table) => ({
+  projectIdIdx: index("reports_project_id_idx").on(table.projectId),
+}));
 
 // 🔍 BOQ-BIM Validation System
 export const validationResults = pgTable("validation_results", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").references(() => projects.id),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   validationType: text("validation_type").notNull(), // 'boq_bim_cross_check', 'spatial_verification', 'quantity_audit'
   status: text("status").notNull().default("pending"), // pending, completed, failed
   totalItems: integer("total_items").notNull().default(0),
   validItems: integer("valid_items").notNull().default(0),
   invalidItems: integer("invalid_items").notNull().default(0),
-  discrepancies: json("discrepancies").notNull().default("[]"), // Array of discrepancy objects
+  discrepancies: jsonb("discrepancies").notNull().default("[]"), // Array of discrepancy objects
   confidenceScore: decimal("confidence_score", { precision: 5, scale: 2 }).default("0.00"), // Overall confidence 0-100
-  validationSummary: json("validation_summary").notNull().default("{}"),
+  validationSummary: jsonb("validation_summary").notNull().default("{}"),
   createdAt: timestamp("created_at").defaultNow(),
   completedAt: timestamp("completed_at"),
-});
+}, (table) => ({
+  projectIdIdx: index("validation_results_project_id_idx").on(table.projectId),
+  statusIdx: index("validation_results_status_idx").on(table.status),
+}));
 
 export const boqBimMappings = pgTable("boq_bim_mappings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").references(() => projects.id),
-  boqItemId: varchar("boq_item_id").references(() => boqItems.id),
-  bimElementId: varchar("bim_element_id").references(() => bimElements.id),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  boqItemId: varchar("boq_item_id").references(() => boqItems.id, { onDelete: "set null" }),
+  bimElementId: varchar("bim_element_id").references(() => bimElements.id, { onDelete: "set null" }),
   mappingType: text("mapping_type").notNull(), // 'exact_match', 'partial_match', 'inferred', 'manual'
   confidenceLevel: decimal("confidence_level", { precision: 5, scale: 2 }).notNull(), // 0-100
   quantityVariance: decimal("quantity_variance", { precision: 10, scale: 3 }).default("0.000"), // Difference between BOQ and BIM quantities
   spatialVerified: boolean("spatial_verified").default(false),
-  discrepancyFlags: json("discrepancy_flags").notNull().default("[]"), // Array of specific issues
+  discrepancyFlags: jsonb("discrepancy_flags").notNull().default("[]"), // Array of specific issues
   reviewStatus: text("review_status").default("pending"), // pending, approved, requires_attention
   reviewNotes: text("review_notes"),
   createdAt: timestamp("created_at").defaultNow(),
   lastValidated: timestamp("last_validated").defaultNow(),
-});
+}, (table) => ({
+  projectIdIdx: index("boq_bim_mappings_project_id_idx").on(table.projectId),
+  boqItemIdIdx: index("boq_bim_mappings_boq_item_id_idx").on(table.boqItemId),
+  bimElementIdIdx: index("boq_bim_mappings_bim_element_id_idx").on(table.bimElementId),
+}));
 
 // 🏛️ NEW: Code License Registry - Track EstimatorPro vs client-owned licenses
 export const codeLicenses = pgTable("code_licenses", {
@@ -379,12 +400,12 @@ export const codeLicenses = pgTable("code_licenses", {
   authority: text("authority").notNull(), // National Research Council Canada, ICC, CSA Group
   licensingModel: licensingModelEnum("licensing_model").notNull(),
   licenseOwner: text("license_owner").notNull(), // "EstimatorPro" or client company name
-  clientCompanyId: varchar("client_company_id").references(() => companies.id), // If client-licensed
+  clientCompanyId: varchar("client_company_id").references(() => companies.id, { onDelete: "set null" }), // If client-licensed
   
   // License Details
   subscriptionLevel: text("subscription_level"), // basic, professional, enterprise
   accessLevel: codeAccessLevelEnum("access_level").notNull().default("read_only"),
-  usageRights: json("usage_rights").notNull().default("{}"), // { excerpts: boolean, full_text: boolean, commercial_use: boolean }
+  usageRights: jsonb("usage_rights").notNull().default("{}"), // { excerpts: boolean, full_text: boolean, commercial_use: boolean }
   attributionRequired: boolean("attribution_required").notNull().default(true),
   
   // Validity
@@ -395,7 +416,7 @@ export const codeLicenses = pgTable("code_licenses", {
   // Legal
   contractNumber: text("contract_number"),
   legalTerms: text("legal_terms"),
-  usageLimits: json("usage_limits").notNull().default("{}"), // { max_users: number, max_projects: number }
+  usageLimits: jsonb("usage_limits").notNull().default("{}"), // { max_users: number, max_projects: number }
   
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -408,7 +429,7 @@ export const codeLicenses = pgTable("code_licenses", {
 // 🏛️ NEW: Project Code Access - Link projects to appropriate licenses
 export const projectCodeAccess = pgTable("project_code_access", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").notNull().references(() => projects.id),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   codeLicenseId: varchar("code_license_id").notNull().references(() => codeLicenses.id),
   
   // Access Control
@@ -440,16 +461,16 @@ export const bimModels = pgTable("bim_models", {
   description: text("description"),
   modelType: varchar("model_type", { length: 50 }).notNull().default("architectural"), // architectural, structural, mep
   status: varchar("status", { length: 50 }).notNull().default("generating"), // generating, ready, error
-  geometryData: json("geometry_data"), // 3D geometry in JSON format
+  geometryData: jsonb("geometry_data"), // 3D geometry in JSON format
   ifcData: text("ifc_data"), // IFC file content
   fileUrl: varchar("file_url", { length: 500 }),
   fileSize: integer("file_size"), // in bytes
-  boundingBox: json("bounding_box"), // { min: [x,y,z], max: [x,y,z] }
-  components: json("components"), // Array of building components
-  materials: json("materials"), // Material definitions
+  boundingBox: jsonb("bounding_box"), // { min: [x,y,z], max: [x,y,z] }
+  components: jsonb("components"), // Array of building components
+  materials: jsonb("materials"), // Material definitions
   units: varchar("units", { length: 20 }).default("metric"), // metric, imperial
   version: varchar("version", { length: 100 }).default("1.0"),
-  metadata: json("metadata").default("{}"), // Progress tracking and generation metadata
+  metadata: jsonb("metadata").default("{}"), // Progress tracking and generation metadata
   elementCount: integer("element_count").default(0), // Number of BIM elements in model
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -464,9 +485,9 @@ export const bimElements = pgTable("bim_elements", {
   elementType: varchar("element_type", { length: 100 }).notNull(), // wall, door, window, beam, column, etc.
   elementId: varchar("element_id", { length: 100 }).notNull(), // unique identifier within model
   name: varchar("name", { length: 255 }),
-  geometry: json("geometry").notNull(), // 3D geometry data
-  properties: json("properties"), // Element properties (material, dimensions, etc.)
-  location: json("location"), // Position and orientation
+  geometry: jsonb("geometry").notNull(), // 3D geometry data
+  properties: jsonb("properties"), // Element properties (material, dimensions, etc.)
+  location: jsonb("location"), // Position and orientation
   parentId: varchar("parent_id"), // For hierarchical relationships
   level: varchar("level", { length: 100 }), // Building level/floor (legacy)
   
@@ -496,12 +517,13 @@ export const bimElements = pgTable("bim_elements", {
 }, (table) => ({
   modelIdIdx: index("bim_elements_model_id_idx").on(table.modelId),
   elementTypeIdx: index("bim_elements_element_type_idx").on(table.elementType),
+  createdAtIdx: index("bim_elements_created_at_idx").on(table.createdAt),
 }));
 
 // Analysis Results Storage - for revision comparison
 export const analysisResults = pgTable("analysis_results", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").notNull().references(() => projects.id),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   analysisType: varchar("analysis_type", { length: 50 }).notNull(), // similarity, compliance, boq
   revisionId: varchar("revision_id").notNull(), // Links to document revision
   analysisVersion: varchar("analysis_version", { length: 10 }).notNull().default("1.0"),
@@ -516,18 +538,18 @@ export const analysisResults = pgTable("analysis_results", {
   documentCount: integer("document_count").notNull(),
   analysisData: jsonb("analysis_data").notNull(), // Full analysis results
   summary: text("summary"), // Human-readable summary
-  riskAreas: json("risk_areas").notNull().default("[]"), // Array of risk areas
-  recommendations: json("recommendations").notNull().default("[]"), // Array of recommendations
+  riskAreas: jsonb("risk_areas").notNull().default("[]"), // Array of risk areas
+  recommendations: jsonb("recommendations").notNull().default("[]"), // Array of recommendations
   
   // Cost tracking
   claudeTokensUsed: integer("claude_tokens_used").default(0),
   processingTime: integer("processing_time"), // seconds
-  documentsProcessed: json("documents_processed").notNull().default("[]"), // Array of document IDs
-  documentsSkipped: json("documents_skipped").notNull().default("[]"), // Array of skipped docs (unchanged)
+  documentsProcessed: jsonb("documents_processed").notNull().default("[]"), // Array of document IDs
+  documentsSkipped: jsonb("documents_skipped").notNull().default("[]"), // Array of skipped docs (unchanged)
   
   // Change detection
-  changedDocuments: json("changed_documents").notNull().default("[]"), // Only docs that changed
-  documentHashes: json("document_hashes").notNull().default("{}"), // Document hash mapping
+  changedDocuments: jsonb("changed_documents").notNull().default("[]"), // Only docs that changed
+  documentHashes: jsonb("document_hashes").notNull().default("{}"), // Document hash mapping
   previousAnalysisId: varchar("previous_analysis_id"), // Links to previous analysis
   changesSummary: text("changes_summary"), // AI summary of what changed
   
@@ -538,6 +560,7 @@ export const analysisResults = pgTable("analysis_results", {
   analysisTypeIdx: index("analysis_results_analysis_type_idx").on(table.analysisType),
   revisionIdIdx: index("analysis_results_revision_id_idx").on(table.revisionId),
   createdAtIdx: index("analysis_results_created_at_idx").on(table.createdAt),
+  projectAnalysisTypeIdx: index("analysis_results_project_analysis_type_idx").on(table.projectId, table.analysisType),
 }));
 
 // 🧠 Analysis System Baseline Snapshot - tracks current system capabilities
@@ -548,12 +571,12 @@ export const analysisSystemBaseline = pgTable("analysis_system_baseline", {
   // Current Analysis Capabilities
   totalBimElements: integer("total_bim_elements").notNull(),
   uniqueElementTypes: integer("unique_element_types").notNull(),
-  elementTypesList: json("element_types_list").notNull().default("[]"),
+  elementTypesList: jsonb("element_types_list").notNull().default("[]"),
   
   // Compliance Capabilities
   totalComplianceChecks: integer("total_compliance_checks").notNull(),
   uniqueStandards: integer("unique_standards").notNull(),
-  standardsList: json("standards_list").notNull().default("[]"),
+  standardsList: jsonb("standards_list").notNull().default("[]"),
   
   // System Characteristics
   elementDiscoveryMethod: varchar("element_discovery_method", { length: 30 }).notNull(),
@@ -567,7 +590,7 @@ export const analysisSystemBaseline = pgTable("analysis_system_baseline", {
   // Metadata
   description: text("description"),
   snapshotDate: timestamp("snapshot_date").defaultNow(),
-  createdBy: varchar("created_by").references(() => users.id),
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
 }, (table) => ({
   systemVersionIdx: index("analysis_system_baseline_version_idx").on(table.systemVersion),
   snapshotDateIdx: index("analysis_system_baseline_date_idx").on(table.snapshotDate),
@@ -579,8 +602,8 @@ export const analysisComparisons = pgTable("analysis_comparisons", {
   projectId: varchar("project_id").notNull().references(() => projects.id),
   
   // Comparison details
-  oldAnalysisId: varchar("old_analysis_id").references(() => analysisResults.id),
-  newAnalysisId: varchar("new_analysis_id").references(() => analysisResults.id),
+  oldAnalysisId: varchar("old_analysis_id").references(() => analysisResults.id, { onDelete: "set null" }),
+  newAnalysisId: varchar("new_analysis_id").references(() => analysisResults.id, { onDelete: "set null" }),
   oldSystemVersion: varchar("old_system_version", { length: 20 }).notNull(),
   newSystemVersion: varchar("new_system_version", { length: 20 }).notNull(),
   
@@ -589,9 +612,9 @@ export const analysisComparisons = pgTable("analysis_comparisons", {
   newElementCount: integer("new_element_count").notNull(),
   elementCountDelta: integer("element_count_delta").notNull(),
   
-  oldElementTypes: json("old_element_types").notNull().default("[]"),
-  newElementTypes: json("new_element_types").notNull().default("[]"),
-  newlyDiscoveredTypes: json("newly_discovered_types").notNull().default("[]"),
+  oldElementTypes: jsonb("old_element_types").notNull().default("[]"),
+  newElementTypes: jsonb("new_element_types").notNull().default("[]"),
+  newlyDiscoveredTypes: jsonb("newly_discovered_types").notNull().default("[]"),
   
   // Compliance Comparison
   oldComplianceChecks: integer("old_compliance_checks").notNull(),
@@ -634,32 +657,38 @@ export const documentHashes = pgTable("document_hashes", {
 
 export const aiConfigurations = pgTable("ai_configurations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").references(() => projects.id),
+  projectId: varchar("project_id").references(() => projects.id, { onDelete: "cascade" }),
   configName: text("config_name").notNull(),
   processingMode: text("processing_mode").notNull().default("comprehensive"), // quick, standard, comprehensive, detailed
-  analysisStandards: json("analysis_standards").notNull().default("[]"), // ["NBC", "CSA", "IBC", etc.]
-  aiModels: json("ai_models").notNull().default("{}"), // {nlp: "advanced", cv: "yolo", ocr: "tesseract"}
-  detectComponents: json("detect_components").notNull().default("[]"), // ["walls", "doors", "windows", "MEP"]
-  extractionSettings: json("extraction_settings").notNull().default("{}"), // {confidence: 0.8, precision: "high"}
+  analysisStandards: jsonb("analysis_standards").notNull().default("[]"), // ["NBC", "CSA", "IBC", etc.]
+  aiModels: jsonb("ai_models").notNull().default("{}"), // {nlp: "advanced", cv: "yolo", ocr: "tesseract"}
+  detectComponents: jsonb("detect_components").notNull().default("[]"), // ["walls", "doors", "windows", "MEP"]
+  extractionSettings: jsonb("extraction_settings").notNull().default("{}"), // {confidence: 0.8, precision: "high"}
   isDefault: boolean("is_default").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  projectIdIdx: index("ai_configurations_project_id_idx").on(table.projectId),
+  isDefaultIdx: index("ai_configurations_is_default_idx").on(table.isDefault),
+}));
 
 export const processingJobs = pgTable("processing_jobs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  documentId: varchar("document_id").references(() => documents.id),
-  configId: varchar("config_id").references(() => aiConfigurations.id),
+  documentId: varchar("document_id").references(() => documents.id, { onDelete: "cascade" }),
+  configId: varchar("config_id").references(() => aiConfigurations.id, { onDelete: "set null" }),
   status: text("status").notNull().default("queued"), // queued, processing, completed, failed, cancelled
   progress: integer("progress").notNull().default(0), // 0-100
   currentStage: text("current_stage"), // "parsing", "nlp", "cv", "boq", "compliance"
-  stageDetails: json("stage_details").default("{}"),
-  results: json("results").default("{}"),
+  stageDetails: jsonb("stage_details").default("{}"),
+  results: jsonb("results").default("{}"),
   errorMessage: text("error_message"),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  documentIdIdx: index("processing_jobs_document_id_idx").on(table.documentId),
+  statusIdx: index("processing_jobs_status_idx").on(table.status),
+}));
 
 // Regulatory Analysis Cache - stores Claude's analysis results for regulatory combinations
 export const regulatoryAnalysisCache = pgTable("regulatory_analysis_cache", {
@@ -676,9 +705,9 @@ export const regulatoryAnalysisCache = pgTable("regulatory_analysis_cache", {
   
   // Analysis content from Claude
   analysisResult: jsonb("analysis_result").notNull(), // Full Claude analysis
-  complianceRules: json("compliance_rules").notNull().default("[]"), // Extracted compliance rules
-  keyRequirements: json("key_requirements").notNull().default("[]"), // Key regulatory requirements
-  conflictAreas: json("conflict_areas").notNull().default("[]"), // Areas where regulations might conflict
+  complianceRules: jsonb("compliance_rules").notNull().default("[]"), // Extracted compliance rules
+  keyRequirements: jsonb("key_requirements").notNull().default("[]"), // Key regulatory requirements
+  conflictAreas: jsonb("conflict_areas").notNull().default("[]"), // Areas where regulations might conflict
   
   // Usage tracking
   usageCount: integer("usage_count").notNull().default(1),
@@ -706,13 +735,13 @@ export const projectRegulatoryAnalysis = pgTable("project_regulatory_analysis", 
   cacheId: varchar("cache_id").notNull().references(() => regulatoryAnalysisCache.id),
   
   // Project-specific customizations
-  customRequirements: json("custom_requirements").default("[]"), // Additional project-specific requirements
-  exemptions: json("exemptions").default("[]"), // Regulatory exemptions for this project
+  customRequirements: jsonb("custom_requirements").default("[]"), // Additional project-specific requirements
+  exemptions: jsonb("exemptions").default("[]"), // Regulatory exemptions for this project
   
   // Analysis results specific to this project
-  applicableRules: json("applicable_rules").notNull().default("[]"), // Rules that apply to this specific project
-  riskAssessment: json("risk_assessment").default("{}"), // Risk analysis for this project
-  recommendedActions: json("recommended_actions").default("[]"), // Recommended compliance actions
+  applicableRules: jsonb("applicable_rules").notNull().default("[]"), // Rules that apply to this specific project
+  riskAssessment: jsonb("risk_assessment").default("{}"), // Risk analysis for this project
+  recommendedActions: jsonb("recommended_actions").default("[]"), // Recommended compliance actions
   
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -743,8 +772,8 @@ export const documentSimilarityCache = pgTable("document_similarity_cache", {
   similarityScore: decimal("similarity_score", { precision: 4, scale: 3 }).notNull(), // 0.000-1.000
   overlapType: text("overlap_type").notNull(), // content, compliance, specifications, materials, schedule
   details: text("details").notNull(),
-  conflicts: json("conflicts").notNull().default("[]"), // Array of conflict objects
-  recommendations: json("recommendations").notNull().default("[]"), // Array of recommendations
+  conflicts: jsonb("conflicts").notNull().default("[]"), // Array of conflict objects
+  recommendations: jsonb("recommendations").notNull().default("[]"), // Array of recommendations
   criticalLevel: text("critical_level").notNull(), // low, medium, high, critical
   
   // Usage tracking
@@ -790,18 +819,18 @@ export const rfis = pgTable("rfis", {
   fromCompany: text("from_company"),
   toName: text("to_name").notNull(),
   toCompany: text("to_company"),
-  submittedBy: varchar("submitted_by").references(() => users.id),
-  
+  submittedBy: varchar("submitted_by").references(() => users.id, { onDelete: "set null" }),
+
   // Status and workflow
   status: rfiStatusEnum("status").notNull().default("Open"),
-  answeredBy: varchar("answered_by").references(() => users.id),
+  answeredBy: varchar("answered_by").references(() => users.id, { onDelete: "set null" }),
   answeredAt: timestamp("answered_at"),
   
   // AI Enhancement fields
   generatedFromConflict: boolean("generated_from_conflict").default(false),
-  relatedConflicts: json("related_conflicts").default("[]"),
+  relatedConflicts: jsonb("related_conflicts").default("[]"),
   aiSuggestedResponse: text("ai_suggested_response"),
-  impactAssessment: json("impact_assessment"),
+  impactAssessment: jsonb("impact_assessment"),
   
   // Timestamps
   createdAt: timestamp("created_at").defaultNow(),
@@ -826,7 +855,7 @@ export const rfiResponses = pgTable("rfi_responses", {
   // Responder information
   responderName: text("responder_name").notNull(),
   responderCompany: text("responder_company"),
-  responderId: varchar("responder_id").references(() => users.id),
+  responderId: varchar("responder_id").references(() => users.id, { onDelete: "set null" }),
   
   // AI Enhancement
   aiGenerated: boolean("ai_generated").default(false),
@@ -881,14 +910,14 @@ export const changeRequests = pgTable("change_requests", {
   // Workflow
   status: changeRequestStatusEnum("status").notNull().default("Pending"),
   submittedBy: varchar("submitted_by").notNull().references(() => users.id),
-  reviewedBy: varchar("reviewed_by").references(() => users.id),
-  approvedBy: varchar("approved_by").references(() => users.id),
-  implementedBy: varchar("implemented_by").references(() => users.id),
+  reviewedBy: varchar("reviewed_by").references(() => users.id, { onDelete: "set null" }),
+  approvedBy: varchar("approved_by").references(() => users.id, { onDelete: "set null" }),
+  implementedBy: varchar("implemented_by").references(() => users.id, { onDelete: "set null" }),
   
   // AI Enhancement fields
-  aiGeneratedImpact: json("ai_generated_impact"),
-  affectedBoqItems: json("affected_boq_items").default("[]"),
-  affectedDocuments: json("affected_documents").default("[]"),
+  aiGeneratedImpact: jsonb("ai_generated_impact"),
+  affectedBoqItems: jsonb("affected_boq_items").default("[]"),
+  affectedDocuments: jsonb("affected_documents").default("[]"),
   estimateRevisionRequired: boolean("estimate_revision_required").default(false),
   bimModelUpdateRequired: boolean("bim_model_update_required").default(false),
   
@@ -939,12 +968,20 @@ export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  username: z.string().min(3, "Username must be at least 3 characters").max(100),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  name: z.string().min(1, "Name is required").max(255),
+  email: z.string().email("Invalid email address").optional().nullable(),
 });
 
 export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  plan: z.enum(["starter", "pro", "enterprise"]),
+  status: z.enum(["trialing", "active", "past_due", "canceled", "unpaid"]),
 });
 
 export const insertPlanLimitSchema = createInsertSchema(planLimits).omit({
@@ -957,12 +994,24 @@ export const insertProjectSchema = createInsertSchema(projects).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  name: z.string().min(1, "Project name is required").max(500),
+  location: z.string().min(1, "Location is required"),
+  country: z.enum(["canada", "usa"]),
+  status: z.enum(["Draft", "In Progress", "Completed", "On Hold"]).default("Draft"),
+  rateSystem: z.enum(["ciqs", "quicktakeoff"]).default("ciqs"),
 });
 
 export const insertDocumentSchema = createInsertSchema(documents).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  filename: z.string().min(1, "Filename is required"),
+  originalName: z.string().min(1, "Original name is required"),
+  fileType: z.string().min(1, "File type is required"),
+  storageKey: z.string().min(1, "Storage key is required"),
+  projectId: z.string().min(1, "Project ID is required"),
 });
 
 export const insertBuildingCodeSectionSchema = createInsertSchema(buildingCodeSections).omit({
@@ -1004,6 +1053,13 @@ export const insertRfiSchema = createInsertSchema(rfis).omit({
   submittedBy: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  subject: z.string().min(1, "Subject is required").max(500),
+  question: z.string().min(1, "Question is required"),
+  fromName: z.string().min(1, "From name is required"),
+  toName: z.string().min(1, "To name is required"),
+  projectId: z.string().min(1, "Project ID is required"),
+  rfiNumber: z.string().min(1, "RFI number is required"),
 });
 
 export const insertRfiResponseSchema = createInsertSchema(rfiResponses).omit({
@@ -1022,6 +1078,12 @@ export const insertChangeRequestSchema = createInsertSchema(changeRequests).omit
   status: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  title: z.string().min(1, "Title is required").max(500),
+  description: z.string().min(1, "Description is required"),
+  reason: z.string().min(1, "Reason is required"),
+  projectId: z.string().min(1, "Project ID is required"),
+  submittedBy: z.string().min(1, "Submitter is required"),
 });
 
 export const insertChangeRequestAttachmentSchema = createInsertSchema(changeRequestAttachments).omit({
@@ -1273,7 +1335,10 @@ export const materials = pgTable("materials", {
   expiryDate: timestamp("expiry_date"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
-});
+}, (table) => ({
+  categoryIdx: index("materials_category_idx").on(table.category),
+  regionIdx: index("materials_region_idx").on(table.region),
+}));
 
 // Labour rates database
 export const labourRates = pgTable("labour_rates", {
@@ -1291,7 +1356,10 @@ export const labourRates = pgTable("labour_rates", {
   expiryDate: timestamp("expiry_date"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
-});
+}, (table) => ({
+  tradeIdx: index("labour_rates_trade_idx").on(table.trade),
+  regionIdx: index("labour_rates_region_idx").on(table.region),
+}));
 
 // Equipment rates database
 export const equipmentRates = pgTable("equipment_rates", {
@@ -1314,7 +1382,10 @@ export const equipmentRates = pgTable("equipment_rates", {
   expiryDate: timestamp("expiry_date"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
-});
+}, (table) => ({
+  categoryIdx: index("equipment_rates_category_idx").on(table.category),
+  regionIdx: index("equipment_rates_region_idx").on(table.region),
+}));
 
 // Regional cost factors
 export const costFactors = pgTable("cost_factors", {
@@ -1335,7 +1406,9 @@ export const costFactors = pgTable("cost_factors", {
   expiryDate: timestamp("expiry_date"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
-});
+}, (table) => ({
+  regionIdx: index("cost_factors_region_idx").on(table.region),
+}));
 
 // Suppliers database
 export const suppliers = pgTable("suppliers", {
@@ -1361,7 +1434,9 @@ export const suppliers = pgTable("suppliers", {
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
-});
+}, (table) => ({
+  categoryIdx: index("suppliers_category_idx").on(table.category),
+}));
 
 // Cost estimates table
 export const costEstimates = pgTable("cost_estimates", {
@@ -1398,7 +1473,10 @@ export const costEstimates = pgTable("cost_estimates", {
   approvedAt: timestamp("approved_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
-});
+}, (table) => ({
+  projectIdIdx: index("cost_estimates_project_id_idx").on(table.projectId),
+  statusIdx: index("cost_estimates_status_idx").on(table.status),
+}));
 
 // Cost estimate line items
 export const costEstimateItems = pgTable("cost_estimate_items", {
@@ -1421,20 +1499,23 @@ export const costEstimateItems = pgTable("cost_estimate_items", {
   subcontractorCost: decimal("subcontractor_cost", { precision: 12, scale: 2 }).default("0.00"),
   
   // References
-  materialId: varchar("material_id").references(() => materials.id),
-  labourId: varchar("labour_id").references(() => labourRates.id),
-  equipmentId: varchar("equipment_id").references(() => equipmentRates.id),
-  supplierId: varchar("supplier_id").references(() => suppliers.id),
+  materialId: varchar("material_id").references(() => materials.id, { onDelete: "set null" }),
+  labourId: varchar("labour_id").references(() => labourRates.id, { onDelete: "set null" }),
+  equipmentId: varchar("equipment_id").references(() => equipmentRates.id, { onDelete: "set null" }),
+  supplierId: varchar("supplier_id").references(() => suppliers.id, { onDelete: "set null" }),
   
   // Additional data
   specifications: jsonb("specifications"),
   notes: text("notes"),
   riskLevel: varchar("risk_level", { length: 20 }).default("medium"),
   confidence: decimal("confidence", { precision: 5, scale: 2 }).default("0.80"),
-  
+
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow()
-});
+}, (table) => ({
+  estimateIdIdx: index("cost_estimate_items_estimate_id_idx").on(table.estimateId),
+  categoryIdx: index("cost_estimate_items_category_idx").on(table.category),
+}));
 
 // Schema exports for cost estimation
 export const insertMaterialSchema = createInsertSchema(materials).omit({ id: true, createdAt: true, updatedAt: true });
@@ -1511,7 +1592,10 @@ export const costItems = pgTable("cost_items", {
   region: varchar("region").default("CA-ON"),
   notes: text("notes"),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  codeIdx: index("cost_items_code_idx").on(table.code),
+  regionIdx: index("cost_items_region_idx").on(table.region),
+}));
 
 export const insertCostItemSchema = createInsertSchema(costItems);
 export type InsertCostItem = z.infer<typeof insertCostItemSchema>;
@@ -1529,7 +1613,7 @@ export const productCatalog = pgTable("product_catalog", {
   manufacturer: varchar("manufacturer", { length: 100 }), // "Sica", "Holcim", "Lafarge"
   specifications: text("specifications").notNull(), // Full spec text from Claude
   grade: varchar("grade", { length: 50 }), // "30 MPa", "Grade 350W", "Type I"
-  standardCompliance: json("standard_compliance").default("[]"), // ["CSA A23.1", "ASTM C150"]
+  standardCompliance: jsonb("standard_compliance").default("[]"), // ["CSA A23.1", "ASTM C150"]
   
   // Costing
   defaultUnitCost: decimal("default_unit_cost", { precision: 10, scale: 2 }),
@@ -1554,7 +1638,7 @@ export const productCatalog = pgTable("product_catalog", {
 export const elementProductSelections = pgTable("element_product_selections", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   bimElementId: varchar("bim_element_id").notNull().references(() => bimElements.id, { onDelete: "cascade" }),
-  productId: varchar("product_id").references(() => productCatalog.id),
+  productId: varchar("product_id").references(() => productCatalog.id, { onDelete: "set null" }),
   
   // User Selection Data
   selectionType: productSelectionStatusEnum("selection_type").notNull().default("default"),
@@ -1847,7 +1931,7 @@ export const gridMarkers = pgTable("grid_markers", {
   confidence: decimal("confidence", { precision: 4, scale: 3 }).notNull(),
 
   // Evidence pointer: file, page, and drawing coordinates
-  evidenceFileId: varchar("evidence_file_id").references(() => documents.id),
+  evidenceFileId: varchar("evidence_file_id").references(() => documents.id, { onDelete: "set null" }),
   evidencePage: integer("evidence_page"),
   evidenceBbox: jsonb("evidence_bbox"),               // Bounding box in source coordinates
 
@@ -1877,7 +1961,7 @@ export const gridLabels = pgTable("grid_labels", {
   // Expected shape: { minX: number, minY: number, maxX: number, maxY: number }
 
   // Evidence pointer
-  evidenceFileId: varchar("evidence_file_id").references(() => documents.id),
+  evidenceFileId: varchar("evidence_file_id").references(() => documents.id, { onDelete: "set null" }),
   evidencePage: integer("evidence_page"),
 
   createdAt: timestamp("created_at").defaultNow(),
@@ -1978,7 +2062,7 @@ export const gridCoordinateTransforms = pgTable("grid_coordinate_transforms", {
   projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
 
   // Source references
-  sourceFileId: varchar("source_file_id").references(() => documents.id),
+  sourceFileId: varchar("source_file_id").references(() => documents.id, { onDelete: "set null" }),
   sheetId: varchar("sheet_id", { length: 100 }),
   pageNo: integer("page_no"),
 
@@ -2081,6 +2165,7 @@ export const notifications = pgTable("notifications", {
   projectIdx: index("notifications_project_idx").on(table.projectId),
   readIdx:    index("notifications_read_idx").on(table.isRead),
   createdIdx: index("notifications_created_idx").on(table.createdAt),
+  userReadIdx: index("notifications_user_read_idx").on(table.userId, table.isRead),
 }));
 
 export const insertNotificationSchema = createInsertSchema(notifications).omit({ id: true, createdAt: true });
@@ -2153,7 +2238,7 @@ export const estimateSnapshots = pgTable("estimate_snapshots", {
   revisionNumber: integer("revision_number").notNull(),
   revisionLabel:  varchar("revision_label", { length: 20 }).notNull(),
   note:           text("note"),
-  snapshot:       json("snapshot").notNull(),          // Full EstimateSnapshot JSON
+  snapshot:       jsonb("snapshot").notNull(),          // Full EstimateSnapshot JSON
   createdAt:      timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({ modelIdx: index("est_snap_model_idx").on(t.modelId) }));
 
@@ -2168,10 +2253,10 @@ export const vendorQuotes = pgTable("vendor_quotes", {
   vendorName:   varchar("vendor_name", { length: 255 }).notNull(),
   csiDivision:  varchar("csi_division", { length: 20 }),
   description:  text("description"),
-  amount:       varchar("amount", { length: 50 }).notNull(),
+  amount:       decimal("amount", { precision: 12, scale: 2 }).notNull(),
   currency:     varchar("currency", { length: 5 }).notNull().default("CAD"),
   validUntil:   timestamp("valid_until"),
-  quoteData:    json("quote_data").notNull(),           // Full VendorQuote JSON
+  quoteData:    jsonb("quote_data").notNull(),           // Full VendorQuote JSON
   createdAt:    timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({ modelIdx: index("vendor_quote_model_idx").on(t.modelId) }));
 
@@ -2185,9 +2270,9 @@ export const estimateAlternates = pgTable("estimate_alternates", {
   modelId:       varchar("model_id").notNull(),
   title:         varchar("title", { length: 255 }).notNull(),
   description:   text("description"),
-  deltaAmount:   varchar("delta_amount", { length: 50 }),
+  deltaAmount:   decimal("delta_amount", { precision: 12, scale: 2 }),
   currency:      varchar("currency", { length: 5 }).notNull().default("CAD"),
-  alternateData: json("alternate_data").notNull(),      // Full alternate JSON
+  alternateData: jsonb("alternate_data").notNull(),      // Full alternate JSON
   createdAt:     timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({ modelIdx: index("est_alt_model_idx").on(t.modelId) }));
 
@@ -2203,7 +2288,7 @@ export const estimateRfis = pgTable("estimate_rfis", {
   subject:     text("subject").notNull(),
   priority:    varchar("priority", { length: 20 }).notNull().default("normal"),
   status:      varchar("status", { length: 30 }).notNull().default("draft"),
-  rfiData:     json("rfi_data").notNull(),              // Full RFI JSON
+  rfiData:     jsonb("rfi_data").notNull(),              // Full RFI JSON
   createdAt:   timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({ modelIdx: index("est_rfi_model_idx").on(t.modelId) }));
 
@@ -2232,11 +2317,11 @@ export const constructionSequences = pgTable("construction_sequences", {
 
   // AI proposal — full structured sequence JSON
   // Shape: { activities: SequenceActivity[], rationale: string, warnings: string[] }
-  proposedData:  json("proposed_data").notNull(),
+  proposedData:  jsonb("proposed_data").notNull(),
 
   // QS-edited version — null until the QS confirms
   // Shape: same as proposedData but may have reordered/edited activities
-  confirmedData: json("confirmed_data"),
+  confirmedData: jsonb("confirmed_data"),
 
   // Who confirmed and when
   confirmedBy:   varchar("confirmed_by"),
@@ -2252,12 +2337,12 @@ export const constructionSequences = pgTable("construction_sequences", {
 
   // AI rationale summary (surfaced in UI)
   aiRationale:   text("ai_rationale"),
-  aiWarnings:    json("ai_warnings"),  // string[]
+  aiWarnings:    jsonb("ai_warnings"),  // string[]
 
   // Project calendar basis
   projectStartDate: varchar("project_start_date"),  // ISO date
   workingDaysPerWeek: integer("working_days_per_week").default(5),
-  holidays: json("holidays"),  // string[] of ISO dates
+  holidays: jsonb("holidays"),  // string[] of ISO dates
 
   createdAt:     timestamp("created_at").defaultNow().notNull(),
   updatedAt:     timestamp("updated_at").defaultNow().notNull(),
@@ -2272,3 +2357,169 @@ export const insertConstructionSequenceSchema = createInsertSchema(constructionS
 });
 export type InsertConstructionSequence = z.infer<typeof insertConstructionSequenceSchema>;
 export type ConstructionSequenceRow = typeof constructionSequences.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ESTIMATION RATE TABLES — Database-backed rates (replaces hardcoded CSI_RATES)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const rateSourceEnum = pgEnum("rate_source", [
+  "system_default",    // Seeded from hardcoded CSI_RATES baseline
+  "user_override",     // Manually edited by user/admin
+  "vendor_quote",      // From a vendor quote
+  "rsmeans",           // From RSMeans API
+]);
+
+// ── Unit Rates table — replaces CSI_RATES constant in estimate-engine.ts ──
+export const unitRates = pgTable("unit_rates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  csiCode: varchar("csi_code", { length: 50 }).notNull(),
+  description: text("description").notNull(),
+  unit: varchar("unit", { length: 20 }).notNull(),
+  materialRate: decimal("material_rate", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  laborRate: decimal("labor_rate", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  equipmentRate: decimal("equipment_rate", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  crewSize: decimal("crew_size", { precision: 5, scale: 1 }).notNull().default("1"),
+  productivityRate: decimal("productivity_rate", { precision: 8, scale: 3 }).notNull().default("1.000"),
+  source: rateSourceEnum("source").notNull().default("system_default"),
+  region: varchar("region", { length: 100 }),  // null = global baseline
+  effectiveDate: timestamp("effective_date").defaultNow(),
+  expiryDate: timestamp("expiry_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  csiCodeIdx: index("unit_rates_csi_code_idx").on(t.csiCode),
+  regionIdx: index("unit_rates_region_idx").on(t.region),
+  csiRegionUniq: unique("unit_rates_csi_region_uniq").on(t.csiCode, t.region),
+}));
+
+export const insertUnitRateSchema = createInsertSchema(unitRates).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertUnitRate = z.infer<typeof insertUnitRateSchema>;
+export type UnitRate = typeof unitRates.$inferSelect;
+
+// ── MEP Rates table — replaces hardcoded ontario-mep-rates arrays ──
+export const mepRates = pgTable("mep_rates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  csiCode: varchar("csi_code", { length: 50 }).notNull(),
+  division: varchar("division", { length: 10 }).notNull(),  // "21", "22", "23", "26", "27", "28"
+  description: text("description").notNull(),
+  unit: varchar("unit", { length: 20 }).notNull(),
+  materialRate: decimal("material_rate", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  labourRate: decimal("labour_rate", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  unitRate: decimal("unit_rate", { precision: 12, scale: 2 }).notNull().default("0.00"),
+  labourHoursPerUnit: decimal("labour_hours_per_unit", { precision: 8, scale: 3 }).notNull().default("1.000"),
+  tradeLocal: varchar("trade_local", { length: 100 }),  // e.g., "UA Local 46"
+  collectiveAgreementYear: integer("collective_agreement_year"),
+  source: rateSourceEnum("source").notNull().default("system_default"),
+  region: varchar("region", { length: 100 }),
+  effectiveDate: timestamp("effective_date").defaultNow(),
+  expiryDate: timestamp("expiry_date"),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  csiCodeIdx: index("mep_rates_csi_code_idx").on(t.csiCode),
+  divisionIdx: index("mep_rates_division_idx").on(t.division),
+  csiRegionUniq: unique("mep_rates_csi_region_uniq").on(t.csiCode, t.region),
+}));
+
+export const insertMepRateSchema = createInsertSchema(mepRates).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertMepRate = z.infer<typeof insertMepRateSchema>;
+export type MepRate = typeof mepRates.$inferSelect;
+
+// ── Regional Factors table — replaces CANADIAN_PROVINCIAL_FACTORS constant ──
+export const regionalFactors = pgTable("regional_factors", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  regionKey: varchar("region_key", { length: 100 }).notNull(),
+  regionLabel: varchar("region_label", { length: 200 }).notNull(),
+  province: varchar("province", { length: 50 }).notNull(),
+  compositeIndex: decimal("composite_index", { precision: 5, scale: 3 }).notNull().default("1.000"),
+  materialIndex: decimal("material_index", { precision: 5, scale: 3 }).notNull().default("1.000"),
+  laborIndex: decimal("labor_index", { precision: 5, scale: 3 }).notNull().default("1.000"),
+  equipmentIndex: decimal("equipment_index", { precision: 5, scale: 3 }).notNull().default("1.000"),
+  transportFactor: decimal("transport_factor", { precision: 5, scale: 3 }).notNull().default("1.000"),
+  remoteFactor: decimal("remote_factor", { precision: 5, scale: 3 }).notNull().default("1.000"),
+  hstGstRate: decimal("hst_gst_rate", { precision: 5, scale: 3 }).notNull().default("0.130"),
+  pstRate: decimal("pst_rate", { precision: 5, scale: 3 }).notNull().default("0.000"),
+  taxDescription: varchar("tax_description", { length: 100 }),
+  source: varchar("source", { length: 255 }),
+  effectiveDate: timestamp("effective_date").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  regionKeyUniq: unique("regional_factors_region_key_uniq").on(t.regionKey),
+}));
+
+export const insertRegionalFactorSchema = createInsertSchema(regionalFactors).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertRegionalFactor = z.infer<typeof insertRegionalFactorSchema>;
+export type RegionalFactor = typeof regionalFactors.$inferSelect;
+
+// ── Project OH&P Configuration — replaces in-memory Map in ohp-configuration.ts ──
+export const projectOhpConfigs = pgTable("project_ohp_configs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  overheadPct: decimal("overhead_pct", { precision: 5, scale: 3 }).notNull().default("0.150"),
+  overheadSource: varchar("overhead_source", { length: 30 }).notNull().default("SYSTEM_FALLBACK"),
+  overheadConfidence: varchar("overhead_confidence", { length: 10 }).notNull().default("LOW"),
+  profitPct: decimal("profit_pct", { precision: 5, scale: 3 }).notNull().default("0.100"),
+  profitSource: varchar("profit_source", { length: 30 }).notNull().default("SYSTEM_FALLBACK"),
+  profitConfidence: varchar("profit_confidence", { length: 10 }).notNull().default("LOW"),
+  contingencyPct: decimal("contingency_pct", { precision: 5, scale: 3 }).notNull().default("0.050"),
+  contingencySource: varchar("contingency_source", { length: 30 }).notNull().default("SYSTEM_FALLBACK"),
+  contingencyConfidence: varchar("contingency_confidence", { length: 10 }).notNull().default("LOW"),
+  applyToSubcontractorCosts: boolean("apply_to_subcontractor_costs").notNull().default(true),
+  applyToEquipmentCosts: boolean("apply_to_equipment_costs").notNull().default(true),
+  projectNotes: text("project_notes"),
+  updatedBy: varchar("updated_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  projectIdUniq: unique("project_ohp_project_uniq").on(t.projectId),
+}));
+
+export const insertProjectOhpConfigSchema = createInsertSchema(projectOhpConfigs).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertProjectOhpConfig = z.infer<typeof insertProjectOhpConfigSchema>;
+export type ProjectOhpConfig = typeof projectOhpConfigs.$inferSelect;
+
+// ── Rate Audit Log — tracks who changed which rates and when ──
+export const rateAuditLog = pgTable("rate_audit_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tableName: varchar("table_name", { length: 50 }).notNull(), // "unit_rates", "mep_rates", "regional_factors", "project_ohp_configs"
+  recordId: varchar("record_id").notNull(),
+  action: varchar("action", { length: 20 }).notNull(), // "create", "update", "delete", "import"
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
+  userName: varchar("user_name", { length: 100 }),
+  fieldChanges: jsonb("field_changes"), // { field: { old: val, new: val } }
+  metadata: jsonb("metadata"), // extra context: import source, CSV filename, etc.
+  ipAddress: varchar("ip_address", { length: 45 }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({
+  tableNameIdx: index("rate_audit_table_name_idx").on(t.tableName),
+  recordIdIdx: index("rate_audit_record_id_idx").on(t.recordId),
+  userIdIdx: index("rate_audit_user_id_idx").on(t.userId),
+  createdAtIdx: index("rate_audit_created_at_idx").on(t.createdAt),
+}));
+
+export const insertRateAuditLogSchema = createInsertSchema(rateAuditLog).omit({ id: true, createdAt: true });
+export type InsertRateAuditLog = z.infer<typeof insertRateAuditLogSchema>;
+export type RateAuditLog = typeof rateAuditLog.$inferSelect;
+
+// ── Rate Versions — full snapshot of rate before each change ──
+export const rateVersions = pgTable("rate_versions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tableName: varchar("table_name", { length: 50 }).notNull(),
+  recordId: varchar("record_id").notNull(),
+  version: integer("version").notNull().default(1),
+  snapshot: jsonb("snapshot").notNull(), // full row data at this version
+  changedBy: varchar("changed_by").references(() => users.id, { onDelete: "set null" }),
+  changedByName: varchar("changed_by_name", { length: 100 }),
+  changeReason: text("change_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({
+  tableRecordIdx: index("rate_versions_table_record_idx").on(t.tableName, t.recordId),
+  versionIdx: index("rate_versions_version_idx").on(t.version),
+  tableRecordVersionUniq: unique("rate_versions_table_record_version_uniq").on(t.tableName, t.recordId, t.version),
+}));
+
+export const insertRateVersionSchema = createInsertSchema(rateVersions).omit({ id: true, createdAt: true });
+export type InsertRateVersion = z.infer<typeof insertRateVersionSchema>;
+export type RateVersion = typeof rateVersions.$inferSelect;

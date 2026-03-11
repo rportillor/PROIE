@@ -16,8 +16,11 @@ export default function TestDashboard() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
+      const token = localStorage.getItem('auth_token');
+      const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
       const [dashRes, exitRes] = await Promise.all([
-        fetch(`/api/qa/dashboard/${release}`), fetch(`/api/qa/exit-criteria/${release}`)
+        fetch(`/api/qa/dashboard/${release}`, { headers: authHeaders, credentials: 'include' }),
+        fetch(`/api/qa/exit-criteria/${release}`, { headers: authHeaders, credentials: 'include' })
       ]);
       if (dashRes.ok) setDashboard(await dashRes.json());
       if (exitRes.ok) setExitCriteria(await exitRes.json());
