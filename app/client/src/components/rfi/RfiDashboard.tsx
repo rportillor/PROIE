@@ -69,7 +69,7 @@ export function RfiDashboard({ projectId }: RfiDashboardProps) {
   // Create RFI mutation
   const createRfiMutation = useMutation({
     mutationFn: (data: CreateRfiForm) => 
-      apiRequest(`/api/projects/${projectId}/rfis`, "POST", data),
+      apiRequest("POST", `/api/projects/${projectId}/rfis`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "rfis"] });
       setIsCreateDialogOpen(false);

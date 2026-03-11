@@ -909,7 +909,17 @@ function SOVTab({ projectId, modelId, projectName }: { projectId: string; modelI
             <div className="flex space-x-2">
               <Button size="sm" onClick={() => generateSOV.mutate()} disabled={!modelId}>Generate SOV</Button>
               {sov && (
-                <Button size="sm" variant="outline" onClick={() => window.open(`/api/qs5/projects/${projectId}/sov.csv`, "_blank")}>
+                <Button size="sm" variant="outline" onClick={async () => {
+                  try {
+                    const resp = await apiRequest("GET", `/api/qs5/projects/${projectId}/sov.csv`);
+                    const blob = await resp.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url; a.download = "sov.csv";
+                    document.body.appendChild(a); a.click();
+                    document.body.removeChild(a); URL.revokeObjectURL(url);
+                  } catch (err) { console.error("SOV CSV export failed:", err); }
+                }}>
                   <Download className="w-3 h-3 mr-1" /> CSV
                 </Button>
               )}
@@ -1020,7 +1030,17 @@ function BoETab({ projectId, modelId, projectName, projectData }: { projectId: s
                 <FileText className="w-4 h-4 mr-2" /> Generate BoE
               </Button>
               {boe && (
-                <Button size="sm" variant="outline" onClick={() => window.open(`/api/qs5/projects/${projectId}/boe?format=text`, "_blank")}>
+                <Button size="sm" variant="outline" onClick={async () => {
+                  try {
+                    const resp = await apiRequest("GET", `/api/qs5/projects/${projectId}/boe?format=text`);
+                    const blob = await resp.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url; a.download = "basis-of-estimate.txt";
+                    document.body.appendChild(a); a.click();
+                    document.body.removeChild(a); URL.revokeObjectURL(url);
+                  } catch (err) { console.error("BoE export failed:", err); }
+                }}>
                   <Download className="w-3 h-3 mr-1" /> Text Export
                 </Button>
               )}

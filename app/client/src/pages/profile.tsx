@@ -39,17 +39,7 @@ export default function ProfilePage() {
   const updateProfileMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
       try {
-        const response = await fetch('/api/user/profile', {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(data)
-        }).catch(err => {
-          console.error('Failed to update profile:', err);
-          throw err;
-        });
-        if (!response.ok) throw new Error('Failed to update profile');
+        const response = await apiRequest('PUT', '/api/user/profile', data);
         return response.json();
       } catch (error) {
         console.error('Profile update failed:', error);

@@ -15,6 +15,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -236,10 +237,7 @@ export default function BCFViewerPanel() {
   // ── BCF Export mutation ──────────────────────────────────────────────
   const bcfMutation = useMutation<BCFExportResult>({
     mutationFn: async () => {
-      const res = await fetch("/api/bim-coordination/bcf-export", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+      const res = await apiRequest("POST", "/api/bim-coordination/bcf-export");
       if (!res.ok) throw new Error("Failed to generate BCF export");
       return res.json();
     },

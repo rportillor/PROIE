@@ -57,8 +57,12 @@ export async function fetchAllModelElements(
   
   while (hasMore) {
     try {
+      const token = localStorage.getItem("auth_token");
+      const paginationHeaders: Record<string, string> = {};
+      if (token) paginationHeaders["Authorization"] = `Bearer ${token}`;
       const response = await fetch(
-        `/api/bim/models/${modelId}/elements?offset=${offset}&limit=${batchSize}`
+        `/api/bim/models/${modelId}/elements?offset=${offset}&limit=${batchSize}`,
+        { headers: paginationHeaders, credentials: "include" }
       ).catch(err => {
         console.error('Failed to fetch elements batch:', err);
         throw err;

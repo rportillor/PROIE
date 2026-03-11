@@ -47,12 +47,17 @@ export function DebugPanel() {
   const testDocumentView = async () => {
     try {
       const token = localStorage.getItem('auth_token') || 'test-token';
-      const testUrl = '/api/projects/c7ec2523-8631-4181-8c6e-f705861654d7/documents/8ed368c3-0282-4efd-94ea-21e2af8ba76f/view?token=' + encodeURIComponent(token);
-      
-      console.log('🧪 Testing document view URL:', testUrl);
-      window.open(testUrl, '_blank');
+      const testUrl = '/api/projects/c7ec2523-8631-4181-8c6e-f705861654d7/documents/8ed368c3-0282-4efd-94ea-21e2af8ba76f/view';
+
+      console.log('Testing document view URL:', testUrl);
+      const resp = await fetch(testUrl, { headers: { 'Authorization': `Bearer ${token}` }, credentials: 'include' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
     } catch (error) {
-      console.error('❌ Error testing document view:', error);
+      console.error('Error testing document view:', error);
     }
   };
 

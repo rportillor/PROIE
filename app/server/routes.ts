@@ -1645,9 +1645,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[*] Routes: Triggering comprehensive analysis for project ${projectId}`);
       
       // Start comprehensive analysis in background
+      const authHeader = req.headers.authorization || '';
       const comprehensiveAnalysisResponse = await fetch(`http://localhost:5000/api/comprehensive-analysis/${projectId}`, {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer test-token' }
+        headers: { 'Authorization': authHeader }
       });
       
       if (comprehensiveAnalysisResponse.ok) {
@@ -3672,7 +3673,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // [*] FIX: Add ALL remaining specific missing endpoints from integration test
 
   // Admin and system endpoints
-  app.get('/api/admin/usage-summary', authenticateToken, async (req, res) => {
+  app.get('/api/admin/usage-summary', authenticateToken, requireAdmin, async (req, res) => {
     try {
       res.json({
         totalUsers: 1,
