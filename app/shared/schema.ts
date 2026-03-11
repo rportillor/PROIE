@@ -155,7 +155,7 @@ export const projects = pgTable("projects", {
   riskProfile: text("risk_profile").default("medium"),        // low, medium, high
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-  userId: varchar("user_id").references(() => users.id),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
 }, (table) => ({
   userIdIdx: index("projects_user_id_idx").on(table.userId),
 }));
@@ -217,7 +217,7 @@ export const documentRevisions = pgTable("document_revisions", {
   revisionNumber: integer("revision_number").notNull(),
   filePath: text("file_path").notNull(),
   fileHash: text("file_hash").notNull(),
-  uploadedBy: varchar("uploaded_by").references(() => users.id),
+  uploadedBy: varchar("uploaded_by").references(() => users.id, { onDelete: "set null" }),
   status: revisionStatusEnum("status").notNull().default("pending"),
   notes: text("notes"),
   fileMime: text("file_mime"),
@@ -257,7 +257,7 @@ export const boqVersions = pgTable("boq_versions", {
   projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   versionName: text("version_name").notNull(),
   description: text("description"),
-  savedBy: varchar("saved_by").references(() => users.id),
+  savedBy: varchar("saved_by").references(() => users.id, { onDelete: "set null" }),
   totalValue: decimal("total_value", { precision: 15, scale: 2 }),
   elementCount: integer("element_count"),
   isDefault: boolean("is_default").default(false),
@@ -398,7 +398,7 @@ export const codeLicenses = pgTable("code_licenses", {
   authority: text("authority").notNull(), // National Research Council Canada, ICC, CSA Group
   licensingModel: licensingModelEnum("licensing_model").notNull(),
   licenseOwner: text("license_owner").notNull(), // "EstimatorPro" or client company name
-  clientCompanyId: varchar("client_company_id").references(() => companies.id), // If client-licensed
+  clientCompanyId: varchar("client_company_id").references(() => companies.id, { onDelete: "set null" }), // If client-licensed
   
   // License Details
   subscriptionLevel: text("subscription_level"), // basic, professional, enterprise
@@ -654,7 +654,7 @@ export const documentHashes = pgTable("document_hashes", {
 
 export const aiConfigurations = pgTable("ai_configurations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").references(() => projects.id),
+  projectId: varchar("project_id").references(() => projects.id, { onDelete: "cascade" }),
   configName: text("config_name").notNull(),
   processingMode: text("processing_mode").notNull().default("comprehensive"), // quick, standard, comprehensive, detailed
   analysisStandards: jsonb("analysis_standards").notNull().default("[]"), // ["NBC", "CSA", "IBC", etc.]
@@ -670,8 +670,8 @@ export const aiConfigurations = pgTable("ai_configurations", {
 
 export const processingJobs = pgTable("processing_jobs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  documentId: varchar("document_id").references(() => documents.id),
-  configId: varchar("config_id").references(() => aiConfigurations.id),
+  documentId: varchar("document_id").references(() => documents.id, { onDelete: "cascade" }),
+  configId: varchar("config_id").references(() => aiConfigurations.id, { onDelete: "set null" }),
   status: text("status").notNull().default("queued"), // queued, processing, completed, failed, cancelled
   progress: integer("progress").notNull().default(0), // 0-100
   currentStage: text("current_stage"), // "parsing", "nlp", "cv", "boq", "compliance"
@@ -815,11 +815,11 @@ export const rfis = pgTable("rfis", {
   fromCompany: text("from_company"),
   toName: text("to_name").notNull(),
   toCompany: text("to_company"),
-  submittedBy: varchar("submitted_by").references(() => users.id),
-  
+  submittedBy: varchar("submitted_by").references(() => users.id, { onDelete: "set null" }),
+
   // Status and workflow
   status: rfiStatusEnum("status").notNull().default("Open"),
-  answeredBy: varchar("answered_by").references(() => users.id),
+  answeredBy: varchar("answered_by").references(() => users.id, { onDelete: "set null" }),
   answeredAt: timestamp("answered_at"),
   
   // AI Enhancement fields
@@ -851,7 +851,7 @@ export const rfiResponses = pgTable("rfi_responses", {
   // Responder information
   responderName: text("responder_name").notNull(),
   responderCompany: text("responder_company"),
-  responderId: varchar("responder_id").references(() => users.id),
+  responderId: varchar("responder_id").references(() => users.id, { onDelete: "set null" }),
   
   // AI Enhancement
   aiGenerated: boolean("ai_generated").default(false),
@@ -906,9 +906,9 @@ export const changeRequests = pgTable("change_requests", {
   // Workflow
   status: changeRequestStatusEnum("status").notNull().default("Pending"),
   submittedBy: varchar("submitted_by").notNull().references(() => users.id),
-  reviewedBy: varchar("reviewed_by").references(() => users.id),
-  approvedBy: varchar("approved_by").references(() => users.id),
-  implementedBy: varchar("implemented_by").references(() => users.id),
+  reviewedBy: varchar("reviewed_by").references(() => users.id, { onDelete: "set null" }),
+  approvedBy: varchar("approved_by").references(() => users.id, { onDelete: "set null" }),
+  implementedBy: varchar("implemented_by").references(() => users.id, { onDelete: "set null" }),
   
   // AI Enhancement fields
   aiGeneratedImpact: jsonb("ai_generated_impact"),
@@ -1495,10 +1495,10 @@ export const costEstimateItems = pgTable("cost_estimate_items", {
   subcontractorCost: decimal("subcontractor_cost", { precision: 12, scale: 2 }).default("0.00"),
   
   // References
-  materialId: varchar("material_id").references(() => materials.id),
-  labourId: varchar("labour_id").references(() => labourRates.id),
-  equipmentId: varchar("equipment_id").references(() => equipmentRates.id),
-  supplierId: varchar("supplier_id").references(() => suppliers.id),
+  materialId: varchar("material_id").references(() => materials.id, { onDelete: "set null" }),
+  labourId: varchar("labour_id").references(() => labourRates.id, { onDelete: "set null" }),
+  equipmentId: varchar("equipment_id").references(() => equipmentRates.id, { onDelete: "set null" }),
+  supplierId: varchar("supplier_id").references(() => suppliers.id, { onDelete: "set null" }),
   
   // Additional data
   specifications: jsonb("specifications"),
@@ -1634,7 +1634,7 @@ export const productCatalog = pgTable("product_catalog", {
 export const elementProductSelections = pgTable("element_product_selections", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   bimElementId: varchar("bim_element_id").notNull().references(() => bimElements.id, { onDelete: "cascade" }),
-  productId: varchar("product_id").references(() => productCatalog.id),
+  productId: varchar("product_id").references(() => productCatalog.id, { onDelete: "set null" }),
   
   // User Selection Data
   selectionType: productSelectionStatusEnum("selection_type").notNull().default("default"),
@@ -1927,7 +1927,7 @@ export const gridMarkers = pgTable("grid_markers", {
   confidence: decimal("confidence", { precision: 4, scale: 3 }).notNull(),
 
   // Evidence pointer: file, page, and drawing coordinates
-  evidenceFileId: varchar("evidence_file_id").references(() => documents.id),
+  evidenceFileId: varchar("evidence_file_id").references(() => documents.id, { onDelete: "set null" }),
   evidencePage: integer("evidence_page"),
   evidenceBbox: jsonb("evidence_bbox"),               // Bounding box in source coordinates
 
@@ -1957,7 +1957,7 @@ export const gridLabels = pgTable("grid_labels", {
   // Expected shape: { minX: number, minY: number, maxX: number, maxY: number }
 
   // Evidence pointer
-  evidenceFileId: varchar("evidence_file_id").references(() => documents.id),
+  evidenceFileId: varchar("evidence_file_id").references(() => documents.id, { onDelete: "set null" }),
   evidencePage: integer("evidence_page"),
 
   createdAt: timestamp("created_at").defaultNow(),
@@ -2058,7 +2058,7 @@ export const gridCoordinateTransforms = pgTable("grid_coordinate_transforms", {
   projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
 
   // Source references
-  sourceFileId: varchar("source_file_id").references(() => documents.id),
+  sourceFileId: varchar("source_file_id").references(() => documents.id, { onDelete: "set null" }),
   sheetId: varchar("sheet_id", { length: 100 }),
   pageNo: integer("page_no"),
 
