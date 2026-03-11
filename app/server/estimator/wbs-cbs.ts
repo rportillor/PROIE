@@ -365,3 +365,207 @@ export function formatWBSReport(structure: WBSStructure): string {
   out.push('====================================================================');
   return out.join('\n');
 }
+
+// ─── EAC/ETC Forecasting (Variance-at-Completion) ───────────────────────────
+
+export type EACMethod = 'cpi' | 'cpi-spi' | 'manager-override' | 'remaining-budget';
+
+export interface EACForecast {
+  wbsCode: string;
+  wbsName: string;
+  budget: number;         // BAC
+  actualToDate: number;
+  percentComplete: number;
+  earnedValue: number;    // BCWP
+  cpi: number;
+  spi: number;
+  eacByCPI: number;       // BAC / CPI
+  eacByCPIxSPI: number;   // ACWP + (BAC - BCWP) / (CPI * SPI)
+  eacByRemaining: number; // ACWP + (BAC - BCWP)
+  eacSelected: number;    // Based on chosen method
+  etc: number;            // EAC - ACWP
+  vac: number;            // BAC - EAC
+  tcpi: number;           // (BAC - BCWP) / (BAC - ACWP) — To-Complete Performance Index
+}
+
+export interface ProjectForecastSummary {
+  projectName: string;
+  reportDate: string;
+  method: EACMethod;
+  totalBudget: number;
+  totalActual: number;
+  totalEarnedValue: number;
+  overallCPI: number;
+  overallSPI: number;
+  totalEAC: number;
+  totalETC: number;
+  totalVAC: number;
+  forecastByWBS: EACForecast[];
+  atRiskElements: EACForecast[];   // WBS elements with CPI < 0.9
+  generatedAt: string;
+}
+
+/**
+ * Calculate EAC/ETC forecasts for each WBS element and roll up to project level.
+ * Integrates the estimate with actual cost/progress data during construction.
+ *
+ * @param structure - WBS structure with budgets
+ * @param actuals - Map of wbsCode -> { actualCost, percentComplete }
+ * @param method - Forecasting method (default: 'cpi')
+ */
+export function generateEACForecast(
+  structure: WBSStructure,
+  actuals: Map<string, { actualCost: number; percentComplete: number }>,
+  method: EACMethod = 'cpi'
+): ProjectForecastSummary {
+  const forecasts: EACForecast[] = [];
+
+  // Process leaf-level WBS elements (those with budget > 0 and no children with budget)
+  const elementsWithBudget = structure.elements.filter(e => e.budgetedCost > 0);
+  const parentCodes = new Set(structure.elements.map(e => e.parentCode).filter(Boolean));
+  const leafElements = elementsWithBudget.filter(e => {
+    // Is a leaf if no other element lists this as parent, OR has direct budget
+    const hasChildren = structure.elements.some(
+      other => other.parentCode === e.wbsCode && other.budgetedCost > 0
+    );
+    return !hasChildren;
+  });
+
+  let totalBudget = 0;
+  let totalActual = 0;
+  let totalEV = 0;
+
+  for (const elem of leafElements) {
+    const actual = actuals.get(elem.wbsCode) ?? { actualCost: 0, percentComplete: 0 };
+    const bac = elem.budgetedCost;
+    const acwp = actual.actualCost;
+    const pctComplete = actual.percentComplete;
+    const bcwp = bac * (pctComplete / 100);
+    const cpi = acwp > 0 ? bcwp / acwp : (pctComplete > 0 ? 1.0 : 0);
+    const spi = bac > 0 ? bcwp / bac : 0;
+
+    const eacByCPI = cpi > 0 ? bac / cpi : bac;
+    const eacByCPIxSPI = (cpi * spi) > 0
+      ? acwp + (bac - bcwp) / (cpi * spi)
+      : bac;
+    const eacByRemaining = acwp + (bac - bcwp);
+
+    let eacSelected: number;
+    switch (method) {
+      case 'cpi':
+        eacSelected = eacByCPI;
+        break;
+      case 'cpi-spi':
+        eacSelected = eacByCPIxSPI;
+        break;
+      case 'remaining-budget':
+        eacSelected = eacByRemaining;
+        break;
+      default:
+        eacSelected = eacByCPI;
+    }
+
+    const etc = Math.max(0, eacSelected - acwp);
+    const vac = bac - eacSelected;
+    const tcpiBudget = bac - acwp;
+    const tcpi = tcpiBudget > 0 ? (bac - bcwp) / tcpiBudget : 1.0;
+
+    forecasts.push({
+      wbsCode: elem.wbsCode,
+      wbsName: elem.name,
+      budget: bac,
+      actualToDate: acwp,
+      percentComplete: pctComplete,
+      earnedValue: Math.round(bcwp * 100) / 100,
+      cpi: Math.round(cpi * 1000) / 1000,
+      spi: Math.round(spi * 1000) / 1000,
+      eacByCPI: Math.round(eacByCPI * 100) / 100,
+      eacByCPIxSPI: Math.round(eacByCPIxSPI * 100) / 100,
+      eacByRemaining: Math.round(eacByRemaining * 100) / 100,
+      eacSelected: Math.round(eacSelected * 100) / 100,
+      etc: Math.round(etc * 100) / 100,
+      vac: Math.round(vac * 100) / 100,
+      tcpi: Math.round(tcpi * 1000) / 1000,
+    });
+
+    totalBudget += bac;
+    totalActual += acwp;
+    totalEV += bcwp;
+  }
+
+  const overallCPI = totalActual > 0 ? totalEV / totalActual : 0;
+  const overallSPI = totalBudget > 0 ? totalEV / totalBudget : 0;
+  const totalEAC = forecasts.reduce((s, f) => s + f.eacSelected, 0);
+  const totalETC = forecasts.reduce((s, f) => s + f.etc, 0);
+  const totalVAC = totalBudget - totalEAC;
+
+  const atRiskElements = forecasts.filter(f => f.cpi > 0 && f.cpi < 0.9 && f.percentComplete > 5);
+
+  return {
+    projectName: structure.projectName,
+    reportDate: new Date().toISOString().split('T')[0],
+    method,
+    totalBudget: Math.round(totalBudget * 100) / 100,
+    totalActual: Math.round(totalActual * 100) / 100,
+    totalEarnedValue: Math.round(totalEV * 100) / 100,
+    overallCPI: Math.round(overallCPI * 1000) / 1000,
+    overallSPI: Math.round(overallSPI * 1000) / 1000,
+    totalEAC: Math.round(totalEAC * 100) / 100,
+    totalETC: Math.round(totalETC * 100) / 100,
+    totalVAC: Math.round(totalVAC * 100) / 100,
+    forecastByWBS: forecasts,
+    atRiskElements,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Format EAC forecast as human-readable report.
+ */
+export function formatEACReport(forecast: ProjectForecastSummary): string {
+  const f = (n: number) => '$' + n.toLocaleString('en-CA', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const out: string[] = [];
+
+  out.push('═══════════════════════════════════════════════════════════════');
+  out.push('  EARNED VALUE / EAC FORECAST REPORT');
+  out.push('  Project: ' + forecast.projectName);
+  out.push('  Report Date: ' + forecast.reportDate);
+  out.push('  Method: ' + forecast.method.toUpperCase());
+  out.push('═══════════════════════════════════════════════════════════════');
+  out.push('');
+  out.push('  Budget at Completion (BAC):  ' + f(forecast.totalBudget));
+  out.push('  Actual Cost to Date (ACWP):  ' + f(forecast.totalActual));
+  out.push('  Earned Value (BCWP):         ' + f(forecast.totalEarnedValue));
+  out.push('  Overall CPI:                 ' + forecast.overallCPI.toFixed(3));
+  out.push('  Overall SPI:                 ' + forecast.overallSPI.toFixed(3));
+  out.push('');
+  out.push('  Estimate at Completion (EAC): ' + f(forecast.totalEAC));
+  out.push('  Estimate to Complete (ETC):   ' + f(forecast.totalETC));
+  out.push('  Variance at Completion (VAC): ' + f(forecast.totalVAC));
+  out.push('');
+
+  if (forecast.atRiskElements.length > 0) {
+    out.push('  ── AT-RISK ELEMENTS (CPI < 0.90) ──');
+    for (const e of forecast.atRiskElements) {
+      out.push('  ' + e.wbsCode + ' ' + e.wbsName);
+      out.push('    BAC: ' + f(e.budget) + ' | ACWP: ' + f(e.actualToDate) +
+        ' | CPI: ' + e.cpi.toFixed(3) + ' | EAC: ' + f(e.eacSelected) +
+        ' | Overrun: ' + f(-e.vac));
+    }
+    out.push('');
+  }
+
+  out.push('  ── FORECAST BY WBS ──');
+  out.push('  WBS     Name                          BAC          ACWP         EAC          VAC      CPI');
+  out.push('  ───     ────                          ───          ────         ───          ───      ───');
+  for (const e of forecast.forecastByWBS) {
+    out.push('  ' + e.wbsCode.padEnd(8) + e.wbsName.substring(0, 28).padEnd(30) +
+      f(e.budget).padStart(12) + f(e.actualToDate).padStart(13) +
+      f(e.eacSelected).padStart(13) + f(e.vac).padStart(13) +
+      ('  ' + e.cpi.toFixed(3)));
+  }
+
+  out.push('');
+  out.push('═══════════════════════════════════════════════════════════════');
+  return out.join('\n');
+}

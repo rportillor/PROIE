@@ -29,7 +29,12 @@
 import type { EstimateSummary, EstimateLineItem } from './estimate-engine';
 import type { RiskItem } from './budget-structure';
 import type { DivisionVarianceFactor } from './rate-variants';
-import { getVarianceFactor } from './rate-variants';
+import { getVarianceFactor, DIVISION_VARIANCE_FACTORS } from './rate-variants';
+
+// Build a lookup map for division variance factors (used in tornado chart)
+const DIVISION_VARIANCE_MAP = new Map(
+  DIVISION_VARIANCE_FACTORS.map(d => [d.csiDivision, d])
+);
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 
@@ -39,7 +44,14 @@ export interface MonteCarloConfig {
   confidenceLevels?: number[]; // default [10, 25, 50, 75, 90]
   includeRiskEvents?: boolean; // default true
   riskItems?: RiskItem[];
-  quantityVariance?: number;   // multiplier variance on quantities (default 0.05 = ±5%)
+  quantityVariance?: number;   // default multiplier variance on quantities (default 0.05 = ±5%)
+  /** Per-division quantity variance overrides (e.g., { '31': 0.30, '03': 0.05 }) */
+  divisionQuantityVariance?: Record<string, number>;
+  /** Productivity risk factor — models weather, site access, trade stacking impacts */
+  productivityVariance?: {
+    optimistic: number;        // e.g., 0.05 = 5% productivity gain possible
+    pessimistic: number;       // e.g., 0.15 = 15% productivity loss possible
+  };
 }
 
 // ─── Output ─────────────────────────────────────────────────────────────────
@@ -72,6 +84,17 @@ export interface MonteCarloResult {
     varianceContribution: number;  // Approximate % of total variance
   }[];
   histogram: { binMin: number; binMax: number; count: number; percent: number }[];
+  /** Tornado chart data — ranked list of divisions by variance contribution (top drivers) */
+  tornadoChart: {
+    division: string;
+    divisionName: string;
+    baseCost: number;
+    lowImpact: number;         // Cost at pessimistic end for this division (others at mean)
+    highImpact: number;        // Cost at optimistic end
+    swing: number;             // |high - low| — total impact range
+    variancePercent: number;   // % of total variance
+    cumulativePercent: number; // Running cumulative % (for Pareto)
+  }[];
   methodology: 'AACE RP 41R-08 Monte Carlo (PERT distribution)';
   generatedAt: string;
 }
@@ -201,9 +224,9 @@ export function runMonteCarloSimulation(
     }
   }
 
-  // Run iterations
+  // Run iterations — track base-only totals separately for proper variance decomposition
   const results: number[] = new Array(iterations);
-  let riskTriggeredTotal = 0;
+  const baseOnlyResults: number[] = new Array(iterations);
 
   for (let i = 0; i < iterations; i++) {
     let iterTotal = 0;
@@ -217,10 +240,18 @@ export function runMonteCarloSimulation(
 
       const rateFactor = samplePERT(rng, low, mode, high);
 
-      // Also vary quantity slightly (±qtyVariance)
-      const qtyFactor = samplePERT(rng, 1 - qtyVariance, 1.0, 1 + qtyVariance);
+      // Per-division quantity variance (default ±qtyVariance uniform)
+      const divQtyVariance = (config.divisionQuantityVariance?.[item.csiDivision]) ?? qtyVariance;
+      const qtyFactor = samplePERT(rng, 1 - divQtyVariance, 1.0, 1 + divQtyVariance);
 
-      const iterCost = item.totalCost * rateFactor * qtyFactor;
+      // Productivity risk factor (if enabled)
+      let prodFactor = 1.0;
+      if (config.productivityVariance) {
+        const pv = config.productivityVariance;
+        prodFactor = samplePERT(rng, 1 - pv.pessimistic, 1.0, 1 + pv.optimistic);
+      }
+
+      const iterCost = item.totalCost * rateFactor * qtyFactor * prodFactor;
       iterTotal += iterCost;
 
       // Track division totals for sensitivity
@@ -228,13 +259,15 @@ export function runMonteCarloSimulation(
       divIterTotals.set(div, (divIterTotals.get(div) || 0) + iterCost);
     }
 
+    // Track base-only result (before risk events) for variance decomposition
+    baseOnlyResults[i] = iterTotal;
+
     // 2. Add discrete risk events (Bernoulli trigger, uniform impact)
     if (includeRisk && riskItems.length > 0) {
       for (const risk of riskItems) {
         if (rng.next() < risk.probability) {
           const impact = risk.impactLow + rng.next() * (risk.impactHigh - risk.impactLow);
           iterTotal += impact;
-          riskTriggeredTotal += impact;
         }
       }
     }
@@ -282,10 +315,13 @@ export function runMonteCarloSimulation(
     .filter(l => ![10, 25, 50, 75, 90].includes(l))
     .map(l => ({ level: l, value: percentile(l) }));
 
-  // --- Risk variance decomposition ---
-  const avgRiskPerIter = riskTriggeredTotal / iterations;
-  const baseVariance = stdDev * stdDev - avgRiskPerIter * avgRiskPerIter; // approximate
-  const riskEventVariance = avgRiskPerIter > 0 ? avgRiskPerIter * avgRiskPerIter : 0;
+  // --- Risk variance decomposition (dual-run method) ---
+  // Proper decomposition: compute variance of base-only runs and total runs separately
+  const baseMean = baseOnlyResults.reduce((s, v) => s + v, 0) / iterations;
+  const baseSumSqDiff = baseOnlyResults.reduce((s, v) => s + (v - baseMean) ** 2, 0);
+  const baseVarianceCalc = iterations > 1 ? baseSumSqDiff / (iterations - 1) : 0;
+  const totalVarianceCalc = stdDev * stdDev;
+  const riskEventVarianceCalc = Math.max(0, totalVarianceCalc - baseVarianceCalc);
 
   // --- Division sensitivity ---
   const totalSquaredDiffs = Array.from(divisionVariance.values()).reduce((s, d) => s + d.squaredDiffs, 0);
@@ -319,6 +355,36 @@ export function runMonteCarloSimulation(
     });
   }
 
+  // --- Tornado chart (sensitivity ranking by swing) ---
+  const tornadoChart = divisionSensitivity.map(d => {
+    const dv = divisionVariance.get(d.division);
+    const baseCost = dv?.baseCost ?? 0;
+    const factor = DIVISION_VARIANCE_MAP.get(d.division);
+    const lowFactor = factor?.lowFactor ?? 0.90;
+    const highFactor = factor?.highFactor ?? 1.15;
+    const lowImpact = baseCost * lowFactor;
+    const highImpact = baseCost * highFactor;
+    return {
+      division: d.division,
+      divisionName: d.divisionName,
+      baseCost,
+      lowImpact,
+      highImpact,
+      swing: highImpact - lowImpact,
+      variancePercent: d.varianceContribution,
+      cumulativePercent: 0, // computed below
+    };
+  }).sort((a, b) => b.swing - a.swing);
+
+  // Compute cumulative Pareto percentages
+  const totalSwing = tornadoChart.reduce((s, t) => s + t.swing, 0);
+  let cumulative = 0;
+  for (const t of tornadoChart) {
+    t.variancePercent = totalSwing > 0 ? (t.swing / totalSwing) * 100 : 0;
+    cumulative += t.variancePercent;
+    t.cumulativePercent = cumulative;
+  }
+
   return {
     projectName: 'Monte Carlo Simulation',
     iterations,
@@ -330,12 +396,13 @@ export function runMonteCarloSimulation(
     coefficientOfVariation: cv,
     skewness,
     riskContribution: {
-      baseVariance: Math.max(0, baseVariance),
-      riskEventVariance,
-      totalVariance: stdDev * stdDev,
+      baseVariance: baseVarianceCalc,
+      riskEventVariance: riskEventVarianceCalc,
+      totalVariance: totalVarianceCalc,
     },
     divisionSensitivity,
     histogram,
+    tornadoChart,
     methodology: 'AACE RP 41R-08 Monte Carlo (PERT distribution)',
     generatedAt: new Date().toISOString(),
   };
@@ -415,6 +482,26 @@ export function formatMonteCarloReport(result: MonteCarloResult): string {
     out.push('  ' + label + ' │' + bar + ' ' + countStr + ' (' + bin.percent.toFixed(1) + '%)');
   }
   out.push('');
+
+  // --- Tornado Chart (Sensitivity) ---
+  if (result.tornadoChart.length > 0) {
+    out.push('─── Sensitivity Tornado Chart (Top Variance Drivers) ───');
+    out.push('');
+    out.push('  Div   Division Name                      Swing          Var%    Cum%');
+    out.push('  ───   ─────────────                      ─────          ────    ────');
+    const top = result.tornadoChart.slice(0, 10);
+    const maxSwing = Math.max(...top.map(t => t.swing));
+    for (const t of top) {
+      const barLen = maxSwing > 0 ? Math.round((t.swing / maxSwing) * 25) : 0;
+      const bar = '█'.repeat(barLen);
+      out.push('  ' + t.division.padEnd(6) + t.divisionName.padEnd(35) +
+        f(t.swing).padStart(14) + '  ' +
+        pct(t.variancePercent).padStart(6) + '  ' +
+        pct(t.cumulativePercent).padStart(6));
+      out.push('  ' + ' '.repeat(6) + bar);
+    }
+    out.push('');
+  }
 
   // --- Recommendation ---
   out.push('─── Recommendation ───');

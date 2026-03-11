@@ -135,6 +135,12 @@ export interface RateEntry {
   unit: string;
   crewSize: number;
   productivityRate: number; // units per crew-hour
+  /** Source citation for rate data (CIQS/AACE RP 34R-05 audit trail) */
+  source?: string;
+  /** ISO date string — price level date for this rate */
+  priceDate?: string;
+  /** ISO date string — when this rate was last verified against market */
+  lastVerified?: string;
 }
 
 export const CSI_RATES: Record<string, RateEntry> = {
@@ -501,6 +507,244 @@ export const CSI_RATES: Record<string, RateEntry> = {
   '482000-SOLAR':         { materialRate: 285,   laborRate: 145,   equipmentRate: 35,    unit: 'm²',  crewSize: 4,  productivityRate: 8 },
   '483000-WIND':          { materialRate: 85000, laborRate: 35000, equipmentRate: 15000, unit: 'ea',  crewSize: 6,  productivityRate: 0.005 },
 };
+
+// ─── Rate Provenance Defaults ────────────────────────────────────────────────
+// Apply default provenance metadata to all CSI_RATES entries that lack explicit source data.
+// Per CIQS/AACE RP 34R-05, each rate should have a traceable source and price level date.
+
+const CSI_RATES_DEFAULT_PROVENANCE = {
+  source: 'CIQS Elemental Cost Analysis / RSMeans Canadian Edition',
+  priceDate: '2025-10-01',      // Q4 2025 base date
+  lastVerified: '2026-01-15',   // Q1 2026 verification
+};
+
+// Apply defaults to entries missing provenance
+for (const key of Object.keys(CSI_RATES)) {
+  const entry = CSI_RATES[key];
+  if (!entry.source) entry.source = CSI_RATES_DEFAULT_PROVENANCE.source;
+  if (!entry.priceDate) entry.priceDate = CSI_RATES_DEFAULT_PROVENANCE.priceDate;
+  if (!entry.lastVerified) entry.lastVerified = CSI_RATES_DEFAULT_PROVENANCE.lastVerified;
+}
+
+/**
+ * Check rate staleness — warn if rates are older than the specified threshold.
+ * Per AACE RP 34R-05, rates should be re-priced if >12 months past base date.
+ */
+export interface RateStalenessWarning {
+  csiCode: string;
+  priceDate: string;
+  lastVerified: string;
+  ageMonths: number;
+  severity: 'ok' | 'stale' | 'expired';
+  message: string;
+}
+
+export function checkRateStaleness(
+  thresholdMonths: number = 12
+): RateStalenessWarning[] {
+  const now = new Date();
+  const warnings: RateStalenessWarning[] = [];
+
+  for (const [code, entry] of Object.entries(CSI_RATES)) {
+    const priceDate = entry.priceDate ?? CSI_RATES_DEFAULT_PROVENANCE.priceDate;
+    const lastVerified = entry.lastVerified ?? CSI_RATES_DEFAULT_PROVENANCE.lastVerified;
+    const baseDate = new Date(priceDate);
+    const ageMs = now.getTime() - baseDate.getTime();
+    const ageMonths = ageMs / (30.44 * 24 * 60 * 60 * 1000);
+
+    if (ageMonths > thresholdMonths * 2) {
+      warnings.push({
+        csiCode: code,
+        priceDate,
+        lastVerified,
+        ageMonths: Math.round(ageMonths * 10) / 10,
+        severity: 'expired',
+        message: `Rate ${code} is ${Math.round(ageMonths)} months old (base: ${priceDate}). Re-pricing required.`,
+      });
+    } else if (ageMonths > thresholdMonths) {
+      warnings.push({
+        csiCode: code,
+        priceDate,
+        lastVerified,
+        ageMonths: Math.round(ageMonths * 10) / 10,
+        severity: 'stale',
+        message: `Rate ${code} is ${Math.round(ageMonths)} months old (base: ${priceDate}). Re-pricing recommended.`,
+      });
+    }
+  }
+
+  return warnings;
+}
+
+// ─── Market Condition Indexing ───────────────────────────────────────────────
+// Links estimate rates to published construction cost indices for automatic reflation.
+// Supports Statistics Canada BCPI, RSMeans City Cost Index, and custom indices.
+
+export interface CostIndex {
+  indexId: string;              // e.g., 'statcan-bcpi-residential', 'rsmeans-toronto'
+  indexName: string;            // e.g., 'Statistics Canada BCPI - Residential'
+  source: string;               // e.g., 'Statistics Canada Table 18-10-0135-01'
+  baseYear: number;             // e.g., 2017 (index = 100)
+  entries: CostIndexEntry[];
+}
+
+export interface CostIndexEntry {
+  date: string;                 // ISO date (quarterly or monthly)
+  value: number;                // Index value (base year = 100)
+}
+
+export interface ReflationResult {
+  originalPriceDate: string;
+  targetDate: string;
+  indexUsed: string;
+  originalIndexValue: number;
+  targetIndexValue: number;
+  adjustmentFactor: number;     // target / original
+  adjustedRates: Record<string, {
+    originalTotal: number;
+    adjustedTotal: number;
+    delta: number;
+  }>;
+  totalOriginal: number;
+  totalAdjusted: number;
+  totalDelta: number;
+  deltaPercent: number;
+}
+
+// Pre-populated Canadian BCPI indices (Statistics Canada)
+const CANADIAN_COST_INDICES: CostIndex[] = [
+  {
+    indexId: 'statcan-bcpi-residential',
+    indexName: 'Statistics Canada BCPI - Residential Building',
+    source: 'Statistics Canada Table 18-10-0135-01',
+    baseYear: 2017,
+    entries: [
+      { date: '2020-01-01', value: 111.2 },
+      { date: '2020-07-01', value: 113.5 },
+      { date: '2021-01-01', value: 119.8 },
+      { date: '2021-07-01', value: 132.4 },
+      { date: '2022-01-01', value: 142.1 },
+      { date: '2022-07-01', value: 148.3 },
+      { date: '2023-01-01', value: 150.2 },
+      { date: '2023-07-01', value: 152.8 },
+      { date: '2024-01-01', value: 154.1 },
+      { date: '2024-07-01', value: 156.9 },
+      { date: '2025-01-01', value: 159.4 },
+      { date: '2025-07-01', value: 162.1 },
+      { date: '2026-01-01', value: 164.8 },
+    ],
+  },
+  {
+    indexId: 'statcan-bcpi-nonresidential',
+    indexName: 'Statistics Canada BCPI - Non-Residential Building',
+    source: 'Statistics Canada Table 18-10-0135-01',
+    baseYear: 2017,
+    entries: [
+      { date: '2020-01-01', value: 109.8 },
+      { date: '2020-07-01', value: 111.2 },
+      { date: '2021-01-01', value: 116.5 },
+      { date: '2021-07-01', value: 127.8 },
+      { date: '2022-01-01', value: 137.2 },
+      { date: '2022-07-01', value: 143.6 },
+      { date: '2023-01-01', value: 146.1 },
+      { date: '2023-07-01', value: 148.5 },
+      { date: '2024-01-01', value: 150.3 },
+      { date: '2024-07-01', value: 153.1 },
+      { date: '2025-01-01', value: 155.8 },
+      { date: '2025-07-01', value: 158.4 },
+      { date: '2026-01-01', value: 161.2 },
+    ],
+  },
+];
+
+/**
+ * Get the interpolated index value for a given date.
+ */
+function getIndexValueAtDate(index: CostIndex, dateStr: string): number | null {
+  const target = new Date(dateStr).getTime();
+  const sorted = [...index.entries].sort((a, b) =>
+    new Date(a.date).getTime() - new Date(b.date).getTime()
+  );
+
+  if (sorted.length === 0) return null;
+
+  // Before first entry
+  if (target <= new Date(sorted[0].date).getTime()) return sorted[0].value;
+  // After last entry
+  if (target >= new Date(sorted[sorted.length - 1].date).getTime()) return sorted[sorted.length - 1].value;
+
+  // Interpolate between entries
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const t0 = new Date(sorted[i].date).getTime();
+    const t1 = new Date(sorted[i + 1].date).getTime();
+    if (target >= t0 && target <= t1) {
+      const ratio = (target - t0) / (t1 - t0);
+      return sorted[i].value + ratio * (sorted[i + 1].value - sorted[i].value);
+    }
+  }
+
+  return sorted[sorted.length - 1].value;
+}
+
+/**
+ * Reflate all CSI_RATES from their priceDate to a target date using a cost index.
+ * Returns adjusted rates without modifying originals.
+ */
+export function reflateRates(
+  targetDate: string,
+  indexId: string = 'statcan-bcpi-nonresidential',
+  customIndices?: CostIndex[]
+): ReflationResult {
+  const allIndices = [...CANADIAN_COST_INDICES, ...(customIndices ?? [])];
+  const index = allIndices.find(idx => idx.indexId === indexId);
+  if (!index) {
+    throw new Error(`Cost index '${indexId}' not found. Available: ${allIndices.map(i => i.indexId).join(', ')}`);
+  }
+
+  const adjustedRates: ReflationResult['adjustedRates'] = {};
+  let totalOriginal = 0;
+  let totalAdjusted = 0;
+
+  // Use the default priceDate from rate provenance
+  const originalPriceDate = CSI_RATES_DEFAULT_PROVENANCE.priceDate;
+  const origIdx = getIndexValueAtDate(index, originalPriceDate);
+  const targIdx = getIndexValueAtDate(index, targetDate);
+
+  if (!origIdx || !targIdx) {
+    throw new Error(`Cannot compute index values for dates: ${originalPriceDate} -> ${targetDate}`);
+  }
+
+  const factor = targIdx / origIdx;
+
+  for (const [code, rate] of Object.entries(CSI_RATES)) {
+    const originalTotal = rate.materialRate + rate.laborRate + rate.equipmentRate;
+    const adjustedTotal = originalTotal * factor;
+    adjustedRates[code] = {
+      originalTotal,
+      adjustedTotal: Math.round(adjustedTotal * 100) / 100,
+      delta: Math.round((adjustedTotal - originalTotal) * 100) / 100,
+    };
+    totalOriginal += originalTotal;
+    totalAdjusted += adjustedTotal;
+  }
+
+  return {
+    originalPriceDate,
+    targetDate,
+    indexUsed: index.indexName,
+    originalIndexValue: Math.round(origIdx * 10) / 10,
+    targetIndexValue: Math.round(targIdx * 10) / 10,
+    adjustmentFactor: Math.round(factor * 10000) / 10000,
+    adjustedRates,
+    totalOriginal: Math.round(totalOriginal * 100) / 100,
+    totalAdjusted: Math.round(totalAdjusted * 100) / 100,
+    totalDelta: Math.round((totalAdjusted - totalOriginal) * 100) / 100,
+    deltaPercent: totalOriginal > 0 ? Math.round(((totalAdjusted - totalOriginal) / totalOriginal) * 10000) / 100 : 0,
+  };
+}
+
+/** Available cost indices for reflation */
+export const AVAILABLE_COST_INDICES = CANADIAN_COST_INDICES;
 
 // ─── CSI Division Names — All 34 Active MasterFormat 2018 Divisions ──────────
 

@@ -22,6 +22,7 @@
 // =============================================================================
 
 import type { EstimateSummary } from './estimate-engine';
+import type { MonteCarloResult } from './monte-carlo';
 
 // --- Interfaces --------------------------------------------------------------
 
@@ -186,6 +187,8 @@ export interface BudgetConfig {
   bondInsurancePercent?: number;     // default 2.5%
   taxRate?: number;                  // default 0.13 (Ontario HST 13%)
   projectDurationMonths?: number;    // for duration-based general conditions
+  monteCarloResult?: MonteCarloResult;  // if provided, contingency is derived from MC P-value
+  contingencyConfidenceLevel?: number;  // P-level target for MC-based contingency (default 75)
 }
 
 // --- AACE Classification System (RP 18R-97 / 17R-97) ------------------------
@@ -246,23 +249,89 @@ function classifyEstimate(estimate: EstimateSummary): AACEClassification {
   };
 }
 
+/**
+ * Derive risk-informed contingency from Monte Carlo output.
+ * Contingency = P(target) - deterministic base estimate.
+ * Per AACE RP 40R-08 / 44R-08, this replaces static midpoint contingency.
+ */
+function deriveMonteCarloContingency(
+  mcResult: MonteCarloResult,
+  baseEstimate: number,
+  confidenceLevel: number
+): number {
+  // Map confidence level to available percentiles or interpolate
+  const pMap: Record<number, number> = {
+    10: mcResult.percentiles.P10,
+    25: mcResult.percentiles.P25,
+    50: mcResult.percentiles.P50,
+    75: mcResult.percentiles.P75,
+    90: mcResult.percentiles.P90,
+  };
+
+  let targetValue: number;
+  if (pMap[confidenceLevel] !== undefined) {
+    targetValue = pMap[confidenceLevel];
+  } else {
+    // Check custom percentiles
+    const custom = mcResult.customPercentiles.find(cp => cp.level === confidenceLevel);
+    if (custom) {
+      targetValue = custom.value;
+    } else {
+      // Linear interpolation between nearest available percentiles
+      const levels = [10, 25, 50, 75, 90];
+      const lower = levels.filter(l => l <= confidenceLevel).pop() ?? 10;
+      const upper = levels.find(l => l >= confidenceLevel) ?? 90;
+      if (lower === upper) {
+        targetValue = pMap[lower];
+      } else {
+        const ratio = (confidenceLevel - lower) / (upper - lower);
+        targetValue = pMap[lower] + ratio * (pMap[upper] - pMap[lower]);
+      }
+    }
+  }
+
+  return Math.max(0, targetValue - baseEstimate);
+}
+
 // --- Escalation Calculator ---------------------------------------------------
 
 /**
  * Calculate compound escalation factor between price base date and construction midpoint.
  * Uses compound interest formula: factor = (1 + blendedRate)^years
+ * When actual M/L/E cost proportions are provided, weights escalation accordingly
+ * instead of using a fixed 55/45 material/labor split.
  */
-function calculateEscalation(config: EscalationConfig): { factor: number; years: number } {
+function calculateEscalation(
+  config: EscalationConfig,
+  costProportions?: { material: number; labor: number; equipment: number }
+): { factor: number; years: number } {
   const baseDate = new Date(config.priceBaseDate);
   const midPoint = new Date(config.constructionMidPoint);
   const yearsDiff = (midPoint.getTime() - baseDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
 
   if (yearsDiff <= 0) return { factor: 1.0, years: 0 };
 
-  // Blended rate: weighted average — typical construction ~55% material, ~45% labor
-  const blendedRate = (config.materialEscalation * 0.55) + (config.laborEscalation * 0.45);
-  const factor = Math.pow(1 + blendedRate, yearsDiff);
+  let blendedRate: number;
 
+  if (costProportions) {
+    const total = costProportions.material + costProportions.labor + costProportions.equipment;
+    if (total > 0) {
+      const matWeight = costProportions.material / total;
+      const labWeight = costProportions.labor / total;
+      const eqpWeight = costProportions.equipment / total;
+      // Equipment escalation assumed to follow material escalation rate
+      blendedRate = (config.materialEscalation * matWeight) +
+                    (config.laborEscalation * labWeight) +
+                    (config.materialEscalation * eqpWeight);
+    } else {
+      blendedRate = (config.materialEscalation * 0.55) + (config.laborEscalation * 0.45);
+    }
+  } else {
+    // Fallback: default 55/45 material/labor split
+    blendedRate = (config.materialEscalation * 0.55) + (config.laborEscalation * 0.45);
+  }
+
+  const factor = Math.pow(1 + blendedRate, yearsDiff);
   return { factor, years: yearsDiff };
 }
 
@@ -394,20 +463,37 @@ export function buildBudgetStructure(
   const allowanceSubtotal = allowanceItems.reduce((sum, a) => sum + a.amount, 0);
   const allowances = { items: allowanceItems, subtotal: allowanceSubtotal };
 
-  // -- Layer 5: Contingency (AACE class-based) --
+  // -- Layer 5: Contingency (MC-informed per AACE RP 40R-08, or AACE class-based fallback) --
   const contingencyBase = constructionCostBase + designFees.subtotal + allowanceSubtotal;
-  const designContPct = config.contingencyOverride?.designPercent ??
-    (aaceClass.contingencyRange.applied * 0.40);
-  const constructionContPct = config.contingencyOverride?.constructionPercent ??
-    (aaceClass.contingencyRange.applied * 0.60);
   const managementReservePct = config.contingencyOverride?.managementReservePercent ?? 0.04;
-
   const riskRegister = config.riskRegister ?? [];
   const riskExpectedValue = riskRegister.reduce((sum, r) => sum + r.expectedValue, 0);
-
-  const designContingency = contingencyBase * designContPct;
-  const constructionContingency = contingencyBase * constructionContPct + riskExpectedValue;
   const managementReserve = contingencyBase * managementReservePct;
+
+  let designContingency: number;
+  let constructionContingency: number;
+
+  if (config.monteCarloResult && !config.contingencyOverride) {
+    // Risk-informed contingency: P(target) - deterministic base
+    const confidenceLevel = config.contingencyConfidenceLevel ?? 75;
+    const mcContingency = deriveMonteCarloContingency(
+      config.monteCarloResult,
+      directCost.subtotal,
+      confidenceLevel
+    );
+    // Split MC-derived contingency 40/60 design/construction (same ratio as AACE)
+    designContingency = mcContingency * 0.40;
+    constructionContingency = mcContingency * 0.60 + riskExpectedValue;
+  } else {
+    // Fallback: static AACE class-based midpoint
+    const designContPct = config.contingencyOverride?.designPercent ??
+      (aaceClass.contingencyRange.applied * 0.40);
+    const constructionContPct = config.contingencyOverride?.constructionPercent ??
+      (aaceClass.contingencyRange.applied * 0.60);
+    designContingency = contingencyBase * designContPct;
+    constructionContingency = contingencyBase * constructionContPct + riskExpectedValue;
+  }
+
   const totalContingency = designContingency + constructionContingency + managementReserve;
 
   const contingency = {
@@ -429,7 +515,11 @@ export function buildBudgetStructure(
     laborEscalation: 0.025,
   };
   const escalationConfig = config.escalation ?? defaultEscalation;
-  const escResult = calculateEscalation(escalationConfig);
+  const escResult = calculateEscalation(escalationConfig, {
+    material: estimate.materialGrandTotal,
+    labor: estimate.laborGrandTotal,
+    equipment: estimate.equipmentGrandTotal,
+  });
   const baseForEscalation = constructionCostBase + designFees.subtotal +
     allowanceSubtotal + totalContingency;
   const escalationAmount = baseForEscalation * (escResult.factor - 1);

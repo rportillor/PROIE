@@ -317,3 +317,169 @@ export function formatAlternatesReport(summary: AlternateSummary): string {
   out.push('====================================================================');
   return out.join('\n');
 }
+
+// ─── VE Scenario Comparison ─────────────────────────────────────────────────
+
+/**
+ * Side-by-side Value Engineering scenario comparison.
+ * Shows cost/schedule impacts of multiple VE option combinations simultaneously.
+ */
+export interface VEComparisonResult {
+  projectName: string;
+  baseBidTotal: number;
+  scenarios: AlternateScenario[];
+  comparisonMatrix: {
+    alternateId: string;
+    alternateName: string;
+    netImpact: number;
+    /** Which scenarios include this alternate (scenario ID -> included) */
+    includedIn: Record<string, boolean>;
+  }[];
+  divisionImpact: {
+    division: string;
+    /** Per-scenario cost impact for this division */
+    scenarioImpacts: Record<string, number>;
+  }[];
+  summary: {
+    scenarioId: string;
+    scenarioName: string;
+    total: number;
+    deltaFromBase: number;
+    deltaPercent: number;
+    scheduleDays: number;
+    laborDelta: number;
+    materialDelta: number;
+    equipmentDelta: number;
+  }[];
+  generatedAt: string;
+}
+
+/**
+ * Generate a side-by-side VE scenario comparison from multiple scenarios.
+ * This is the missing "scenario comparison view" that shows cost impacts
+ * of multiple VE options simultaneously.
+ */
+export function compareVEScenarios(
+  alternates: AlternateItem[],
+  scenarios: AlternateScenario[],
+  baseBidTotal: number,
+  projectName: string
+): VEComparisonResult {
+  // Build comparison matrix: which alternates are in which scenarios
+  const comparisonMatrix = alternates.map(alt => {
+    const includedIn: Record<string, boolean> = {};
+    for (const scn of scenarios) {
+      includedIn[scn.scenarioId] = scn.includedAlternates.includes(alt.alternateId);
+    }
+    return {
+      alternateId: alt.alternateId,
+      alternateName: alt.name,
+      netImpact: alt.netImpact,
+      includedIn,
+    };
+  });
+
+  // Per-division impact by scenario
+  const allDivisions = new Set<string>();
+  for (const alt of alternates) {
+    for (const div of alt.affectedCSIDivisions) allDivisions.add(div);
+  }
+
+  const divisionImpact = Array.from(allDivisions).sort().map(div => {
+    const scenarioImpacts: Record<string, number> = {};
+    for (const scn of scenarios) {
+      const included = alternates.filter(
+        a => scn.includedAlternates.includes(a.alternateId) && a.affectedCSIDivisions.includes(div)
+      );
+      scenarioImpacts[scn.scenarioId] = included.reduce((sum, a) => sum + a.netImpact, 0);
+    }
+    return { division: div, scenarioImpacts };
+  });
+
+  // Summary row per scenario
+  const summary = scenarios.map(scn => {
+    const included = alternates.filter(a => scn.includedAlternates.includes(a.alternateId));
+    const laborDelta = included.reduce((s, a) => s + a.laborImpact, 0);
+    const materialDelta = included.reduce((s, a) => s + a.materialImpact, 0);
+    const equipmentDelta = included.reduce((s, a) => s + a.equipmentImpact, 0);
+    const delta = scn.scenarioTotal - baseBidTotal;
+    return {
+      scenarioId: scn.scenarioId,
+      scenarioName: scn.scenarioName,
+      total: scn.scenarioTotal,
+      deltaFromBase: delta,
+      deltaPercent: baseBidTotal > 0 ? (delta / baseBidTotal) * 100 : 0,
+      scheduleDays: scn.scheduleImpactDays,
+      laborDelta: Math.round(laborDelta * 100) / 100,
+      materialDelta: Math.round(materialDelta * 100) / 100,
+      equipmentDelta: Math.round(equipmentDelta * 100) / 100,
+    };
+  });
+
+  return {
+    projectName,
+    baseBidTotal,
+    scenarios,
+    comparisonMatrix,
+    divisionImpact,
+    summary,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Format VE scenario comparison as a human-readable side-by-side report.
+ */
+export function formatVEComparisonReport(comparison: VEComparisonResult): string {
+  const f = (n: number) => '$' + n.toLocaleString('en-CA', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const out: string[] = [];
+
+  out.push('═══════════════════════════════════════════════════════════════');
+  out.push('  VALUE ENGINEERING SCENARIO COMPARISON');
+  out.push('  Project: ' + comparison.projectName);
+  out.push('═══════════════════════════════════════════════════════════════');
+  out.push('');
+
+  // Header row with scenario names
+  const scnNames = comparison.summary.map(s => s.scenarioName);
+  out.push('  ' + 'Alternate'.padEnd(30) + scnNames.map(n => n.padStart(18)).join(''));
+  out.push('  ' + '─'.repeat(30) + scnNames.map(() => '─'.repeat(18)).join(''));
+
+  // Alternate inclusion matrix
+  for (const row of comparison.comparisonMatrix) {
+    const cells = comparison.summary.map(s => {
+      const included = row.includedIn[s.scenarioId];
+      return included ? f(row.netImpact).padStart(18) : '—'.padStart(18);
+    });
+    out.push('  ' + row.alternateName.substring(0, 29).padEnd(30) + cells.join(''));
+  }
+
+  out.push('');
+  out.push('  ' + '═'.repeat(30) + comparison.summary.map(() => '═'.repeat(18)).join(''));
+
+  // Totals row
+  const totals = comparison.summary.map(s => f(s.total).padStart(18));
+  out.push('  ' + 'TOTAL'.padEnd(30) + totals.join(''));
+
+  const deltas = comparison.summary.map(s => {
+    const sign = s.deltaFromBase >= 0 ? '+' : '';
+    return (sign + f(s.deltaFromBase) + ' (' + s.deltaPercent.toFixed(1) + '%)').padStart(18);
+  });
+  out.push('  ' + 'vs Base'.padEnd(30) + deltas.join(''));
+
+  const schedules = comparison.summary.map(s => {
+    const d = s.scheduleDays;
+    return (d === 0 ? '—' : (d > 0 ? '+' : '') + d + ' days').padStart(18);
+  });
+  out.push('  ' + 'Schedule Impact'.padEnd(30) + schedules.join(''));
+
+  out.push('');
+  out.push('  ── L/M/E Delta by Scenario ──');
+  for (const s of comparison.summary) {
+    out.push('  ' + s.scenarioName + ': L=' + f(s.laborDelta) + ' M=' + f(s.materialDelta) + ' E=' + f(s.equipmentDelta));
+  }
+
+  out.push('');
+  out.push('═══════════════════════════════════════════════════════════════');
+  return out.join('\n');
+}
