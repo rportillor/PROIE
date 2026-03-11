@@ -7,13 +7,28 @@
 // downstream consumer module. Tests format conversion, not database queries.
 //
 // Consumer coverage:
-//   1. placement-snap → getSnapGrid format
-//   2. structural-seed → getGridIntersectionNodes format
-//   3. geometry-validator → getGeometryValidatorGrid format
-//   4. BOQ grid refs → resolveGridReference format
-//   5. issue-log → convertValidationToFindings format
-//   6. validation → issue code classification
+//   1. convertValidationToFindings format
+//   2. issuesToConflictResults format
+//   3. validateAndScore from grid-validation-engine
+//   4. ExtractorResult FK structure
 // ═══════════════════════════════════════════════════════════════════════════════
+
+/* ------------------------------------------------------------------ */
+/*  Mocks — declared before module-under-test imports                 */
+/* ------------------------------------------------------------------ */
+
+// Mock grid-storage so importing grid-integration-bridge does not require DATABASE_URL
+jest.mock('../grid-storage', () => ({
+  getProjectGridSystem: jest.fn(),
+  getGridNodesByComponent: jest.fn(),
+  getGridComponentsByRun: jest.fn(),
+  getDetectionRunsByProject: jest.fn(),
+  getFullGridDataForRun: jest.fn(),
+}));
+
+/* ------------------------------------------------------------------ */
+/*  Imports — after mocks                                              */
+/* ------------------------------------------------------------------ */
 
 import {
   convertValidationToFindings,
@@ -174,7 +189,7 @@ describe('Grid Integration Bridge', () => {
       expect(report.recommendedStatus).toBe('FAILED');
     });
 
-    test('spacing validation with mm→m scale', () => {
+    test('spacing validation with mm to m scale', () => {
       // 7200mm = 7.2m — within typical range, no issue
       const result = buildMockExtractorResult();
       const report = validateAndScore(result, 0.001);
@@ -243,21 +258,21 @@ describe('Grid Integration Bridge', () => {
     test('FK references use index-based temp IDs', () => {
       const result = buildMockExtractorResult();
 
-      // Families → components via "0"
+      // Families reference components via "0"
       for (const fam of result.families) {
         expect(fam.componentId).toBe('0');
       }
-      // Axes → families via index
+      // Axes reference families via index
       for (const axis of result.axes) {
         const fi = parseInt(axis.familyId);
         expect(fi).toBeGreaterThanOrEqual(0);
         expect(fi).toBeLessThan(result.families.length);
       }
-      // Nodes → components via "0"
+      // Nodes reference components via "0"
       for (const node of result.nodes) {
         expect(node.componentId).toBe('0');
       }
-      // Node-Axes → nodes and axes via index
+      // Node-Axes reference nodes and axes via index
       for (const na of result.nodeAxes) {
         const ni = parseInt(na.nodeId);
         const ai = parseInt(na.axisId);
