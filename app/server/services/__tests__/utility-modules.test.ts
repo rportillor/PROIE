@@ -21,21 +21,21 @@ describe('grid-extractor.ts', () => {
 
   test('buildNonUniformGridsFromAnalysis extracts grids from valid data', () => {
     const analysis = {
-      grids: [
-        { name: 'A', x: 0, y: 0, orientation: 'X' },
-        { name: 'B', x: 0, y: 6, orientation: 'X' },
-        { name: '1', x: 0, y: 0, orientation: 'Y' },
-        { name: '2', x: 8, y: 0, orientation: 'Y' },
-      ],
+      grid_system: {
+        x: [{ name: 'A', pos: 0 }, { name: 'B', pos: 6 }],
+        y: [{ name: '1', pos: 0 }, { name: '2', pos: 8 }],
+      },
     };
     const result = buildNonUniformGridsFromAnalysis(analysis);
+    expect(result).not.toBeNull();
     if (result) {
-      expect(result.xGrids || result.yGrids).toBeDefined();
+      expect(result.x || result.y).toBeDefined();
     }
   });
 
-  test('computePrimaryAngles returns null for null footprint', () => {
-    expect(computePrimaryAngles(null)).toBeNull();
+  test('computePrimaryAngles returns default angles for null footprint', () => {
+    const result = computePrimaryAngles(null);
+    expect(result).toEqual({ buildingDeg: 0, siteDeg: 0 });
   });
 
   test('computePrimaryAngles computes for rectangular footprint', () => {

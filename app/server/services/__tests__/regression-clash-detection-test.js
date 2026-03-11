@@ -658,4 +658,6 @@ if (fail === 0) {
 }
 
 console.log('═'.repeat(70));
-process.exit(fail > 0 ? 1 : 0);
+if (fail > 0) {
+  throw new Error(`${fail} clash-detection regression test(s) failed`);
+}
