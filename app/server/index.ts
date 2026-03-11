@@ -59,7 +59,9 @@ app.use((_req, res, next) => {
 
 // CORS — SECURITY: Never allow wildcard origin with credentials
 app.use(cors({
-  origin: process.env.CLIENT_ORIGIN || (process.env.NODE_ENV === "development" ? "http://localhost:5000" : false),
+  origin: (process.env.CLIENT_ORIGIN && process.env.CLIENT_ORIGIN !== "*")
+    ? process.env.CLIENT_ORIGIN
+    : (process.env.NODE_ENV === "development" ? "http://localhost:5000" : false),
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
