@@ -108,7 +108,7 @@ import { randomUUID } from "crypto";
 import { PRNG } from "./helpers/prng";
 import bcrypt from "bcryptjs";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, desc, and, isNull, inArray } from "drizzle-orm";
+import { eq, desc, and, isNull, inArray, sql } from "drizzle-orm";
 import postgres from "postgres";
 import { logger } from "./utils/enterprise-logger";
 
@@ -2153,16 +2153,27 @@ export class DBStorage implements Partial<IStorage> {
   }
 
   async updateBimStoreyElementCount(modelId: string): Promise<void> {
-    // Recompute elementCount for every storey in one round-trip.
-    // Called after upsertBimElements so the counts are always accurate.
+    // Batch update: count elements per storey in one query, then update all storeys
+    const counts = await db
+      .select({
+        storeyName: bimElements.storeyName,
+        count: sql<number>`cast(count(*) as int)`,
+      })
+      .from(bimElements)
+      .where(eq(bimElements.modelId, modelId))
+      .groupBy(bimElements.storeyName);
+
+    const countMap = new Map(counts.map(c => [c.storeyName, c.count]));
     const storeyRows = await this.getBimStoreys(modelId);
-    for (const storey of storeyRows) {
-      const elements = await this.getBimElementsByStorey(modelId, storey.name);
-      await db
-        .update(bimStoreys)
-        .set({ elementCount: elements.length, updatedAt: new Date() })
-        .where(and(eq(bimStoreys.modelId, modelId), eq(bimStoreys.name, storey.name)));
-    }
+    const now = new Date();
+
+    await Promise.all(
+      storeyRows.map(storey =>
+        db.update(bimStoreys)
+          .set({ elementCount: countMap.get(storey.name) ?? 0, updatedAt: now })
+          .where(and(eq(bimStoreys.modelId, modelId), eq(bimStoreys.name, storey.name)))
+      )
+    );
   }
 
 

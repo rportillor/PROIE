@@ -63,7 +63,7 @@ export const companies = pgTable("companies", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   role: companyRoleEnum("role").notNull().default("Solo_Practitioner"),
-  allowedDisciplines: json("allowed_disciplines").notNull().default("[\"General\"]"),
+  allowedDisciplines: jsonb("allowed_disciplines").notNull().default("[\"General\"]"),
   isSoloPractitioner: boolean("is_solo_practitioner").notNull().default(false),
   licenseNumber: text("license_number"),
   contactEmail: text("contact_email"),
@@ -79,7 +79,7 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   role: text("role").notNull().default("Construction Manager"),
   // Company association
-  companyId: varchar("company_id").references(() => companies.id),
+  companyId: varchar("company_id").references(() => companies.id, { onDelete: "set null" }),
   isCompanyAdmin: boolean("is_company_admin").notNull().default(false),
   email: text("email").unique(),
   stripeCustomerId: text("stripe_customer_id").unique(),
@@ -109,7 +109,7 @@ export const subscriptions = pgTable("subscriptions", {
   trialEnd: timestamp("trial_end"),
   canceledAt: timestamp("canceled_at"),
   cancelAtPeriodEnd: boolean("cancel_at_period_end").default(false),
-  metadata: json("metadata").default("{}"),
+  metadata: jsonb("metadata").default("{}"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -124,10 +124,10 @@ export const planLimits = pgTable("plan_limits", {
   maxDocumentsPerProject: integer("max_documents_per_project").notNull(),
   maxStorageGB: integer("max_storage_gb").notNull(),
   aiAnalysisEnabled: boolean("ai_analysis_enabled").notNull().default(true),
-  exportFormats: json("export_formats").notNull().default("[]"), // ["pdf", "excel", "word"]
+  exportFormats: jsonb("export_formats").notNull().default("[]"), // ["pdf", "excel", "word"]
   bimIntegration: boolean("bim_integration").notNull().default(false),
   prioritySupport: boolean("priority_support").notNull().default(false),
-  features: json("features").notNull().default("[]"), // Additional feature flags
+  features: jsonb("features").notNull().default("[]"), // Additional feature flags
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -177,7 +177,7 @@ export const documents = pgTable("documents", {
   rasterPreviews: jsonb("raster_previews"), // [{ page: number, key: string }]
   vectorHints: jsonb("vector_hints"),  // optional: grids/levels parsed later
 
-  analysisResult: json("analysis_result"),
+  analysisResult: jsonb("analysis_result"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -223,7 +223,7 @@ export const documentRevisions = pgTable("document_revisions", {
   fileMime: text("file_mime"),
   fileSize: integer("file_size"),
   changeDescription: text("change_description"),
-  impactAnalysis: json("impact_analysis"),
+  impactAnalysis: jsonb("impact_analysis"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   // Enhanced indexing strategy (inspired by Prisma approach)
@@ -254,7 +254,7 @@ export const boqItems = pgTable("boq_items", {
 // BOQ Versions table for saving different BOQ versions
 export const boqVersions = pgTable("boq_versions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").notNull().references(() => projects.id),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   versionName: text("version_name").notNull(),
   description: text("description"),
   savedBy: varchar("saved_by").references(() => users.id),
@@ -288,7 +288,7 @@ export const boqVersionItems = pgTable("boq_version_items", {
 
 export const complianceChecks = pgTable("compliance_checks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").notNull().references(() => projects.id),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   standard: text("standard").notNull(), // CSA, NBC, IBC, ASCE, etc.
   requirement: text("requirement").notNull(),
   status: text("status").notNull().default("Not Applicable"), // Keep as text for now to avoid migration issues
@@ -313,8 +313,8 @@ export const buildingCodeSections = pgTable("building_code_sections", {
   subsection: text("subsection"), // 9.10.3.1, etc.
   title: text("title").notNull(),
   content: text("content").notNull(),
-  requirements: json("requirements").notNull().default("[]"), // Array of requirement objects
-  references: json("references").notNull().default("[]"), // Array of reference codes
+  requirements: jsonb("requirements").notNull().default("[]"), // Array of requirement objects
+  references: jsonb("references").notNull().default("[]"), // Array of reference codes
   jurisdiction: text("jurisdiction").notNull(), // canada, usa, international
   category: text("category").notNull(), // building, structural, mechanical, etc.
   authority: text("authority").notNull(), // National Research Council Canada, etc.
@@ -323,13 +323,13 @@ export const buildingCodeSections = pgTable("building_code_sections", {
   lastUpdated: timestamp("last_updated").defaultNow(),
   applicability: text("applicability"), // What types of buildings this applies to
   measurementCriteria: text("measurement_criteria"), // How compliance is measured
-  exceptions: json("exceptions").notNull().default("[]"), // Array of exceptions
-  relatedSections: json("related_sections").notNull().default("[]"), // Array of related section IDs
+  exceptions: jsonb("exceptions").notNull().default("[]"), // Array of exceptions
+  relatedSections: jsonb("related_sections").notNull().default("[]"), // Array of related section IDs
   
   // 🏛️ LICENSING FIELDS
   licensingModel: licensingModelEnum("licensing_model").notNull().default("public_domain"),
   licenseOwner: text("license_owner"), // "EstimatorPro" or client company name
-  usageRights: json("usage_rights").notNull().default("{}"), // Detailed usage permissions
+  usageRights: jsonb("usage_rights").notNull().default("{}"), // Detailed usage permissions
   attributionRequired: boolean("attribution_required").notNull().default(true),
   licenseExpiry: timestamp("license_expiry"), // For subscription-based codes
   accessLevel: codeAccessLevelEnum("access_level").notNull().default("read_only"),
@@ -342,7 +342,7 @@ export const buildingCodeSections = pgTable("building_code_sections", {
 
 export const reports = pgTable("reports", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").notNull().references(() => projects.id),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   reportType: text("report_type").notNull(),
   filename: text("filename").notNull(),
   fileSize: integer("file_size").notNull(),
@@ -355,15 +355,15 @@ export const reports = pgTable("reports", {
 // 🔍 BOQ-BIM Validation System
 export const validationResults = pgTable("validation_results", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").notNull().references(() => projects.id),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   validationType: text("validation_type").notNull(), // 'boq_bim_cross_check', 'spatial_verification', 'quantity_audit'
   status: text("status").notNull().default("pending"), // pending, completed, failed
   totalItems: integer("total_items").notNull().default(0),
   validItems: integer("valid_items").notNull().default(0),
   invalidItems: integer("invalid_items").notNull().default(0),
-  discrepancies: json("discrepancies").notNull().default("[]"), // Array of discrepancy objects
+  discrepancies: jsonb("discrepancies").notNull().default("[]"), // Array of discrepancy objects
   confidenceScore: decimal("confidence_score", { precision: 5, scale: 2 }).default("0.00"), // Overall confidence 0-100
-  validationSummary: json("validation_summary").notNull().default("{}"),
+  validationSummary: jsonb("validation_summary").notNull().default("{}"),
   createdAt: timestamp("created_at").defaultNow(),
   completedAt: timestamp("completed_at"),
 }, (table) => ({
@@ -373,14 +373,14 @@ export const validationResults = pgTable("validation_results", {
 
 export const boqBimMappings = pgTable("boq_bim_mappings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").notNull().references(() => projects.id),
-  boqItemId: varchar("boq_item_id").references(() => boqItems.id),
-  bimElementId: varchar("bim_element_id").references(() => bimElements.id),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  boqItemId: varchar("boq_item_id").references(() => boqItems.id, { onDelete: "set null" }),
+  bimElementId: varchar("bim_element_id").references(() => bimElements.id, { onDelete: "set null" }),
   mappingType: text("mapping_type").notNull(), // 'exact_match', 'partial_match', 'inferred', 'manual'
   confidenceLevel: decimal("confidence_level", { precision: 5, scale: 2 }).notNull(), // 0-100
   quantityVariance: decimal("quantity_variance", { precision: 10, scale: 3 }).default("0.000"), // Difference between BOQ and BIM quantities
   spatialVerified: boolean("spatial_verified").default(false),
-  discrepancyFlags: json("discrepancy_flags").notNull().default("[]"), // Array of specific issues
+  discrepancyFlags: jsonb("discrepancy_flags").notNull().default("[]"), // Array of specific issues
   reviewStatus: text("review_status").default("pending"), // pending, approved, requires_attention
   reviewNotes: text("review_notes"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -403,7 +403,7 @@ export const codeLicenses = pgTable("code_licenses", {
   // License Details
   subscriptionLevel: text("subscription_level"), // basic, professional, enterprise
   accessLevel: codeAccessLevelEnum("access_level").notNull().default("read_only"),
-  usageRights: json("usage_rights").notNull().default("{}"), // { excerpts: boolean, full_text: boolean, commercial_use: boolean }
+  usageRights: jsonb("usage_rights").notNull().default("{}"), // { excerpts: boolean, full_text: boolean, commercial_use: boolean }
   attributionRequired: boolean("attribution_required").notNull().default(true),
   
   // Validity
@@ -414,7 +414,7 @@ export const codeLicenses = pgTable("code_licenses", {
   // Legal
   contractNumber: text("contract_number"),
   legalTerms: text("legal_terms"),
-  usageLimits: json("usage_limits").notNull().default("{}"), // { max_users: number, max_projects: number }
+  usageLimits: jsonb("usage_limits").notNull().default("{}"), // { max_users: number, max_projects: number }
   
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -427,7 +427,7 @@ export const codeLicenses = pgTable("code_licenses", {
 // 🏛️ NEW: Project Code Access - Link projects to appropriate licenses
 export const projectCodeAccess = pgTable("project_code_access", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").notNull().references(() => projects.id),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   codeLicenseId: varchar("code_license_id").notNull().references(() => codeLicenses.id),
   
   // Access Control
@@ -459,16 +459,16 @@ export const bimModels = pgTable("bim_models", {
   description: text("description"),
   modelType: varchar("model_type", { length: 50 }).notNull().default("architectural"), // architectural, structural, mep
   status: varchar("status", { length: 50 }).notNull().default("generating"), // generating, ready, error
-  geometryData: json("geometry_data"), // 3D geometry in JSON format
+  geometryData: jsonb("geometry_data"), // 3D geometry in JSON format
   ifcData: text("ifc_data"), // IFC file content
   fileUrl: varchar("file_url", { length: 500 }),
   fileSize: integer("file_size"), // in bytes
-  boundingBox: json("bounding_box"), // { min: [x,y,z], max: [x,y,z] }
-  components: json("components"), // Array of building components
-  materials: json("materials"), // Material definitions
+  boundingBox: jsonb("bounding_box"), // { min: [x,y,z], max: [x,y,z] }
+  components: jsonb("components"), // Array of building components
+  materials: jsonb("materials"), // Material definitions
   units: varchar("units", { length: 20 }).default("metric"), // metric, imperial
   version: varchar("version", { length: 100 }).default("1.0"),
-  metadata: json("metadata").default("{}"), // Progress tracking and generation metadata
+  metadata: jsonb("metadata").default("{}"), // Progress tracking and generation metadata
   elementCount: integer("element_count").default(0), // Number of BIM elements in model
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -483,9 +483,9 @@ export const bimElements = pgTable("bim_elements", {
   elementType: varchar("element_type", { length: 100 }).notNull(), // wall, door, window, beam, column, etc.
   elementId: varchar("element_id", { length: 100 }).notNull(), // unique identifier within model
   name: varchar("name", { length: 255 }),
-  geometry: json("geometry").notNull(), // 3D geometry data
-  properties: json("properties"), // Element properties (material, dimensions, etc.)
-  location: json("location"), // Position and orientation
+  geometry: jsonb("geometry").notNull(), // 3D geometry data
+  properties: jsonb("properties"), // Element properties (material, dimensions, etc.)
+  location: jsonb("location"), // Position and orientation
   parentId: varchar("parent_id"), // For hierarchical relationships
   level: varchar("level", { length: 100 }), // Building level/floor (legacy)
   
@@ -520,7 +520,7 @@ export const bimElements = pgTable("bim_elements", {
 // Analysis Results Storage - for revision comparison
 export const analysisResults = pgTable("analysis_results", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: varchar("project_id").notNull().references(() => projects.id),
+  projectId: varchar("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   analysisType: varchar("analysis_type", { length: 50 }).notNull(), // similarity, compliance, boq
   revisionId: varchar("revision_id").notNull(), // Links to document revision
   analysisVersion: varchar("analysis_version", { length: 10 }).notNull().default("1.0"),
@@ -535,18 +535,18 @@ export const analysisResults = pgTable("analysis_results", {
   documentCount: integer("document_count").notNull(),
   analysisData: jsonb("analysis_data").notNull(), // Full analysis results
   summary: text("summary"), // Human-readable summary
-  riskAreas: json("risk_areas").notNull().default("[]"), // Array of risk areas
-  recommendations: json("recommendations").notNull().default("[]"), // Array of recommendations
+  riskAreas: jsonb("risk_areas").notNull().default("[]"), // Array of risk areas
+  recommendations: jsonb("recommendations").notNull().default("[]"), // Array of recommendations
   
   // Cost tracking
   claudeTokensUsed: integer("claude_tokens_used").default(0),
   processingTime: integer("processing_time"), // seconds
-  documentsProcessed: json("documents_processed").notNull().default("[]"), // Array of document IDs
-  documentsSkipped: json("documents_skipped").notNull().default("[]"), // Array of skipped docs (unchanged)
+  documentsProcessed: jsonb("documents_processed").notNull().default("[]"), // Array of document IDs
+  documentsSkipped: jsonb("documents_skipped").notNull().default("[]"), // Array of skipped docs (unchanged)
   
   // Change detection
-  changedDocuments: json("changed_documents").notNull().default("[]"), // Only docs that changed
-  documentHashes: json("document_hashes").notNull().default("{}"), // Document hash mapping
+  changedDocuments: jsonb("changed_documents").notNull().default("[]"), // Only docs that changed
+  documentHashes: jsonb("document_hashes").notNull().default("{}"), // Document hash mapping
   previousAnalysisId: varchar("previous_analysis_id"), // Links to previous analysis
   changesSummary: text("changes_summary"), // AI summary of what changed
   
@@ -568,12 +568,12 @@ export const analysisSystemBaseline = pgTable("analysis_system_baseline", {
   // Current Analysis Capabilities
   totalBimElements: integer("total_bim_elements").notNull(),
   uniqueElementTypes: integer("unique_element_types").notNull(),
-  elementTypesList: json("element_types_list").notNull().default("[]"),
+  elementTypesList: jsonb("element_types_list").notNull().default("[]"),
   
   // Compliance Capabilities
   totalComplianceChecks: integer("total_compliance_checks").notNull(),
   uniqueStandards: integer("unique_standards").notNull(),
-  standardsList: json("standards_list").notNull().default("[]"),
+  standardsList: jsonb("standards_list").notNull().default("[]"),
   
   // System Characteristics
   elementDiscoveryMethod: varchar("element_discovery_method", { length: 30 }).notNull(),
@@ -609,9 +609,9 @@ export const analysisComparisons = pgTable("analysis_comparisons", {
   newElementCount: integer("new_element_count").notNull(),
   elementCountDelta: integer("element_count_delta").notNull(),
   
-  oldElementTypes: json("old_element_types").notNull().default("[]"),
-  newElementTypes: json("new_element_types").notNull().default("[]"),
-  newlyDiscoveredTypes: json("newly_discovered_types").notNull().default("[]"),
+  oldElementTypes: jsonb("old_element_types").notNull().default("[]"),
+  newElementTypes: jsonb("new_element_types").notNull().default("[]"),
+  newlyDiscoveredTypes: jsonb("newly_discovered_types").notNull().default("[]"),
   
   // Compliance Comparison
   oldComplianceChecks: integer("old_compliance_checks").notNull(),
@@ -657,10 +657,10 @@ export const aiConfigurations = pgTable("ai_configurations", {
   projectId: varchar("project_id").references(() => projects.id),
   configName: text("config_name").notNull(),
   processingMode: text("processing_mode").notNull().default("comprehensive"), // quick, standard, comprehensive, detailed
-  analysisStandards: json("analysis_standards").notNull().default("[]"), // ["NBC", "CSA", "IBC", etc.]
-  aiModels: json("ai_models").notNull().default("{}"), // {nlp: "advanced", cv: "yolo", ocr: "tesseract"}
-  detectComponents: json("detect_components").notNull().default("[]"), // ["walls", "doors", "windows", "MEP"]
-  extractionSettings: json("extraction_settings").notNull().default("{}"), // {confidence: 0.8, precision: "high"}
+  analysisStandards: jsonb("analysis_standards").notNull().default("[]"), // ["NBC", "CSA", "IBC", etc.]
+  aiModels: jsonb("ai_models").notNull().default("{}"), // {nlp: "advanced", cv: "yolo", ocr: "tesseract"}
+  detectComponents: jsonb("detect_components").notNull().default("[]"), // ["walls", "doors", "windows", "MEP"]
+  extractionSettings: jsonb("extraction_settings").notNull().default("{}"), // {confidence: 0.8, precision: "high"}
   isDefault: boolean("is_default").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -675,8 +675,8 @@ export const processingJobs = pgTable("processing_jobs", {
   status: text("status").notNull().default("queued"), // queued, processing, completed, failed, cancelled
   progress: integer("progress").notNull().default(0), // 0-100
   currentStage: text("current_stage"), // "parsing", "nlp", "cv", "boq", "compliance"
-  stageDetails: json("stage_details").default("{}"),
-  results: json("results").default("{}"),
+  stageDetails: jsonb("stage_details").default("{}"),
+  results: jsonb("results").default("{}"),
   errorMessage: text("error_message"),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
@@ -701,9 +701,9 @@ export const regulatoryAnalysisCache = pgTable("regulatory_analysis_cache", {
   
   // Analysis content from Claude
   analysisResult: jsonb("analysis_result").notNull(), // Full Claude analysis
-  complianceRules: json("compliance_rules").notNull().default("[]"), // Extracted compliance rules
-  keyRequirements: json("key_requirements").notNull().default("[]"), // Key regulatory requirements
-  conflictAreas: json("conflict_areas").notNull().default("[]"), // Areas where regulations might conflict
+  complianceRules: jsonb("compliance_rules").notNull().default("[]"), // Extracted compliance rules
+  keyRequirements: jsonb("key_requirements").notNull().default("[]"), // Key regulatory requirements
+  conflictAreas: jsonb("conflict_areas").notNull().default("[]"), // Areas where regulations might conflict
   
   // Usage tracking
   usageCount: integer("usage_count").notNull().default(1),
@@ -731,13 +731,13 @@ export const projectRegulatoryAnalysis = pgTable("project_regulatory_analysis", 
   cacheId: varchar("cache_id").notNull().references(() => regulatoryAnalysisCache.id),
   
   // Project-specific customizations
-  customRequirements: json("custom_requirements").default("[]"), // Additional project-specific requirements
-  exemptions: json("exemptions").default("[]"), // Regulatory exemptions for this project
+  customRequirements: jsonb("custom_requirements").default("[]"), // Additional project-specific requirements
+  exemptions: jsonb("exemptions").default("[]"), // Regulatory exemptions for this project
   
   // Analysis results specific to this project
-  applicableRules: json("applicable_rules").notNull().default("[]"), // Rules that apply to this specific project
-  riskAssessment: json("risk_assessment").default("{}"), // Risk analysis for this project
-  recommendedActions: json("recommended_actions").default("[]"), // Recommended compliance actions
+  applicableRules: jsonb("applicable_rules").notNull().default("[]"), // Rules that apply to this specific project
+  riskAssessment: jsonb("risk_assessment").default("{}"), // Risk analysis for this project
+  recommendedActions: jsonb("recommended_actions").default("[]"), // Recommended compliance actions
   
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -768,8 +768,8 @@ export const documentSimilarityCache = pgTable("document_similarity_cache", {
   similarityScore: decimal("similarity_score", { precision: 4, scale: 3 }).notNull(), // 0.000-1.000
   overlapType: text("overlap_type").notNull(), // content, compliance, specifications, materials, schedule
   details: text("details").notNull(),
-  conflicts: json("conflicts").notNull().default("[]"), // Array of conflict objects
-  recommendations: json("recommendations").notNull().default("[]"), // Array of recommendations
+  conflicts: jsonb("conflicts").notNull().default("[]"), // Array of conflict objects
+  recommendations: jsonb("recommendations").notNull().default("[]"), // Array of recommendations
   criticalLevel: text("critical_level").notNull(), // low, medium, high, critical
   
   // Usage tracking
@@ -824,9 +824,9 @@ export const rfis = pgTable("rfis", {
   
   // AI Enhancement fields
   generatedFromConflict: boolean("generated_from_conflict").default(false),
-  relatedConflicts: json("related_conflicts").default("[]"),
+  relatedConflicts: jsonb("related_conflicts").default("[]"),
   aiSuggestedResponse: text("ai_suggested_response"),
-  impactAssessment: json("impact_assessment"),
+  impactAssessment: jsonb("impact_assessment"),
   
   // Timestamps
   createdAt: timestamp("created_at").defaultNow(),
@@ -911,9 +911,9 @@ export const changeRequests = pgTable("change_requests", {
   implementedBy: varchar("implemented_by").references(() => users.id),
   
   // AI Enhancement fields
-  aiGeneratedImpact: json("ai_generated_impact"),
-  affectedBoqItems: json("affected_boq_items").default("[]"),
-  affectedDocuments: json("affected_documents").default("[]"),
+  aiGeneratedImpact: jsonb("ai_generated_impact"),
+  affectedBoqItems: jsonb("affected_boq_items").default("[]"),
+  affectedDocuments: jsonb("affected_documents").default("[]"),
   estimateRevisionRequired: boolean("estimate_revision_required").default(false),
   bimModelUpdateRequired: boolean("bim_model_update_required").default(false),
   
@@ -1609,7 +1609,7 @@ export const productCatalog = pgTable("product_catalog", {
   manufacturer: varchar("manufacturer", { length: 100 }), // "Sica", "Holcim", "Lafarge"
   specifications: text("specifications").notNull(), // Full spec text from Claude
   grade: varchar("grade", { length: 50 }), // "30 MPa", "Grade 350W", "Type I"
-  standardCompliance: json("standard_compliance").default("[]"), // ["CSA A23.1", "ASTM C150"]
+  standardCompliance: jsonb("standard_compliance").default("[]"), // ["CSA A23.1", "ASTM C150"]
   
   // Costing
   defaultUnitCost: decimal("default_unit_cost", { precision: 10, scale: 2 }),
@@ -2234,7 +2234,7 @@ export const estimateSnapshots = pgTable("estimate_snapshots", {
   revisionNumber: integer("revision_number").notNull(),
   revisionLabel:  varchar("revision_label", { length: 20 }).notNull(),
   note:           text("note"),
-  snapshot:       json("snapshot").notNull(),          // Full EstimateSnapshot JSON
+  snapshot:       jsonb("snapshot").notNull(),          // Full EstimateSnapshot JSON
   createdAt:      timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({ modelIdx: index("est_snap_model_idx").on(t.modelId) }));
 
@@ -2249,10 +2249,10 @@ export const vendorQuotes = pgTable("vendor_quotes", {
   vendorName:   varchar("vendor_name", { length: 255 }).notNull(),
   csiDivision:  varchar("csi_division", { length: 20 }),
   description:  text("description"),
-  amount:       varchar("amount", { length: 50 }).notNull(),
+  amount:       decimal("amount", { precision: 12, scale: 2 }).notNull(),
   currency:     varchar("currency", { length: 5 }).notNull().default("CAD"),
   validUntil:   timestamp("valid_until"),
-  quoteData:    json("quote_data").notNull(),           // Full VendorQuote JSON
+  quoteData:    jsonb("quote_data").notNull(),           // Full VendorQuote JSON
   createdAt:    timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({ modelIdx: index("vendor_quote_model_idx").on(t.modelId) }));
 
@@ -2266,9 +2266,9 @@ export const estimateAlternates = pgTable("estimate_alternates", {
   modelId:       varchar("model_id").notNull(),
   title:         varchar("title", { length: 255 }).notNull(),
   description:   text("description"),
-  deltaAmount:   varchar("delta_amount", { length: 50 }),
+  deltaAmount:   decimal("delta_amount", { precision: 12, scale: 2 }),
   currency:      varchar("currency", { length: 5 }).notNull().default("CAD"),
-  alternateData: json("alternate_data").notNull(),      // Full alternate JSON
+  alternateData: jsonb("alternate_data").notNull(),      // Full alternate JSON
   createdAt:     timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({ modelIdx: index("est_alt_model_idx").on(t.modelId) }));
 
@@ -2284,7 +2284,7 @@ export const estimateRfis = pgTable("estimate_rfis", {
   subject:     text("subject").notNull(),
   priority:    varchar("priority", { length: 20 }).notNull().default("normal"),
   status:      varchar("status", { length: 30 }).notNull().default("draft"),
-  rfiData:     json("rfi_data").notNull(),              // Full RFI JSON
+  rfiData:     jsonb("rfi_data").notNull(),              // Full RFI JSON
   createdAt:   timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({ modelIdx: index("est_rfi_model_idx").on(t.modelId) }));
 
@@ -2313,11 +2313,11 @@ export const constructionSequences = pgTable("construction_sequences", {
 
   // AI proposal — full structured sequence JSON
   // Shape: { activities: SequenceActivity[], rationale: string, warnings: string[] }
-  proposedData:  json("proposed_data").notNull(),
+  proposedData:  jsonb("proposed_data").notNull(),
 
   // QS-edited version — null until the QS confirms
   // Shape: same as proposedData but may have reordered/edited activities
-  confirmedData: json("confirmed_data"),
+  confirmedData: jsonb("confirmed_data"),
 
   // Who confirmed and when
   confirmedBy:   varchar("confirmed_by"),
@@ -2333,12 +2333,12 @@ export const constructionSequences = pgTable("construction_sequences", {
 
   // AI rationale summary (surfaced in UI)
   aiRationale:   text("ai_rationale"),
-  aiWarnings:    json("ai_warnings"),  // string[]
+  aiWarnings:    jsonb("ai_warnings"),  // string[]
 
   // Project calendar basis
   projectStartDate: varchar("project_start_date"),  // ISO date
   workingDaysPerWeek: integer("working_days_per_week").default(5),
-  holidays: json("holidays"),  // string[] of ISO dates
+  holidays: jsonb("holidays"),  // string[] of ISO dates
 
   createdAt:     timestamp("created_at").defaultNow().notNull(),
   updatedAt:     timestamp("updated_at").defaultNow().notNull(),

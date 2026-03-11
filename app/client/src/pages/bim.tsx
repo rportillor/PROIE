@@ -157,9 +157,10 @@ export default function BIM() {
                     if (activeModel?.id && confirm('Regenerate this BIM model with latest settings?')) {
                       try {
                         // Use proper construction methodology for regeneration
+                        const token = localStorage.getItem('auth_token');
                         const response = await fetch(`/api/bim/models/${activeModel.id}/generate`, {
                           method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
+                          headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
                           credentials: 'include',
                           body: JSON.stringify({ 
                             projectId: projectId || activeModel.projectId,
@@ -225,7 +226,9 @@ export default function BIM() {
                   return;
                 }
                 try {
+                  const token = localStorage.getItem('auth_token');
                   const response = await fetch(`/api/bim-models/${activeModel.id}/ifc`, {
+                    headers: { ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
                     credentials: 'include'
                   }).catch(err => {
                     console.error('Failed to fetch IFC:', err);
@@ -392,9 +395,10 @@ export default function BIM() {
                                       e.preventDefault();
                                       if (confirm('Stop generating this model?')) {
                                         try {
+                                          const token = localStorage.getItem('auth_token');
                                           const response = await fetch(`/api/bim/models/${model.id}/stop-processing`, {
                                             method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
+                                            headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
                                             credentials: 'include'
                                           });
                                           if (response.ok) {
@@ -454,9 +458,10 @@ export default function BIM() {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (confirm('Regenerate this model with latest settings?')) {
+                                    const token = localStorage.getItem('auth_token');
                                     fetch(`/api/bim/models/${model.id}/reexpand`, {
                                       method: 'POST',
-                                      headers: { 'Content-Type': 'application/json' },
+                                      headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
                                       credentials: 'include',
                                       body: JSON.stringify({ profile: 'detailed' })
                                     }).then(() => window.location.reload())

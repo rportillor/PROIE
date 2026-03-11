@@ -76,7 +76,7 @@ postprocessRouter.post("/bim/models/:modelId/reprocess", async (req, res) => {
 
     // 3) Apply calibration
     const finalElements = await calibrateAndPositionElements(
-      model?.projectId || "test",
+      model?.projectId || modelId,
       modelId,
       assembled.elements || assembled,
       {

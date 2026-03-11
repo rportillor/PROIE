@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface RfiDashboardProps {
   projectId: string;
@@ -51,6 +52,7 @@ export function RfiDashboard({ projectId }: RfiDashboardProps) {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   // Fetch RFIs
   // Use default auth-injecting queryFn (getQueryFn from queryClient).
@@ -74,6 +76,13 @@ export function RfiDashboard({ projectId }: RfiDashboardProps) {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", projectId, "rfis"] });
       setIsCreateDialogOpen(false);
       form.reset();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to create RFI",
+        description: error.message || "An unexpected error occurred while creating the RFI.",
+        variant: "destructive"
+      });
     }
   });
 
