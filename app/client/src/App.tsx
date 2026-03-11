@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import MainLayout from "@/components/layout/main-layout";
 import { Loader2 } from "lucide-react";
 import { lazy, Suspense } from "react";
+import { ErrorBoundary, RouteErrorBoundary } from "@/components/error-boundary";
 
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const Projects = lazy(() => import("@/pages/projects"));
@@ -66,6 +67,7 @@ function AdminRoute() {
 function AuthenticatedRouter() {
   return (
     <MainLayout>
+      <RouteErrorBoundary>
       <Suspense fallback={<PageLoader />}>
         <Switch>
           <Route path="/" component={Dashboard} />
@@ -108,6 +110,7 @@ function AuthenticatedRouter() {
           <Route component={NotFound} />
         </Switch>
       </Suspense>
+      </RouteErrorBoundary>
     </MainLayout>
   );
 }
@@ -141,16 +144,18 @@ function AppContent() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <AuthProvider>
-          <Toaster />
-          <div className="app-bg min-h-screen">
-            <AppContent />
-          </div>
-        </AuthProvider>
-      </TooltipProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <AuthProvider>
+            <Toaster />
+            <div className="app-bg min-h-screen">
+              <AppContent />
+            </div>
+          </AuthProvider>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

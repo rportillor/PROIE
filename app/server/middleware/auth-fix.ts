@@ -3,19 +3,10 @@
 
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import crypto from "crypto";
 import { storage } from "../storage";
 import { BimError } from "./error-handler";
 import { setTenantContext } from "./tenant-security";
-
-// SECURITY: No hardcoded fallback. Require JWT_SECRET in production,
-// generate a random ephemeral secret in development.
-const JWT_SECRET = process.env.JWT_SECRET || (() => {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('JWT_SECRET environment variable is required in production');
-  }
-  return crypto.randomBytes(64).toString('hex');
-})();
+import { JWT_SECRET } from "../config/jwt-secret";
 
 export async function enhancedAuth(req: Request, res: Response, next: NextFunction) {
   try {

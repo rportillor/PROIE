@@ -36,14 +36,14 @@ processingStatusRouter.get("/api/bim/models/:modelId/processing-status", async (
           progressValue: state.progress,
           batchIndex: state.batchIndex,
           totalBatches: state.totalBatches,
-          calculated: Math.round((state.batchIndex / state.totalBatches) * 100)
+          calculated: state.totalBatches > 0 ? Math.round((state.batchIndex / state.totalBatches) * 100) : 0
         });
         
         res.json({
           status: state.status,
           batchIndex: state.batchIndex,
           totalBatches: state.totalBatches,
-          progress: state.status === 'completed' ? 100 : (state.progress ?? Math.round((state.batchIndex / state.totalBatches) * 100)),
+          progress: state.status === 'completed' ? 100 : (state.progress ?? (state.totalBatches > 0 ? Math.round((state.batchIndex / state.totalBatches) * 100) : 0)),
           message: state.status === 'completed' ? 'Processing complete!' : `Last processed batch ${state.batchIndex}/${state.totalBatches}`,
           lastSavedAt: state.lastSavedAt,
           isActive: false

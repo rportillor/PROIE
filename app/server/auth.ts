@@ -4,16 +4,7 @@ import { insertUserSchema, type User } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import crypto from "crypto";
-
-// JWT secret key (CRITICAL SECURITY)
-const JWT_SECRET = process.env.JWT_SECRET || (() => {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('JWT_SECRET environment variable is required in production');
-  }
-  // Generate a random secret for development
-  return crypto.randomBytes(64).toString('hex');
-})();
+import { JWT_SECRET } from "./config/jwt-secret";
 
 // Auth schemas
 export const loginSchema = z.object({

@@ -821,21 +821,36 @@ let _dbRegionalCache: Map<string, { compositeIndex: number }> = new Map();
 let _dbRatesCacheAge = 0;
 const DB_RATE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+// Promise-based lock: concurrent callers await the same in-flight load
+// instead of each triggering a parallel DB query that corrupts the cache.
+let _dbRatesLoadPromise: Promise<void> | null = null;
+
 /**
  * Pre-load rates from the database into in-memory cache.
  * Call before generateEstimateFromElements() for DB-backed rates.
  * Falls back silently to hardcoded rates if DB is unavailable.
+ * Uses a Promise-based lock so concurrent calls coalesce into one DB fetch.
  */
 async function preloadDbRates(): Promise<void> {
   if (Date.now() - _dbRatesCacheAge < DB_RATE_CACHE_TTL_MS && _dbUnitRateCache.size > 0) {
     return; // Cache still fresh
   }
-  try {
-    const unitRows = await storage.getUnitRates();
-    if (unitRows.length > 0) {
-      _dbUnitRateCache = new Map();
+
+  // If another call is already loading, piggyback on its promise
+  if (_dbRatesLoadPromise) {
+    return _dbRatesLoadPromise;
+  }
+
+  _dbRatesLoadPromise = (async () => {
+    try {
+      // Build new maps in local variables, then swap atomically
+      const newUnitCache = new Map<string, RateEntry>();
+      const newMepCache = new Map<string, MEPRateItem>();
+      const newRegionalCache = new Map<string, { compositeIndex: number }>();
+
+      const unitRows = await storage.getUnitRates();
       for (const r of unitRows) {
-        _dbUnitRateCache.set(r.csiCode, {
+        newUnitCache.set(r.csiCode, {
           materialRate: parseFloat(r.materialRate as string) || 0,
           laborRate: parseFloat(r.laborRate as string) || 0,
           equipmentRate: parseFloat(r.equipmentRate as string) || 0,
@@ -844,16 +859,12 @@ async function preloadDbRates(): Promise<void> {
           productivityRate: parseFloat(r.productivityRate as string) || 1,
         });
       }
-      console.log(`[estimate-engine] Loaded ${_dbUnitRateCache.size} unit rates from database`);
-    }
 
-    const mepRows = await storage.getMepRates();
-    if (mepRows.length > 0) {
-      _dbMepRateCache = new Map();
+      const mepRows = await storage.getMepRates();
       for (const r of mepRows) {
         const materialCAD = parseFloat(r.materialRate as string) || 0;
         const labourCAD = parseFloat(r.labourRate as string) || 0;
-        _dbMepRateCache.set(r.csiCode, {
+        newMepCache.set(r.csiCode, {
           csiCode: r.csiCode,
           description: r.description,
           unit: r.unit,
@@ -864,25 +875,30 @@ async function preloadDbRates(): Promise<void> {
           notes: r.note ?? undefined,
         });
       }
-      console.log(`[estimate-engine] Loaded ${_dbMepRateCache.size} MEP rates from database`);
-    }
 
-    const regionalRows = await storage.getRegionalFactors();
-    if (regionalRows.length > 0) {
-      _dbRegionalCache = new Map();
+      const regionalRows = await storage.getRegionalFactors();
       for (const r of regionalRows) {
-        _dbRegionalCache.set(r.regionKey, {
+        newRegionalCache.set(r.regionKey, {
           compositeIndex: parseFloat(r.compositeIndex as string) || 1.0,
         });
       }
-      console.log(`[estimate-engine] Loaded ${_dbRegionalCache.size} regional factors from database`);
-    }
 
-    _dbRatesCacheAge = Date.now();
-  } catch (err) {
-    // DB unavailable — use hardcoded rates silently
-    console.warn('[estimate-engine] Could not load DB rates, using hardcoded fallback:', err);
-  }
+      // Atomic swap — readers always see a complete, consistent map
+      if (newUnitCache.size > 0) _dbUnitRateCache = newUnitCache;
+      if (newMepCache.size > 0) _dbMepRateCache = newMepCache;
+      if (newRegionalCache.size > 0) _dbRegionalCache = newRegionalCache;
+      _dbRatesCacheAge = Date.now();
+
+      console.log(`[estimate-engine] Loaded ${_dbUnitRateCache.size} unit / ${_dbMepRateCache.size} MEP / ${_dbRegionalCache.size} regional rates from database`);
+    } catch (err) {
+      // DB unavailable — use hardcoded rates silently
+      console.warn('[estimate-engine] Could not load DB rates, using hardcoded fallback:', err);
+    } finally {
+      _dbRatesLoadPromise = null;
+    }
+  })();
+
+  return _dbRatesLoadPromise;
 }
 
 /**
@@ -1684,7 +1700,7 @@ export function generateEstimateFromElements(
             // Still add structural concrete/rebar if no concrete layer in assembly
             const hasConcreteLayer = assemblyDef.layers.some(l => l.csiCode.includes('CONC'));
             if (!hasConcreteLayer && t > 0) {
-              const netL = L - (openingDeduct / Math.max(wallH, 0.01));
+              const netL = Math.max(0, L - (openingDeduct / Math.max(wallH, 0.01)));
               pushItem(lines, '033000-FORM', '03', 'Formwork to wall (both sides)', 2 * netWallArea, floor, ids, ev, rf);
               pushItem(lines, '033000-CONC', '03', 'Concrete to wall', t * wallH * netL, floor, ids, ev, rf);
               pushItem(lines, '033000-REBAR', '03', 'Reinforcing steel to wall', t * wallH * netL * rebarDensityFor('wall', options.seismicZone), floor, ids, ev, rf);
@@ -1693,7 +1709,7 @@ export function generateEstimateFromElements(
             // Generic wall line items (no assembly code matched)
             pushItem(lines, '033000-FORM', '03', 'Formwork to wall (both sides)', 2 * netWallArea, floor, ids, ev, rf);
             if (t > 0) {
-              const netL = L - (openingDeduct / Math.max(wallH, 0.01));
+              const netL = Math.max(0, L - (openingDeduct / Math.max(wallH, 0.01)));
               pushItem(lines, '033000-CONC', '03', 'Concrete to wall', t * wallH * netL, floor, ids, ev, rf);
               // ADV-1: rebarDensityFor replaces hardcoded 100 kg/m³
               pushItem(lines, '033000-REBAR', '03', 'Reinforcing steel to wall', t * wallH * netL * rebarDensityFor('wall', options.seismicZone), floor, ids, ev, rf);
