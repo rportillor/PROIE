@@ -16,6 +16,7 @@
 
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -290,6 +291,7 @@ function CreateIssueDialog({ onCreate }: {
 
 export default function IssueTrackerPanel() {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterPriority, setFilterPriority] = useState<string>("all");
   const [filterOwner, setFilterOwner] = useState<string>("");
@@ -331,6 +333,9 @@ export default function IssueTrackerPanel() {
       return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bim-issues"] }),
+    onError: (error: Error) => {
+      toast({ title: "Status transition failed", description: error.message, variant: "destructive" });
+    },
   });
 
   const createMutation = useMutation({
@@ -345,6 +350,9 @@ export default function IssueTrackerPanel() {
       return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bim-issues"] }),
+    onError: (error: Error) => {
+      toast({ title: "Failed to create issue", description: error.message, variant: "destructive" });
+    },
   });
 
   const rfiMutation = useMutation({
@@ -359,6 +367,9 @@ export default function IssueTrackerPanel() {
       return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bim-issues"] }),
+    onError: (error: Error) => {
+      toast({ title: "Failed to generate RFI", description: error.message, variant: "destructive" });
+    },
   });
 
   // ── Filter & sort ────────────────────────────────────────────────────

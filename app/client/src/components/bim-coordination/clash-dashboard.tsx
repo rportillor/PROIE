@@ -16,6 +16,8 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "wouter";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -170,6 +172,7 @@ export default function ClashDashboard({ projectId, modelId }: ClashDashboardPro
   const params = useParams();
   const resolvedProjectId = projectId || params.projectId || "1";
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   // State
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
@@ -184,20 +187,18 @@ export default function ClashDashboard({ projectId, modelId }: ClashDashboardPro
   // ── Run clash detection mutation ──────────────────────────────────────
   const runClashMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/bim-coordination/clash-run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          modelId: modelId || resolvedProjectId,
-          projectId: resolvedProjectId,
-        }),
+      const res = await apiRequest("POST", "/api/bim-coordination/clash-run", {
+        modelId: modelId || resolvedProjectId,
+        projectId: resolvedProjectId,
       });
-      if (!res.ok) throw new Error(await res.text());
       return res.json() as Promise<ClashRunResult>;
     },
     onSuccess: (data) => {
       setActiveRunId(data.runId);
       queryClient.invalidateQueries({ queryKey: ["clash-run"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Clash detection failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -218,20 +219,17 @@ export default function ClashDashboard({ projectId, modelId }: ClashDashboardPro
   // ── Create issue from group mutation ─────────────────────────────────
   const createIssueMutation = useMutation({
     mutationFn: async (group: ClashGroup) => {
-      const token = localStorage.getItem("auth_token");
-      const res = await fetch("/api/bim-coordination/issues", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(token ? { "Authorization": `Bearer ${token}` } : {}) },
-        body: JSON.stringify({
-          clashGroupId: group.groupId,
-          name: group.description,
-          zone: group.zone,
-          originDiscipline: group.rootCauseDiscipline,
-          type: group.rootCauseType,
-        }),
+      const res = await apiRequest("POST", "/api/bim-coordination/issues", {
+        clashGroupId: group.groupId,
+        name: group.description,
+        zone: group.zone,
+        originDiscipline: group.rootCauseDiscipline,
+        type: group.rootCauseType,
       });
-      if (!res.ok) throw new Error(await res.text());
       return res.json();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to create issue", description: error.message, variant: "destructive" });
     },
   });
 

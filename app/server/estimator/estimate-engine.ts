@@ -963,7 +963,7 @@ function pushItem(
     evidenceRefs,
     crewSize: rc.crewSize,
     productivityRate: rc.productivityRate,
-    laborHours: adjustedQty / rc.productivityRate,
+    laborHours: rc.productivityRate > 0 ? adjustedQty / rc.productivityRate : 0,
     verificationStatus: status,
     gridRef: gridRef || undefined,
   } as any);

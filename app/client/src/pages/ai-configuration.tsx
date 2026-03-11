@@ -130,6 +130,13 @@ export default function AIConfigurationPage() {
         description: "New default AI configuration has been set.",
       });
     },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to set default configuration",
+        description: error.message || "Could not update default configuration.",
+        variant: "destructive",
+      });
+    },
   });
 
   const handleEditConfig = (config: AIConfiguration) => {

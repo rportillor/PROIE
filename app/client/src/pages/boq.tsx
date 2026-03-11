@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Filter, Download, Search, X, BarChart2, Zap, CheckCircle, Building2, Clock, TrendingUp } from "lucide-react";
 import { useState, useMemo } from "react";
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import type { BoqItem } from "@shared/schema";
 
 type RateSystem = "ciqs" | "quicktakeoff";
@@ -81,6 +82,7 @@ export default function BoQ() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const projectId = location.includes("/projects/")
     ? location.split("/projects/")[1]?.split("/")[0]
@@ -102,6 +104,9 @@ export default function BoQ() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/projects/${projectId}/boq-with-costs`] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to switch rate system", description: error.message, variant: "destructive" });
     },
   });
 

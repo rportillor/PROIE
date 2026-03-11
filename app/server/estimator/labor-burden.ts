@@ -300,7 +300,7 @@ export function calculateLoadedRate(
     statutoryBurden: Math.round(statutoryTotal * 100) / 100,
     fringeBurden: Math.round(fringeTotal * 100) / 100,
     totalBurden: Math.round(totalBurden * 100) / 100,
-    burdenPercent: Math.round((totalBurden / baseWage) * 10000) / 100,
+    burdenPercent: baseWage > 0 ? Math.round((totalBurden / baseWage) * 10000) / 100 : 0,
     loadedRate: Math.round(loadedRate * 100) / 100,
     effectiveRate: Math.round(effectiveRate * 100) / 100,
     breakdown,

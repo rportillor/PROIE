@@ -108,7 +108,7 @@ import { randomUUID } from "crypto";
 import { PRNG } from "./helpers/prng";
 import bcrypt from "bcryptjs";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, desc, and, isNull } from "drizzle-orm";
+import { eq, desc, and, isNull, inArray } from "drizzle-orm";
 import postgres from "postgres";
 import { logger } from "./utils/enterprise-logger";
 
@@ -1738,7 +1738,7 @@ export class DBStorage implements Partial<IStorage> {
 
   async getDocumentHashes(documentIds: string[]): Promise<DocumentHash[]> {
     if (documentIds.length === 0) return [];
-    return await db.select().from(documentHashes).where(eq(documentHashes.documentId, documentIds[0])); // Simplified for now
+    return await db.select().from(documentHashes).where(inArray(documentHashes.documentId, documentIds));
   }
 
   // Project Document methods
@@ -1860,21 +1860,21 @@ export class DBStorage implements Partial<IStorage> {
   }
   // 🛠️ Product Catalog Operations
   async getProductsByCsiDivision(csiDivision: string): Promise<ProductCatalog[]> {
-    return await this.db
+    return await db
       .select()
       .from(productCatalog)
       .where(eq(productCatalog.csiDivision, csiDivision));
   }
 
   async getProductsByAssembly(assemblyReference: string): Promise<ProductCatalog[]> {
-    return await this.db
+    return await db
       .select()
       .from(productCatalog)
       .where(eq(productCatalog.assemblyReference, assemblyReference));
   }
 
   async getProduct(id: string): Promise<ProductCatalog | undefined> {
-    const [product] = await this.db
+    const [product] = await db
       .select()
       .from(productCatalog)
       .where(eq(productCatalog.id, id));
@@ -1882,7 +1882,7 @@ export class DBStorage implements Partial<IStorage> {
   }
 
   async createProduct(product: InsertProductCatalog): Promise<ProductCatalog> {
-    const [newProduct] = await this.db
+    const [newProduct] = await db
       .insert(productCatalog)
       .values(product)
       .returning();
@@ -1891,7 +1891,7 @@ export class DBStorage implements Partial<IStorage> {
 
   async upsertProductsFromClaude(products: InsertProductCatalog[]): Promise<void> {
     for (const product of products) {
-      await this.db
+      await db
         .insert(productCatalog)
         .values(product)
         .onConflictDoNothing();
@@ -1900,7 +1900,7 @@ export class DBStorage implements Partial<IStorage> {
 
   // 🎯 Element Product Selection Operations
   async getElementProductSelection(bimElementId: string): Promise<ElementProductSelection | undefined> {
-    const [selection] = await this.db
+    const [selection] = await db
       .select()
       .from(elementProductSelections)
       .where(eq(elementProductSelections.bimElementId, bimElementId));
@@ -1908,7 +1908,7 @@ export class DBStorage implements Partial<IStorage> {
   }
 
   async setElementProductSelection(selection: InsertElementProductSelection): Promise<ElementProductSelection> {
-    const [newSelection] = await this.db
+    const [newSelection] = await db
       .insert(elementProductSelections)
       .values(selection)
       .onConflictDoUpdate({
@@ -1929,7 +1929,7 @@ export class DBStorage implements Partial<IStorage> {
   }
 
   async updateElementCustomCost(bimElementId: string, customCost: number, customProductName?: string): Promise<ElementProductSelection> {
-    const [updatedSelection] = await this.db
+    const [updatedSelection] = await db
       .insert(elementProductSelections)
       .values({
         bimElementId,
@@ -1951,7 +1951,7 @@ export class DBStorage implements Partial<IStorage> {
   }
 
   async getProjectProductSelections(projectId: string): Promise<ElementProductSelection[]> {
-    const results = await this.db
+    const results = await db
       .select({
         id: elementProductSelections.id,
         createdAt: elementProductSelections.createdAt,

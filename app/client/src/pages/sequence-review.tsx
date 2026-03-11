@@ -18,6 +18,7 @@ import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -304,6 +305,7 @@ function ActivityRow({
 export default function SequenceReview() {
   const [location] = useLocation();
   const qc = useQueryClient();
+  const { toast } = useToast();
 
   // Extract projectId from URL /projects/:id/sequence
   const projectId = location.split("/projects/")[1]?.split("/")[0] || "";
@@ -360,6 +362,9 @@ export default function SequenceReview() {
       setSequenceStatus("proposed");
       setConfirmed(false);
     },
+    onError: (error: Error) => {
+      toast({ title: "Sequence proposal failed", description: error.message, variant: "destructive" });
+    },
   });
 
   // ── Confirm mutation ──────────────────────────────────────────────────────
@@ -374,6 +379,9 @@ export default function SequenceReview() {
       setSequenceStatus("confirmed");
       setConfirmed(true);
       qc.invalidateQueries({ queryKey: [`/api/projects/${projectId}/sequence`] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Sequence confirmation failed", description: error.message, variant: "destructive" });
     },
   });
 

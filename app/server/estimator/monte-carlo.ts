@@ -257,11 +257,11 @@ export function runMonteCarloSimulation(
   // --- Statistics ---
   const mean = results.reduce((s, v) => s + v, 0) / iterations;
   const sumSqDiff = results.reduce((s, v) => s + (v - mean) ** 2, 0);
-  const stdDev = Math.sqrt(sumSqDiff / (iterations - 1));
+  const stdDev = iterations > 1 ? Math.sqrt(sumSqDiff / (iterations - 1)) : 0;
   const cv = mean > 0 ? stdDev / mean : 0;
 
   // Skewness (Fisher's)
-  const m3 = results.reduce((s, v) => s + ((v - mean) / stdDev) ** 3, 0) / iterations;
+  const m3 = stdDev > 0 ? results.reduce((s, v) => s + ((v - mean) / stdDev) ** 3, 0) / iterations : 0;
   const skewness = m3;
 
   // --- Percentiles ---

@@ -1785,7 +1785,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Use atomic revision service to prevent race conditions
       const { AtomicRevisionService } = await import('./services/atomic-revision-service');
-      const uploadedBy = 'd53a36b4-c36b-49a2-847d-95c33b09fa0f'; // Use existing testuser ID
+      const uploadedBy = req.user?.id || 'unknown';
       const result = await AtomicRevisionService.createRevision(
         documentId,
         file,
@@ -2582,7 +2582,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const modelData = safeJsonParse(model.geometryData, 10 * 1024 * 1024); // 10MB limit
           if (!modelData) {
             logger.warn('Failed to parse BIM model geometry data for storey extraction', { modelId: model.id });
-            return;
+            return res.json([]);
           }
           
           // Phase 2: Extract real storey data from QTO processing
@@ -4027,23 +4027,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // The canonical handler above already reads project params from the DB.
   // (handler intentionally removed — Express will never reach here)
 
-  // Specific project compliance checks (for project-1)
-  app.get('/api/projects/project-1/compliance-checks', authenticateToken, async (req, res) => {
-    try {
-      res.json([]);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch compliance checks" });
-    }
-  });
-
-  // Specific project reports (for project-1)
-  app.get('/api/projects/project-1/reports', authenticateToken, async (req, res) => {
-    try {
-      res.json([]);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch reports" });
-    }
-  });
+  // Removed: hardcoded project-1 routes — the canonical parameterized handlers
+  // at /api/projects/:projectId/compliance-checks and /api/projects/:projectId/reports
+  // already handle all projects including project-1.
 
   // [*] BLOCKED: Parallel path eliminated - all generation must use construction methodology
   app.post("/api/projects/:projectId/bim-models/generate", authenticateToken, async (req, res) => {
@@ -4389,9 +4375,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get user and their company to check access permissions
-      if (!userId) {
-        return res.status(401).json({ error: 'User ID not found' });
-      }
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(401).json({ error: 'User not found' });
