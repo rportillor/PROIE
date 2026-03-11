@@ -2394,3 +2394,47 @@ export const projectOhpConfigs = pgTable("project_ohp_configs", {
 export const insertProjectOhpConfigSchema = createInsertSchema(projectOhpConfigs).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertProjectOhpConfig = z.infer<typeof insertProjectOhpConfigSchema>;
 export type ProjectOhpConfig = typeof projectOhpConfigs.$inferSelect;
+
+// ── Rate Audit Log — tracks who changed which rates and when ──
+export const rateAuditLog = pgTable("rate_audit_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tableName: varchar("table_name", { length: 50 }).notNull(), // "unit_rates", "mep_rates", "regional_factors", "project_ohp_configs"
+  recordId: varchar("record_id").notNull(),
+  action: varchar("action", { length: 20 }).notNull(), // "create", "update", "delete", "import"
+  userId: varchar("user_id").references(() => users.id),
+  userName: varchar("user_name", { length: 100 }),
+  fieldChanges: jsonb("field_changes"), // { field: { old: val, new: val } }
+  metadata: jsonb("metadata"), // extra context: import source, CSV filename, etc.
+  ipAddress: varchar("ip_address", { length: 45 }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({
+  tableNameIdx: index("rate_audit_table_name_idx").on(t.tableName),
+  recordIdIdx: index("rate_audit_record_id_idx").on(t.recordId),
+  userIdIdx: index("rate_audit_user_id_idx").on(t.userId),
+  createdAtIdx: index("rate_audit_created_at_idx").on(t.createdAt),
+}));
+
+export const insertRateAuditLogSchema = createInsertSchema(rateAuditLog).omit({ id: true, createdAt: true });
+export type InsertRateAuditLog = z.infer<typeof insertRateAuditLogSchema>;
+export type RateAuditLog = typeof rateAuditLog.$inferSelect;
+
+// ── Rate Versions — full snapshot of rate before each change ──
+export const rateVersions = pgTable("rate_versions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tableName: varchar("table_name", { length: 50 }).notNull(),
+  recordId: varchar("record_id").notNull(),
+  version: integer("version").notNull().default(1),
+  snapshot: jsonb("snapshot").notNull(), // full row data at this version
+  changedBy: varchar("changed_by").references(() => users.id),
+  changedByName: varchar("changed_by_name", { length: 100 }),
+  changeReason: text("change_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({
+  tableRecordIdx: index("rate_versions_table_record_idx").on(t.tableName, t.recordId),
+  versionIdx: index("rate_versions_version_idx").on(t.version),
+  tableRecordVersionUniq: unique("rate_versions_table_record_version_uniq").on(t.tableName, t.recordId, t.version),
+}));
+
+export const insertRateVersionSchema = createInsertSchema(rateVersions).omit({ id: true, createdAt: true });
+export type InsertRateVersion = z.infer<typeof insertRateVersionSchema>;
+export type RateVersion = typeof rateVersions.$inferSelect;

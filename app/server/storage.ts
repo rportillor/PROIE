@@ -101,6 +101,8 @@ import {
   mepRates, type MepRate, type InsertMepRate,
   regionalFactors, type RegionalFactor, type InsertRegionalFactor,
   projectOhpConfigs, type ProjectOhpConfig, type InsertProjectOhpConfig,
+  rateAuditLog, type RateAuditLog, type InsertRateAuditLog,
+  rateVersions, type RateVersion, type InsertRateVersion,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { PRNG } from "./helpers/prng";
@@ -191,6 +193,13 @@ export interface IStorage {
   // Project OH&P Configuration (DB-persisted)
   getProjectOhpConfig(projectId: string): Promise<ProjectOhpConfig | undefined>;
   upsertProjectOhpConfig(config: InsertProjectOhpConfig): Promise<ProjectOhpConfig>;
+
+  // Rate Audit & Versioning
+  createRateAuditEntry(entry: InsertRateAuditLog): Promise<RateAuditLog>;
+  getRateAuditLog(tableName?: string, recordId?: string, limit?: number): Promise<RateAuditLog[]>;
+  createRateVersion(version: InsertRateVersion): Promise<RateVersion>;
+  getRateVersions(tableName: string, recordId: string): Promise<RateVersion[]>;
+  getLatestRateVersion(tableName: string, recordId: string): Promise<RateVersion | undefined>;
 
   // Compliance Checks
   getComplianceChecks(projectId: string): Promise<ComplianceCheck[]>;
@@ -721,6 +730,13 @@ export class MemStorage implements Partial<IStorage> {
   async getProjectOhpConfig(_projectId: string): Promise<ProjectOhpConfig | undefined> { return undefined; }
   async upsertProjectOhpConfig(config: InsertProjectOhpConfig): Promise<ProjectOhpConfig> { return { ...config, id: randomUUID(), createdAt: new Date(), updatedAt: new Date() } as ProjectOhpConfig; }
 
+  // Rate Audit & Versioning (in-memory stubs)
+  async createRateAuditEntry(entry: InsertRateAuditLog): Promise<RateAuditLog> { return { ...entry, id: randomUUID(), createdAt: new Date() } as RateAuditLog; }
+  async getRateAuditLog(_tableName?: string, _recordId?: string, _limit?: number): Promise<RateAuditLog[]> { return []; }
+  async createRateVersion(version: InsertRateVersion): Promise<RateVersion> { return { ...version, id: randomUUID(), createdAt: new Date() } as RateVersion; }
+  async getRateVersions(_tableName: string, _recordId: string): Promise<RateVersion[]> { return []; }
+  async getLatestRateVersion(_tableName: string, _recordId: string): Promise<RateVersion | undefined> { return undefined; }
+
   // 🔍 BOQ-BIM Validation Methods
   async createValidationResult(result: any): Promise<any> {
     const id = randomUUID();
@@ -1144,6 +1160,43 @@ export class DBStorage implements Partial<IStorage> {
     }
     const result = await db.insert(projectOhpConfigs).values(config).returning();
     return result[0];
+  }
+
+  // Rate Audit Log methods
+  async createRateAuditEntry(entry: InsertRateAuditLog): Promise<RateAuditLog> {
+    const result = await db.insert(rateAuditLog).values(entry).returning();
+    return result[0];
+  }
+
+  async getRateAuditLog(tableName?: string, recordId?: string, limit: number = 100): Promise<RateAuditLog[]> {
+    let query = db.select().from(rateAuditLog);
+    const conditions = [];
+    if (tableName) conditions.push(eq(rateAuditLog.tableName, tableName));
+    if (recordId) conditions.push(eq(rateAuditLog.recordId, recordId));
+    if (conditions.length > 0) {
+      query = query.where(conditions.length === 1 ? conditions[0] : and(...conditions)) as any;
+    }
+    return await (query as any).orderBy(desc(rateAuditLog.createdAt)).limit(limit);
+  }
+
+  // Rate Version methods
+  async createRateVersion(version: InsertRateVersion): Promise<RateVersion> {
+    const result = await db.insert(rateVersions).values(version).returning();
+    return result[0];
+  }
+
+  async getRateVersions(tableName: string, recordId: string): Promise<RateVersion[]> {
+    return await db.select().from(rateVersions)
+      .where(and(eq(rateVersions.tableName, tableName), eq(rateVersions.recordId, recordId)))
+      .orderBy(desc(rateVersions.version));
+  }
+
+  async getLatestRateVersion(tableName: string, recordId: string): Promise<RateVersion | undefined> {
+    const rows = await db.select().from(rateVersions)
+      .where(and(eq(rateVersions.tableName, tableName), eq(rateVersions.recordId, recordId)))
+      .orderBy(desc(rateVersions.version))
+      .limit(1);
+    return rows[0] ?? undefined;
   }
 
   // Compliance Check methods
