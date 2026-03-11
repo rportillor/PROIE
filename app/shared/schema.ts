@@ -587,7 +587,7 @@ export const analysisSystemBaseline = pgTable("analysis_system_baseline", {
   // Metadata
   description: text("description"),
   snapshotDate: timestamp("snapshot_date").defaultNow(),
-  createdBy: varchar("created_by").references(() => users.id),
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
 }, (table) => ({
   systemVersionIdx: index("analysis_system_baseline_version_idx").on(table.systemVersion),
   snapshotDateIdx: index("analysis_system_baseline_date_idx").on(table.snapshotDate),
@@ -599,8 +599,8 @@ export const analysisComparisons = pgTable("analysis_comparisons", {
   projectId: varchar("project_id").notNull().references(() => projects.id),
   
   // Comparison details
-  oldAnalysisId: varchar("old_analysis_id").references(() => analysisResults.id),
-  newAnalysisId: varchar("new_analysis_id").references(() => analysisResults.id),
+  oldAnalysisId: varchar("old_analysis_id").references(() => analysisResults.id, { onDelete: "set null" }),
+  newAnalysisId: varchar("new_analysis_id").references(() => analysisResults.id, { onDelete: "set null" }),
   oldSystemVersion: varchar("old_system_version", { length: 20 }).notNull(),
   newSystemVersion: varchar("new_system_version", { length: 20 }).notNull(),
   
@@ -2482,7 +2482,7 @@ export const rateAuditLog = pgTable("rate_audit_log", {
   tableName: varchar("table_name", { length: 50 }).notNull(), // "unit_rates", "mep_rates", "regional_factors", "project_ohp_configs"
   recordId: varchar("record_id").notNull(),
   action: varchar("action", { length: 20 }).notNull(), // "create", "update", "delete", "import"
-  userId: varchar("user_id").references(() => users.id),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
   userName: varchar("user_name", { length: 100 }),
   fieldChanges: jsonb("field_changes"), // { field: { old: val, new: val } }
   metadata: jsonb("metadata"), // extra context: import source, CSV filename, etc.
@@ -2506,7 +2506,7 @@ export const rateVersions = pgTable("rate_versions", {
   recordId: varchar("record_id").notNull(),
   version: integer("version").notNull().default(1),
   snapshot: jsonb("snapshot").notNull(), // full row data at this version
-  changedBy: varchar("changed_by").references(() => users.id),
+  changedBy: varchar("changed_by").references(() => users.id, { onDelete: "set null" }),
   changedByName: varchar("changed_by_name", { length: 100 }),
   changeReason: text("change_reason"),
   createdAt: timestamp("created_at").defaultNow(),
