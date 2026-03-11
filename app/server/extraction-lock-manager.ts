@@ -12,47 +12,43 @@ export class ExtractionLockManager {
    */
   static async acquireLock(processId: string, timeoutMs: number = this.LOCK_TIMEOUT): Promise<boolean> {
     try {
-      // Check if there's an active lock
-      const activeLock = await db.execute(sql`
-        SELECT value, updated_at 
-        FROM app_settings 
-        WHERE key = ${this.LOCK_KEY}
-      `);
-      
-      if (activeLock.rows.length > 0) {
-        const lockData = JSON.parse(activeLock.rows[0].value as string);
-        const lockAge = Date.now() - new Date(activeLock.rows[0].updated_at as string).getTime();
-        const lastHeartbeat = Date.now() - new Date(lockData.lastHeartbeat || lockData.startedAt).getTime();
-        
-        // Check if lock is still active based on heartbeat
-        if (lockAge < timeoutMs && lastHeartbeat < this.HEARTBEAT_INTERVAL * 2 && lockData.processId !== processId) {
-          console.log(`⛔ Extraction already running by process: ${lockData.processId} (heartbeat ${Math.round(lastHeartbeat/1000)}s ago)`);
-          return false;
-        }
-        
-        if (lockAge >= timeoutMs || lastHeartbeat >= this.HEARTBEAT_INTERVAL * 2) {
-          console.log(`🕐 Stale lock detected (age: ${Math.round(lockAge/1000)}s, heartbeat: ${Math.round(lastHeartbeat/1000)}s ago) - taking over`);
-        }
-      }
-      
-      // Acquire or update lock with heartbeat
+      // SECURITY FIX: Use atomic INSERT ... ON CONFLICT with WHERE clause to prevent race condition.
+      // The old check-then-insert pattern allowed two processes to both read "no lock"
+      // and both insert, creating a race window.
       const lockData = {
         processId,
         startedAt: new Date().toISOString(),
         lastHeartbeat: new Date().toISOString(),
         timeoutMs
       };
-      
-      await db.execute(sql`
+
+      // Atomic lock acquisition: only acquire if no active lock exists or lock is stale
+      const result = await db.execute(sql`
         INSERT INTO app_settings (key, value, updated_at)
         VALUES (
-          ${this.LOCK_KEY}, 
+          ${this.LOCK_KEY},
           ${JSON.stringify(lockData)},
           NOW()
         )
         ON CONFLICT (key) DO UPDATE
-        SET value = EXCLUDED.value, updated_at = NOW()
+        SET value = ${JSON.stringify(lockData)}, updated_at = NOW()
+        WHERE
+          -- Lock is stale (exceeded timeout)
+          (NOW() - app_settings.updated_at) > (COALESCE((app_settings.value::jsonb->>'timeoutMs')::int, ${this.LOCK_TIMEOUT}) * interval '1 millisecond')
+          -- OR heartbeat is too old (2x heartbeat interval)
+          OR (NOW() - COALESCE(
+            to_timestamp((app_settings.value::jsonb->>'lastHeartbeat')::text, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+            app_settings.updated_at
+          )) > (${this.HEARTBEAT_INTERVAL * 2} * interval '1 millisecond')
+          -- OR same process re-acquiring
+          OR app_settings.value::jsonb->>'processId' = ${processId}
       `);
+
+      // If no rows were affected by the upsert, another active lock exists
+      if ((result.rowCount ?? 0) === 0) {
+        console.log(`⛔ Extraction already running by another process — lock not acquired`);
+        return false;
+      }
       
       console.log(`✅ Lock acquired for process: ${processId} (timeout: ${timeoutMs/1000}s)`);
       

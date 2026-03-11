@@ -78,16 +78,11 @@ export default function Documents() {
     mobileLog('📄 Viewing document', { fileName, projectId: projectId.substring(0, 8) });
     
     try {
-      // Get auth token from localStorage - fallback to test-token for development
-      let token = localStorage.getItem("auth_token");
+      // SECURITY FIX: Use Authorization header instead of token in URL query parameter
+      // Tokens in URLs leak via server logs, browser history, and Referer headers
+      const token = localStorage.getItem("auth_token");
       console.log('🔑 Token from localStorage:', token ? 'EXISTS' : 'MISSING');
-      
-      if (!token && import.meta.env.DEV) {
-        token = "test-token";
-        localStorage.setItem("auth_token", token);
-        console.log('🔧 Using development test token');
-      }
-      
+
       if (!token) {
         const authError = new Error('No authentication token available');
         logAuthError(authError, 'View Document - Missing Token');
@@ -99,15 +94,14 @@ export default function Documents() {
         return;
       }
 
-      const baseUrl = `/api/projects/${projectId}/documents/${documentId}/view`;
-      const fullUrl = baseUrl + `?token=${encodeURIComponent(token)}`;
+      const fullUrl = `/api/projects/${projectId}/documents/${documentId}/view`;
       
       console.log('🔗 Generated document URL:', fullUrl);
       
       // Test URL accessibility before opening
       try {
         console.log('🧪 Testing document accessibility...');
-        const testResponse = await fetch(fullUrl, { method: 'HEAD' }).catch(err => {
+        const testResponse = await fetch(fullUrl, { method: 'HEAD', headers: { 'Authorization': `Bearer ${token}` } }).catch(err => {
           console.error('Failed to test document:', err);
           throw err;
         });
@@ -191,13 +185,9 @@ export default function Documents() {
     console.log('⬇️ DOCUMENT DOWNLOAD ATTEMPT:', { projectId, documentId, fileName });
     
     try {
-      // Get auth token from localStorage - fallback to test-token for development
-      let token = localStorage.getItem("auth_token");
-      if (!token && import.meta.env.DEV) {
-        token = "test-token";
-        localStorage.setItem("auth_token", token);
-      }
-      
+      // SECURITY FIX: Use fetch with Authorization header instead of token in URL
+      const token = localStorage.getItem("auth_token");
+
       if (!token) {
         const authError = new Error('No authentication token available for download');
         logAuthError(authError, 'Download Document - Missing Token');
@@ -210,12 +200,22 @@ export default function Documents() {
       }
 
       const url = `/api/projects/${projectId}/documents/${documentId}/download`;
-      const fullUrl = url + `?token=${encodeURIComponent(token)}`;
-      
-      console.log('⬇️ Download URL:', fullUrl);
-      
-      // Navigate directly to download URL (works on all devices)
-      window.location.href = fullUrl;
+      console.log('⬇️ Download URL:', url);
+
+      // Fetch with Authorization header, then trigger download via blob URL
+      const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error(`Download failed: HTTP ${response.status}`);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
       
       console.log('✅ Document download initiated');
       

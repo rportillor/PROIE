@@ -292,7 +292,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // v15.29: UNIFIED PRICING — both endpoints use estimate-engine.ts (224 CSI rates, M+L+E, waste)
   // CostEstimationEngine shim is NO LONGER used for BoQ pricing. Single source of truth.
 
-  app.get('/api/projects/:projectId/boq-with-costs', async (req: any, res) => {
+  app.get('/api/projects/:projectId/boq-with-costs', authenticateToken, async (req: any, res) => {
     try {
       const { projectId } = req.params;
       
@@ -384,9 +384,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     } catch (error) {
       console.error("Error generating BOQ with costs:", error);
-      res.status(500).json({ 
-        message: "Failed to generate BOQ with cost calculations",
-        error: error instanceof Error ? error.message : String(error)
+      res.status(500).json({
+        message: "Failed to generate BOQ with cost calculations"
       });
     }
   });
@@ -395,7 +394,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Pipeline: BIM elements → generateEstimateFromElements (224 CSI rates, M+L+E, waste)
   //           → group line items by csiCode → create BoQ items with full rate breakdown
   //           → persist estimate as analysisResult for audit trail
-  app.post('/api/projects/:projectId/convert-bim-to-boq', async (req: any, res) => {
+  app.post('/api/projects/:projectId/convert-bim-to-boq', authenticateToken, async (req: any, res) => {
     try {
       const { projectId } = req.params;
       
@@ -558,15 +557,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
     } catch (error) {
       console.error("BIM to BOQ conversion failed:", error);
-      res.status(500).json({ 
-        message: "Failed to convert BIM elements to BOQ items",
-        error: error instanceof Error ? error.message : String(error)
+      res.status(500).json({
+        message: "Failed to convert BIM elements to BOQ items"
       });
     }
   });
 
   // [*] BOQ Version Saving endpoints
-  app.post('/api/projects/:projectId/boq-versions', async (req: any, res) => {
+  app.post('/api/projects/:projectId/boq-versions', authenticateToken, async (req: any, res) => {
     try {
       const { projectId } = req.params;
       const { versionName, description, elements } = req.body;
@@ -603,15 +601,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
     } catch (error) {
       console.error("Error saving BOQ version:", error);
-      res.status(500).json({ 
-        message: "Failed to save BOQ version",
-        error: error instanceof Error ? error.message : String(error)
+      res.status(500).json({
+        message: "Failed to save BOQ version"
       });
     }
   });
 
   // FIX-C: Get BOQ versions — real DB snapshots; live summary if none saved
-  app.get('/api/projects/:projectId/boq-versions', async (req: any, res) => {
+  app.get('/api/projects/:projectId/boq-versions', authenticateToken, async (req: any, res) => {
     try {
       const { projectId } = req.params;
       const stored = await storage.getAnalysisHistory(projectId, 'boq_version');
@@ -632,13 +629,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }]);
     } catch (error) {
       console.error("Error getting BOQ versions:", error);
-      res.status(500).json({ message: "Failed to get BOQ versions",
-        error: error instanceof Error ? error.message : String(error) });
+      res.status(500).json({ message: "Failed to get BOQ versions" });
     }
   });
 
   // [*] Grid analysis endpoint - extract grid info from Moorings project (development only)
-  app.get("/api/moorings-grid-analysis", async (req, res) => {
+  app.get("/api/moorings-grid-analysis", authenticateToken, async (req, res) => {
     if (process.env.NODE_ENV !== 'development') {
       return res.status(404).json({ error: 'Development endpoint only' });
     }
@@ -668,7 +664,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
     } catch (error) {
       console.error('Error extracting Moorings grid data:', error);
-      res.status(500).json({ error: 'Failed to extract grid data', details: error instanceof Error ? error.message : String(error) });
+      res.status(500).json({ error: 'Failed to extract grid data' });
     }
   });
 
@@ -1690,7 +1686,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/projects/:projectId/documents/upload", fileUploadLimiter, fileUploadCSP, upload.array('files'), async (req, res) => {
+  app.post("/api/projects/:projectId/documents/upload", authenticateToken, fileUploadLimiter, fileUploadCSP, upload.array('files'), async (req, res) => {
     try {
       if (!req.files || !Array.isArray(req.files)) {
         return res.status(400).json({ message: "No files uploaded" });
@@ -1775,7 +1771,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/projects/:projectId/documents/:documentId/revisions", fileUploadLimiter, fileUploadCSP, upload.single('file'), async (req, res) => {
+  app.post("/api/projects/:projectId/documents/:documentId/revisions", authenticateToken, fileUploadLimiter, fileUploadCSP, upload.single('file'), async (req, res) => {
     try {
       const { projectId, documentId } = req.params;
       const { revisionNotes } = req.body;
@@ -2058,7 +2054,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Project Workflow Metrics
-  app.get("/api/projects/:projectId/workflow-metrics", async (req, res) => {
+  app.get("/api/projects/:projectId/workflow-metrics", authenticateToken, async (req, res) => {
     try {
       const documents = await storage.getDocuments(req.params.projectId);
       
@@ -2088,7 +2084,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/projects/:projectId/documents-requiring-attention", async (req, res) => {
+  app.get("/api/projects/:projectId/documents-requiring-attention", authenticateToken, async (req, res) => {
     try {
       const documents = await storage.getDocuments(req.params.projectId);
       const now = new Date();
@@ -2160,7 +2156,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // BoQ Items endpoints
   // BoQ endpoint alias for consistency
-  app.get("/api/projects/:projectId/boq", async (req, res) => {
+  app.get("/api/projects/:projectId/boq", authenticateToken, async (req, res) => {
     const { projectId } = req.params;
     try {
       const boqItems = await storage.getBoqItems(projectId);
@@ -2171,7 +2167,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/projects/:projectId/boq-items", async (req, res) => {
+  app.get("/api/projects/:projectId/boq-items", authenticateToken, async (req, res) => {
     try {
       const boqItems = await storage.getBoqItems(req.params.projectId);
       res.json(boqItems);
@@ -2181,7 +2177,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/projects/:projectId/boq-items", async (req, res) => {
+  app.post("/api/projects/:projectId/boq-items", authenticateToken, async (req, res) => {
     try {
       const boqItemData = insertBoqItemSchema.parse({
         ...req.body,
@@ -2196,7 +2192,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Compliance Checks endpoints
-  app.get("/api/projects/:projectId/compliance-checks", async (req, res) => {
+  app.get("/api/projects/:projectId/compliance-checks", authenticateToken, async (req, res) => {
     try {
       const complianceChecks = await storage.getComplianceChecks(req.params.projectId);
       res.json(complianceChecks);
@@ -2206,7 +2202,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/projects/:projectId/compliance-checks/run", async (req, res) => {
+  app.post("/api/projects/:projectId/compliance-checks/run", authenticateToken, async (req, res) => {
     try {
       // Simulate compliance checking
       const sampleChecks = [
@@ -2250,7 +2246,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Comprehensive compliance checking endpoint
-  app.post("/api/projects/:projectId/compliance-checks/comprehensive", async (req, res) => {
+  app.post("/api/projects/:projectId/compliance-checks/comprehensive", authenticateToken, async (req, res) => {
     try {
       const { categories, jurisdiction, province, state, priority } = req.body;
       
@@ -3230,7 +3226,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Reports endpoints
-  app.get("/api/projects/:projectId/reports", async (req, res) => {
+  app.get("/api/projects/:projectId/reports", authenticateToken, async (req, res) => {
     try {
       const reports = await storage.getReports(req.params.projectId);
       res.json(reports);
@@ -3240,7 +3236,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/projects/:projectId/reports", async (req, res) => {
+  app.post("/api/projects/:projectId/reports", authenticateToken, async (req, res) => {
     try {
       const { reportType } = req.body;
       

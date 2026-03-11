@@ -14,6 +14,9 @@ const anthropic = new Anthropic({
 
 import { ProcessingProgress, processingProgress as currentProgress, getProcessingProgress } from './utils/processing-progress';
 
+// Module-scoped state (not global pollution)
+let batchProcessorAlertCount = 0;
+
 // 🤖 AUTOMATIC PROCESSING: Background scheduler state
 let isBackgroundProcessingActive = false;
 let backgroundProcessingInterval: NodeJS.Timeout | null = null;
@@ -702,12 +705,9 @@ export async function processAllDocuments(projectId: string): Promise<Processing
   // Alert via monitoring system
   alertDeprecatedPath('batch-processor.processAllDocuments', projectId);
   
-  // Alert Counter
-  if (!(global as any).batchProcessorAlerts) {
-    (global as any).batchProcessorAlerts = 0;
-  }
-  (global as any).batchProcessorAlerts++;
-  logger.error(`🚨 BATCH PROCESSOR DEPRECATED CALLS: ${(global as any).batchProcessorAlerts}`);
+  // Alert Counter — use module-scoped variable instead of polluting global
+  batchProcessorAlertCount++;
+  logger.error(`🚨 BATCH PROCESSOR DEPRECATED CALLS: ${batchProcessorAlertCount}`);
   
   // Throw error if blocking enabled
   if (process.env.BLOCK_DEPRECATED_PATHS === 'true') {
@@ -816,10 +816,13 @@ async function triggerComprehensiveAnalysis(projectId: string): Promise<void> {
   try {
     logger.info(`🚀 Triggering comprehensive analysis for project ${projectId}`);
     
-    // Call our comprehensive analysis endpoint internally
+    // SECURITY FIX: Generate a real token for internal API calls instead of hardcoded test-token
+    const { generateToken } = await import('./auth');
+    const systemUser = await storage.getUserByUsername('system');
+    const internalToken = systemUser ? generateToken(systemUser) : '';
     const response = await fetch(`http://localhost:5000/api/comprehensive-analysis/${projectId}`, {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer test-token' }
+      headers: { 'Authorization': `Bearer ${internalToken}` }
     });
     
     if (response.ok) {

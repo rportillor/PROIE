@@ -15,8 +15,8 @@ const registerSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters").max(50),
   name: z.string().min(2, "Name must be at least 2 characters").max(100),
   role: z.string().min(1, "Please select a role"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  confirmPassword: z.string().min(6, "Please confirm your password"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  confirmPassword: z.string().min(8, "Please confirm your password"),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],

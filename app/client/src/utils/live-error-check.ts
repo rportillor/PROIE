@@ -34,12 +34,11 @@ export const runLiveErrorCheck = () => {
       const isDevMode = import.meta.env.DEV;
       console.log('🔧 Development mode:', isDevMode);
       
-      // Test URL construction
+      // Test URL construction (no token in URL — use Authorization header)
       const testProjectId = 'test-project-123';
       const testDocumentId = 'test-doc-456';
-      const testToken = token || 'test-token';
-      
-      const viewUrl = `/api/projects/${testProjectId}/documents/${testDocumentId}/view?token=${encodeURIComponent(testToken)}`;
+
+      const viewUrl = `/api/projects/${testProjectId}/documents/${testDocumentId}/view`;
       console.log('🔗 Generated view URL:', viewUrl);
       
       // Test with actual project data
@@ -72,13 +71,19 @@ export const runLiveErrorCheck = () => {
     try {
       console.log('🌐 Testing document fetch...');
       
-      const token = localStorage.getItem('auth_token') || 'test-token';
-      // Use real document ID from your uploaded documents
-      const testUrl = `/api/projects/c7ec2523-8631-4181-8c6e-f705861654d7/documents/6c8647ba-822a-4098-9d25-cc6f27b4d608/view?token=${encodeURIComponent(token)}`;
-      
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        console.log('❌ No auth token — skipping document fetch test');
+        return { success: false, error: 'No auth token available' };
+      }
+      // SECURITY FIX: Use placeholder IDs, not real UUIDs; use Authorization header
+      const testUrl = `/api/projects/test-project/documents/test-doc/view`;
+
       console.log('📡 Attempting fetch to:', testUrl);
-      
-      const response = await fetch(testUrl).catch(err => {
+
+      const response = await fetch(testUrl, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).catch(err => {
         console.error('Fetch failed:', err);
         throw err;
       });
@@ -96,7 +101,7 @@ export const runLiveErrorCheck = () => {
       
     } catch (error) {
       console.error('❌ Document fetch failed:', error);
-      errorMonitor.logDocumentViewingError(error as Error, 'c7ec2523-8631-4181-8c6e-f705861654d7', '8ed368c3-0282-4efd-94ea-21e2af8ba76f');
+      errorMonitor.logDocumentViewingError(error as Error, 'test-project', 'test-doc');
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   };

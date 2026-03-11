@@ -1,24 +1,25 @@
 import Stripe from 'stripe';
 
-// Use placeholder if not set for development
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder_key_for_development';
+// SECURITY: Stripe secret key must be set via environment variable — never hardcode
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 
-if (!process.env.STRIPE_SECRET_KEY) {
-  console.warn('STRIPE_SECRET_KEY not set. Using placeholder for development.');
+if (!stripeSecretKey) {
+  console.error('STRIPE_SECRET_KEY not set. Stripe payments will not work.');
 }
 
-export const stripe = new Stripe(stripeSecretKey, {
+export const stripe = new Stripe(stripeSecretKey || '', {
   apiVersion: '2024-11-20.acacia',
 } as any);
 
-// Plan configurations (using actual Stripe price IDs with CAD pricing)
+// Plan configurations — price IDs loaded from environment variables
+// Set STRIPE_PRICE_* env vars to your actual Stripe price IDs
 export const PLANS = {
   // BYOL Plans (Bring Your Own License)
   starter_byol: {
     name: 'Starter',
     displayName: 'Starter (BYOL)',
-    monthlyPriceId: 'price_1Rz1sxJHXMtCl9VtKmvxSHgq',
-    annualPriceId: 'price_1Rz26TJHXMtCl9VtwW0xxCOb',
+    monthlyPriceId: process.env.STRIPE_PRICE_STARTER_BYOL_MONTHLY || '',
+    annualPriceId: process.env.STRIPE_PRICE_STARTER_BYOL_ANNUAL || '',
     maxProjects: 2,
     maxDocumentsPerProject: 10,
     maxStorageGB: 1,
@@ -31,8 +32,8 @@ export const PLANS = {
   pro_byol: {
     name: 'Professional',
     displayName: 'Professional (BYOL)',
-    monthlyPriceId: 'price_1Rz1sxJHXMtCl9VtT3jm0vG7',
-    annualPriceId: 'price_1Rz2jKJHXMtCl9VtEfCMpGL6',
+    monthlyPriceId: process.env.STRIPE_PRICE_PRO_BYOL_MONTHLY || '',
+    annualPriceId: process.env.STRIPE_PRICE_PRO_BYOL_ANNUAL || '',
     maxProjects: 100,
     maxDocumentsPerProject: -1,
     maxStorageGB: 5,
@@ -45,8 +46,8 @@ export const PLANS = {
   enterprise_byol: {
     name: 'Enterprise',
     displayName: 'Enterprise (BYOL)',
-    monthlyPriceId: 'price_1Rz1syJHXMtCl9VtTv3eSyYw',
-    annualPriceId: 'price_1Rz26WJHXMtCl9Vt5iuiduAq',
+    monthlyPriceId: process.env.STRIPE_PRICE_ENTERPRISE_BYOL_MONTHLY || '',
+    annualPriceId: process.env.STRIPE_PRICE_ENTERPRISE_BYOL_ANNUAL || '',
     maxProjects: -1,
     maxDocumentsPerProject: -1,
     maxStorageGB: -1, // unlimited
@@ -61,8 +62,8 @@ export const PLANS = {
   starter_included: {
     name: 'Starter',
     displayName: 'Starter (Codes Included)',
-    monthlyPriceId: 'price_1Rz2zRJHXMtCl9VtVmRAfkOm',
-    annualPriceId: 'price_1Rz30kJHXMtCl9VtBpLQHOFD',
+    monthlyPriceId: process.env.STRIPE_PRICE_STARTER_INCLUDED_MONTHLY || '',
+    annualPriceId: process.env.STRIPE_PRICE_STARTER_INCLUDED_ANNUAL || '',
     maxProjects: 2,
     maxDocumentsPerProject: 10,
     maxStorageGB: 1,
@@ -75,7 +76,7 @@ export const PLANS = {
   single_project: {
     name: 'Single Project',
     displayName: 'Single Project (Codes Included)',
-    priceId: 'price_1Rz1sxJHXMtCl9Vte7swRp10',
+    priceId: process.env.STRIPE_PRICE_SINGLE_PROJECT || '',
     maxProjects: 1,
     maxDocumentsPerProject: -1,
     maxStorageGB: 1,
@@ -89,8 +90,8 @@ export const PLANS = {
   pro_included: {
     name: 'Professional',
     displayName: 'Professional (All Inclusive)',
-    monthlyPriceId: 'price_1Rz1syJHXMtCl9VtZzDqzM0Z',
-    annualPriceId: 'price_1Rz26XJHXMtCl9VtFP8jl9M6',
+    monthlyPriceId: process.env.STRIPE_PRICE_PRO_INCLUDED_MONTHLY || '',
+    annualPriceId: process.env.STRIPE_PRICE_PRO_INCLUDED_ANNUAL || '',
     maxProjects: 100,
     maxDocumentsPerProject: -1,
     maxStorageGB: 5,
@@ -104,8 +105,8 @@ export const PLANS = {
   enterprise_included: {
     name: 'Enterprise',
     displayName: 'Enterprise (Gold)',
-    monthlyPriceId: 'price_1Rz1syJHXMtCl9VtdmtMh5eF',
-    annualPriceId: 'price_1Rz26ZJHXMtCl9VtMDHfJGwY',
+    monthlyPriceId: process.env.STRIPE_PRICE_ENTERPRISE_INCLUDED_MONTHLY || '',
+    annualPriceId: process.env.STRIPE_PRICE_ENTERPRISE_INCLUDED_ANNUAL || '',
     maxProjects: -1,
     maxDocumentsPerProject: -1,
     maxStorageGB: -1, // unlimited

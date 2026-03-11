@@ -68,24 +68,33 @@ export const fileUploadLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// HTML entity encoding — defense-in-depth against XSS
+function encodeHtmlEntities(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
 // Input sanitization middleware
+// SECURITY: Uses HTML entity encoding instead of regex stripping (which is bypassable)
 export const sanitizeInput = (req: Request, res: Response, next: NextFunction) => {
-  // Recursively sanitize all string inputs
   const sanitizeObject = (obj: any): any => {
     if (typeof obj === 'string') {
-      // Remove potential XSS characters
-      return obj
-        .replace(/<script[^>]*>.*?<\/script>/gi, '')
-        .replace(/<[^>]*>/g, '')
-        .replace(/javascript:/gi, '')
-        .replace(/on\w+=/gi, '')
-        .trim();
+      // Encode HTML entities to neutralize XSS payloads
+      let sanitized = encodeHtmlEntities(obj);
+      // Also neutralize javascript: protocol and event handlers
+      sanitized = sanitized.replace(/javascript:/gi, 'blocked:');
+      sanitized = sanitized.replace(/on\w+=/gi, 'data-blocked=');
+      return sanitized.trim();
     }
-    
+
     if (Array.isArray(obj)) {
       return obj.map(sanitizeObject);
     }
-    
+
     if (typeof obj === 'object' && obj !== null) {
       const sanitized: any = {};
       for (const [key, value] of Object.entries(obj)) {
@@ -93,18 +102,18 @@ export const sanitizeInput = (req: Request, res: Response, next: NextFunction) =
       }
       return sanitized;
     }
-    
+
     return obj;
   };
-  
+
   if (req.body) {
     req.body = sanitizeObject(req.body);
   }
-  
+
   if (req.query) {
     req.query = sanitizeObject(req.query);
   }
-  
+
   next();
 };
 
