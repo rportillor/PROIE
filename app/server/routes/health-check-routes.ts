@@ -62,7 +62,7 @@ healthCheckRouter.get('/health/ready', async (req, res) => {
   // File system check
   const fsStart = Date.now();
   try {
-    const { existsSync } = await import('fs');
+    const { existsSync: _existsSync } = await import('fs');
     components.push({
       name: 'filesystem',
       status: 'healthy',

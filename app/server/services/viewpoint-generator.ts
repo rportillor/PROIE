@@ -18,7 +18,7 @@
  */
 
 import type { ClashGroup } from './dedup-engine';
-import type { AABB, ResolvedElement } from './clash-detection-engine';
+import type { AABB } from './clash-detection-engine';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES

@@ -1,5 +1,5 @@
 // server/helpers/layout-repair.ts
-import { bboxOf, convexHull, pca2D, rotate, centroid, Pt } from "./geom-utils";
+import { convexHull, pca2D, rotate, centroid, Pt } from "./geom-utils";
 import { detectGridFromElements } from "./grid-detect";
 
 type RepairOptions = {

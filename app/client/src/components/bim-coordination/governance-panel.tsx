@@ -115,7 +115,7 @@ const SLA_CONFIG: Record<string, { color: string; bg: string; icon: any }> = {
 // PHASE INDICATOR
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function PhaseIndicator({ phase, hoursUntil, nextDeadline }: {
+function PhaseIndicator({ phase, hoursUntil }: {
   phase: string;
   hoursUntil: number;
   nextDeadline: string;
@@ -188,7 +188,7 @@ function SLAProgressBar({ item }: { item: SLAItem }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export default function GovernancePanel({ projectId }: { projectId: string }) {
-  const queryClient = useQueryClient();
+  const _queryClient = useQueryClient();
   const [showMeetingPack, setShowMeetingPack] = useState(false);
 
   // ── Governance status ────────────────────────────────────────────────

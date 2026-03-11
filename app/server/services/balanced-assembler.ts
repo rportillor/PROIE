@@ -8,8 +8,8 @@
 // surface the RFI to the user rather than silently continuing.
 
 import { seedStructuralFromAnalysis } from "../helpers/structural-seed";
-import { expandWithLod } from "../helpers/lod-expander";
-import { getLodProfile } from "../helpers/lod-profile";
+import { expandWithLod as _expandWithLod } from "../helpers/lod-expander";
+import { getLodProfile as _getLodProfile } from "../helpers/lod-profile";
 import { countByFamily } from "../helpers/family";
 import { inferStoreysIfMissing } from "../helpers/storey-inference";
 

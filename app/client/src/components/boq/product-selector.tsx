@@ -50,7 +50,7 @@ export function ProductSelector({ elementId, elementName, csiCode, currentCost }
       // Invalidate BoQ data to refresh costs
       queryClient.invalidateQueries({ queryKey: ['/api/projects'] });
     },
-    onError: (error) => {
+    onError: (_error) => {
       toast({
         title: "Error",
         description: "Failed to update product selection",
@@ -73,9 +73,9 @@ export function ProductSelector({ elementId, elementName, csiCode, currentCost }
       // Invalidate BoQ data to refresh costs
       queryClient.invalidateQueries({ queryKey: ['/api/projects'] });
     },
-    onError: (error) => {
+    onError: (_error) => {
       toast({
-        title: "Error", 
+        title: "Error",
         description: "Failed to update custom cost",
         variant: "destructive",
       });

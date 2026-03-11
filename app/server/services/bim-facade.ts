@@ -3,7 +3,7 @@
 // Delegates to BIMGenerator so the facade is never a dead-end.
 
 import { publishProgress } from "../routes/progress";
-import { postprocessAndSaveBIM_LEGACY as postprocessAndSave } from "./bim-postprocess";
+import { postprocessAndSaveBIM_LEGACY as _postprocessAndSave } from "./bim-postprocess";
 import { storage } from "../storage";
 
 type BimElement = any;

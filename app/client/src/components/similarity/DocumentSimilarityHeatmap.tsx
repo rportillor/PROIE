@@ -65,8 +65,8 @@ interface DocumentSimilarityHeatmapProps {
 }
 
 export function DocumentSimilarityHeatmap({ projectId }: DocumentSimilarityHeatmapProps) {
-  const [selectedCell, setSelectedCell] = useState<{row: number, col: number, similarity?: DocumentSimilarity} | null>(null);
-  const [viewMode, setViewMode] = useState<'heatmap' | 'details'>('heatmap');
+  const [_selectedCell, _setSelectedCell] = useState<{row: number, col: number, similarity?: DocumentSimilarity} | null>(null);
+  const [_viewMode, _setViewMode] = useState<'heatmap' | 'details'>('heatmap');
   const [analysisProgress, setAnalysisProgress] = useState(() => {
     const saved = sessionStorage.getItem(`similarity-progress-${projectId}`);
     return saved ? JSON.parse(saved).progress : 0;

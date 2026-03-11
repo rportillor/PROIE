@@ -74,7 +74,6 @@ jest.mock('../file-storage', () => ({
 // ─── ASSEMBLY LOGIC ─────────────────────────────────────────────────────────
 
 import { AssemblyLogicService } from '../assembly-logic';
-import type { Assembly, AssemblyComponent } from '../assembly-logic';
 
 describe('assembly-logic.ts', () => {
   let service: AssemblyLogicService;
@@ -200,7 +199,6 @@ describe('assembly-logic.ts', () => {
 // ─── DOCUMENT CHUNKER ───────────────────────────────────────────────────────
 
 import { DocumentChunker } from '../document-chunker';
-import type { DocumentChunk } from '../document-chunker';
 
 describe('document-chunker.ts', () => {
   let chunker: DocumentChunker;

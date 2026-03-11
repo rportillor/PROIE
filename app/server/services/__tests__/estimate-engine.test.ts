@@ -23,12 +23,7 @@ import {
   CONSTRUCTION_TYPE_CREW_FACTORS,
 } from '../../estimator/estimate-engine';
 import type {
-  RateEntry,
   EstimateLineItem,
-  EstimateSummary,
-  FloorSummary,
-  QtoSanityCheck,
-  ConstructionTypeFactors,
 } from '../../estimator/estimate-engine';
 
 // =============================================================================
@@ -45,44 +40,44 @@ describe('CIQS Estimate Engine', () => {
     });
 
     it('every rate should have non-negative materialRate', () => {
-      for (const [code, rate] of Object.entries(CSI_RATES)) {
+      for (const [, rate] of Object.entries(CSI_RATES)) {
         expect(rate.materialRate).toBeGreaterThanOrEqual(0);
       }
     });
 
     it('every rate should have non-negative laborRate', () => {
-      for (const [code, rate] of Object.entries(CSI_RATES)) {
+      for (const [, rate] of Object.entries(CSI_RATES)) {
         expect(rate.laborRate).toBeGreaterThanOrEqual(0);
       }
     });
 
     it('every rate should have non-negative equipmentRate', () => {
-      for (const [code, rate] of Object.entries(CSI_RATES)) {
+      for (const [, rate] of Object.entries(CSI_RATES)) {
         expect(rate.equipmentRate).toBeGreaterThanOrEqual(0);
       }
     });
 
     it('every rate should have a valid unit', () => {
       const validUnits = ['m²', 'm³', 'm', 'ea', 'hr', 'kg'];
-      for (const [code, rate] of Object.entries(CSI_RATES)) {
+      for (const [, rate] of Object.entries(CSI_RATES)) {
         expect(validUnits).toContain(rate.unit);
       }
     });
 
     it('every rate should have crewSize >= 1', () => {
-      for (const [code, rate] of Object.entries(CSI_RATES)) {
+      for (const [, rate] of Object.entries(CSI_RATES)) {
         expect(rate.crewSize).toBeGreaterThanOrEqual(1);
       }
     });
 
     it('every rate should have productivityRate > 0', () => {
-      for (const [code, rate] of Object.entries(CSI_RATES)) {
+      for (const [, rate] of Object.entries(CSI_RATES)) {
         expect(rate.productivityRate).toBeGreaterThan(0);
       }
     });
 
     it('no rate should have all three M+L+E at zero (empty rate)', () => {
-      for (const [code, rate] of Object.entries(CSI_RATES)) {
+      for (const [, rate] of Object.entries(CSI_RATES)) {
         const total = rate.materialRate + rate.laborRate + rate.equipmentRate;
         expect(total).toBeGreaterThan(0);
       }
@@ -174,7 +169,7 @@ describe('CIQS Estimate Engine', () => {
 
   describe('M+L+E cost math', () => {
     it('totalRate = materialRate + laborRate + equipmentRate for every CSI entry', () => {
-      for (const [code, rate] of Object.entries(CSI_RATES)) {
+      for (const [, rate] of Object.entries(CSI_RATES)) {
         const expectedTotal = rate.materialRate + rate.laborRate + rate.equipmentRate;
         // CSI_RATES doesn't store totalRate — verify the components are additive
         expect(expectedTotal).toBeCloseTo(rate.materialRate + rate.laborRate + rate.equipmentRate, 2);

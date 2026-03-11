@@ -19,7 +19,7 @@
 // Standards: AACE RP 18R-97, CIQS estimating practices
 // =============================================================================
 
-import type { EstimateSummary, EstimateLineItem } from './estimate-engine';
+import type { EstimateSummary } from './estimate-engine';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 

@@ -64,7 +64,7 @@ export class AtomicRevisionService {
       const nextRevisionNumber = counter.lastRevision;
 
       // Step 3: Save file with proper organization
-      const { storagePath, fileHash, relativePath } = await FileStorageService.saveFile(
+      const { storagePath: _storagePath, fileHash, relativePath } = await FileStorageService.saveFile(
         file,
         baseDoc.projectId!,
         documentId
@@ -111,7 +111,7 @@ export class AtomicRevisionService {
   static async approveRevision(
     documentId: string,
     revisionNumber: number,
-    userId: string
+    _userId: string
   ) {
     return await db.transaction(async (tx) => {
       // Update revision status
@@ -150,7 +150,7 @@ export class AtomicRevisionService {
   static async finalizeRevision(
     documentId: string,
     revisionNumber: number,
-    userId: string
+    _userId: string
   ) {
     return await db.transaction(async (tx) => {
       // Update revision status to final

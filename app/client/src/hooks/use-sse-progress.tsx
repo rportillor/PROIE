@@ -50,7 +50,7 @@ export function useSSEProgress(modelId: string | null, enabled: boolean = true) 
         
         console.log(`📊 SSE Progress: ${Math.round(progressData.progress * 100)}% - ${progressData.message}`);
         setData(progressData);
-      } catch (e) {
+      } catch {
         console.warn('Failed to parse SSE message:', event.data);
       }
     };

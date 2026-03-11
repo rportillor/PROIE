@@ -1,12 +1,8 @@
 import { eq, desc, and } from "drizzle-orm";
 import { db } from "../db";
 import { 
-  changeRequests, 
+  changeRequests,
   changeRequestAttachments,
-  boqItems,
-  costEstimates,
-  projects,
-  users,
   type InsertChangeRequest, 
   type InsertChangeRequestAttachment,
   type ChangeRequest,

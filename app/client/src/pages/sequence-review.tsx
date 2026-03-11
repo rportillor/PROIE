@@ -22,9 +22,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  AlertTriangle, CheckCircle, Clock, Download, FileText,
+  AlertTriangle, CheckCircle, Download, FileText,
   Play, RefreshCw, ChevronDown, ChevronRight, Edit2, Save,
-  X, Info, Zap, Flag, Package, CalendarDays, Users,
+  X, Info, Zap, Flag, Package, CalendarDays,
 } from "lucide-react";
 
 // ─── Types (mirrors server types) ─────────────────────────────────────────────
@@ -115,9 +115,9 @@ function ActivityRow({
 }: {
   act:        SequenceActivity;
   index:      number;
-  onEdit:     (id: string, patch: Partial<SequenceActivity>) => void;
-  onMoveUp:   (i: number) => void;
-  onMoveDown: (i: number) => void;
+  onEdit:     (_id: string, _patch: Partial<SequenceActivity>) => void;
+  onMoveUp:   (_i: number) => void;
+  onMoveDown: (_i: number) => void;
   isFirst:    boolean;
   isLast:     boolean;
 }) {

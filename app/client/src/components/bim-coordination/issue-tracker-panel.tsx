@@ -18,7 +18,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,16 +45,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
-  AlertTriangle,
   Plus,
-  FileText,
   ArrowRight,
   Clock,
-  User,
-  MapPin,
-  CheckCircle2,
-  XCircle,
-  Loader2,
   Send,
   ChevronDown,
   ChevronUp,
@@ -147,7 +140,7 @@ function PriorityBadge({ priority }: { priority: string }) {
 
 function StatusTransitionDialog({ issue, onTransition }: {
   issue: IssueRecord;
-  onTransition: (issueId: string, newStatus: string, comment: string) => void;
+  onTransition: (_issueId: string, _newStatus: string, _comment: string) => void;
 }) {
   const [selectedStatus, setSelectedStatus] = useState<string>("");
   const [comment, setComment] = useState("");
@@ -217,7 +210,7 @@ function StatusTransitionDialog({ issue, onTransition }: {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function CreateIssueDialog({ onCreate }: {
-  onCreate: (data: any) => void;
+  onCreate: (_data: any) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({

@@ -12,9 +12,9 @@ interface AuthContextType {
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (user: User, token: string) => void;
+  login: (_user: User, _token: string) => void;
   logout: () => void;
-  updateUser: (user: User) => void;
+  updateUser: (_user: User) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);

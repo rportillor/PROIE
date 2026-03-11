@@ -13,7 +13,7 @@ import {
   resolveGap,
 } from '../gap-policy-engine';
 
-import type { GapRecord, GapDetectionInput, GapRegister } from '../gap-policy-engine';
+import type { GapDetectionInput } from '../gap-policy-engine';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  TEST DATA

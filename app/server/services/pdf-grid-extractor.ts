@@ -38,7 +38,6 @@ import {
   convertToInsertTypes,
   type RawCircleShape,
   type RawClosedPolyShape,
-  type RawBlockInsert,
   type RawTextEntity,
   type AxisGeometry,
   type ContentBounds,

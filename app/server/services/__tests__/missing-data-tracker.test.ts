@@ -7,7 +7,6 @@
  */
 
 import { MissingDataTracker } from '../missing-data-tracker';
-import type { MissingDataItem, GapSummary, GeneratedRFI } from '../missing-data-tracker';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  SETUP

@@ -3,7 +3,7 @@ import { storage } from '../storage';
 import { logger } from '../utils/enterprise-logger';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import fs from 'fs/promises';
+import _fs from 'fs/promises';
 
 const router = Router();
 const execAsync = promisify(exec);

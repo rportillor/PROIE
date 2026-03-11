@@ -17,7 +17,7 @@
 //            CIQS cost reporting practices
 // =============================================================================
 
-import type { EstimateSummary, EstimateLineItem } from './estimate-engine';
+import type { EstimateSummary } from './estimate-engine';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -87,7 +87,7 @@ export interface WBSStructure {
  * Generate a standard building project WBS template.
  * Based on typical ICI (Industrial, Commercial, Institutional) project structure.
  */
-export function generateStandardWBS(projectName: string, projectCode: string): WBSElement[] {
+export function generateStandardWBS(projectName: string, _projectCode: string): WBSElement[] {
   const elements: WBSElement[] = [
     // Level 1: Project
     { wbsCode: '1.0', level: 'project', name: projectName, parentCode: null, budgetedCost: 0 },
@@ -202,7 +202,7 @@ export function generateCBS(
   wbs: WBSElement[],
   estimate: EstimateSummary
 ): CBSCode[] {
-  const cbsCodes: CBSCode[] = [];
+  const _cbsCodes: CBSCode[] = [];
 
   // Build WBS code → CSI divisions mapping
   const wbsMap = new Map<string, WBSElement>();

@@ -42,7 +42,7 @@ const ICON_MAP = {
 };
 
 interface ProjectTemplatePreviewProps {
-  onSelectTemplate: (template: ProjectTemplate) => void;
+  onSelectTemplate: (_template: ProjectTemplate) => void;
   selectedTemplate?: ProjectTemplate | null;
   className?: string;
 }

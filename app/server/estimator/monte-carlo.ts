@@ -26,10 +26,10 @@
 // The PERT distribution is used (not triangular) because it weights the most-likely
 // value more heavily, which better models construction cost uncertainty.
 
-import type { EstimateSummary, FloorSummary, EstimateLineItem } from './estimate-engine';
+import type { EstimateSummary, EstimateLineItem } from './estimate-engine';
 import type { RiskItem } from './budget-structure';
 import type { DivisionVarianceFactor } from './rate-variants';
-import { DIVISION_VARIANCE_FACTORS, getVarianceFactor } from './rate-variants';
+import { getVarianceFactor } from './rate-variants';
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 
@@ -187,7 +187,7 @@ export function runMonteCarloSimulation(
 
   // Track per-division variance contribution
   const divisionVariance = new Map<string, { name: string; baseCost: number; squaredDiffs: number }>();
-  for (const { item, variance } of allItems) {
+  for (const { item, variance: _variance } of allItems) {
     const key = item.csiDivision;
     const existing = divisionVariance.get(key);
     if (existing) {

@@ -2,15 +2,15 @@
 import { repairLayout } from "../helpers/layout-repair";
 import { detectGridFromElements } from "../helpers/grid-detect";
 import { storage } from "../storage";
-import { ensureFootprintForModel } from "../services/footprint-extractor";
+import { ensureFootprintForModel } from "./footprint-extractor";
 import { calibrateAndPositionElements } from "../helpers/layout-calibration";
 import { applySiteContext } from "../helpers/site-utils";
 import { sanitizeElements } from "../helpers/element-sanitizer";
-import { detectRoundSymbolsFromRasters } from "../services/raster-legend-assoc";
+import { detectRoundSymbolsFromRasters } from "./raster-legend-assoc";
 import { placeDetectedSymbolsAsElements, placeDetectedSymbolsAsElements_LEGACY } from "../helpers/site-symbols";
 import crypto from "crypto";
-import { detectRasterSymbolsForModel } from "../services/raster-glyph-locator";
-import { FLOOR_DATUMS } from "../services/moorings-project-data";
+import { detectRasterSymbolsForModel } from "./raster-glyph-locator";
+import { FLOOR_DATUMS } from "./moorings-project-data";
 
 const COLOR_BY_FAMILY: Record<string, string> = {
   STRUCT: "#6B7280", ARCH: "#22C55E",
@@ -173,7 +173,7 @@ export async function postprocessAndSaveBIM_LEGACY(opts: PostOpts) {
         site: meta.site || {}
       };
     }
-  } catch (e) {
+  } catch (_e) {
     console.warn("⚠️ POSTPROCESS: load model metadata failed; continuing with empty analysis");
   }
 

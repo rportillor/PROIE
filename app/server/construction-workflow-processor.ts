@@ -1,4 +1,4 @@
-import { normaliseToMetres, normaliseElevation, normaliseCoord, normaliseDimensions, toMetres } from './helpers/unit-normaliser';
+import { normaliseElevation, normaliseCoord, normaliseDimensions, toMetres } from './helpers/unit-normaliser';
 import { storage } from "./storage";
 import { logger as enterpriseLogger } from "./utils/enterprise-logger";
 import Anthropic from '@anthropic-ai/sdk';
@@ -15,7 +15,6 @@ import {
   type MissingDataItem,
   type MissingDataCategory,
   type ImpactLevel,
-  type RFI,
   type RFISummary,
 } from "./estimator/rfi-generator";
 
@@ -782,7 +781,7 @@ export class ConstructionWorkflowProcessor {
           logger.info(`ðŸ“¥ Resumed from checkpoint: ${this.products.size} products, ${this.assemblies.size} assemblies, ${this.elements.size} elements`);
         }
       }
-    } catch (error) {
+    } catch (_error) {
       logger.info('No previous progress found, starting fresh');
     }
   }
@@ -1042,7 +1041,7 @@ export class ConstructionWorkflowProcessor {
     if (this.products.size > 0) {
       logger.info('ðŸ“¦ Sample of extracted products:');
       let count = 0;
-      for (const [id, product] of Array.from(this.products.entries())) {
+      for (const [_id, product] of Array.from(this.products.entries())) {
         if (count++ < 10) {
           const code = product.csiCode || product.id;
           const desc = product.name || null;
@@ -1106,7 +1105,7 @@ export class ConstructionWorkflowProcessor {
     // When architectural and structural grids diverge, create a typed RFI record
     // in the database so the QS can see it in the RFI dashboard.
     try {
-      const { buildNonUniformGridsFromAnalysis } = await import('./services/grid-extractor');
+      const { buildNonUniformGridsFromAnalysis: _buildNonUniformGridsFromAnalysis } = await import('./services/grid-extractor');
       const archGrid = options?.claudeAnalysis?.building_analysis?.architectural_grid_system;
       const structGrid = options?.claudeAnalysis?.building_analysis?.structural_grid_system;
       if (archGrid && structGrid && projectId) {
@@ -1503,7 +1502,7 @@ Return ONLY valid JSON.`;
     const fullDocText = doc.textContent || doc.text || doc.content || '';
     
     if (!fullDocText || fullDocText.length === 0) {
-      logger.warn(`âš ï¸ Document ${doc.filename} has no text content - Claude won't find products!`);
+      logger.warn(`âš ï¸ Document ${doc.filename} has no text content - Claude won't find products!`);
       logger.warn(`   Available fields: ${Object.keys(doc).join(', ')}`);
     } else {
       logger.info(`âœ… Document ${doc.filename} has ${fullDocText.length} characters of text content`);
@@ -1547,7 +1546,7 @@ Return ONLY valid JSON.`;
       logger.info(`   â© RESUMING from chunk ${startChunk} (skipping first ${startIndex} chunks)`);
     }
     if (chunksToProcess < chunks.length) {
-      logger.info(`   âš ï¸ Processing chunks ${startChunk} to ${chunksToProcess} of ${chunks.length} chunks (timeout prevention)`);
+      logger.info(`   âš ï¸ Processing chunks ${startChunk} to ${chunksToProcess} of ${chunks.length} chunks (timeout prevention)`);
     }
     
     // Process chunks with limit, starting from specified index
@@ -1576,7 +1575,7 @@ Return ONLY valid JSON.`;
           });
           logger.info(`ðŸ’¾ Progress saved to DB: ${overallProgress}% (Batch ${options.batch}/${options.totalBatches}, Chunk ${i+1}/${chunks.length})`);
         } catch (error) {
-          logger.error('âš ï¸ Failed to save progress to DB:', error);
+          logger.error('âš ï¸ Failed to save progress to DB:', error);
         }
         
         publishProgress(options.modelId, {
@@ -1686,7 +1685,7 @@ Return JSON format:
       "id": "DOOR_D201" for a floor 2 door, "WINDOW_W301" for floor 3 window (door/window number indicates floor: 100=Floor1, 200=Floor2, 300=Floor3),
       "name": "Door D201" or "Window W301" based on actual mark number,
       "csiCode": "08.11.00" for doors, "08.51.00" for windows, or appropriate CSI code,
-      "specification": "3'-0\" x 7'-0\" Single Swing Door" or "4'-0\" x 5'-0\" Fixed Window" or material spec,
+      "specification": "3'-0" x 7'-0" Single Swing Door" or "4'-0" x 5'-0" Fixed Window" or material spec,
       "manufacturer": "Manufacturer name if available",
       "model": "Model number if available",
       "properties": {
@@ -1694,7 +1693,7 @@ Return JSON format:
         "elementType": "Door" or "Window" or "Wall" or "AHU" or "Panel",
         "location": "Exterior" or "Interior" (CRITICAL: identify if element is exterior or interior),
         "exposure": "North" or "South" or "East" or "West" or "Internal" (for exterior elements),
-        "size": "3'-0\" x 7'-0\"" for doors/windows,
+        "size": "3'-0" x 7'-0"" for doors/windows,
         "type": "Single Swing" or "Fixed" or "Interior Wall Type W2",
         "material": "Wood" or "Aluminum" or "Steel" or "Masonry",
         "floor": "Ground Floor" or "Floor 1" or "Floor 2" or "Floor 3",
@@ -1834,7 +1833,7 @@ Return JSON format:
       "type": "wall",
       "itemCode": "04.20.EW1",
       "products": ["PROD_001", "PROD_002", "PROD_003", "PROD_004", "PROD_005"],
-      "constructionMethod": "Install metal studs @ 16\" o.c., apply vapor barrier, install R-20 batt insulation, attach 5/8\" gypsum board interior, apply air barrier exterior, install brick ties, lay brick veneer with 1\" air gap",
+      "constructionMethod": "Install metal studs @ 16" o.c., apply vapor barrier, install R-20 batt insulation, attach 5/8" gypsum board interior, apply air barrier exterior, install brick ties, lay brick veneer with 1" air gap",
       "properties": {
         "thickness": "12 inches",
         "rValue": "R-20",
@@ -1900,7 +1899,7 @@ Use actual product IDs from the list above. Create realistic assemblies based on
     // Group products by type/division to create basic assemblies
     const wallProducts = products.filter(p => p.name?.toLowerCase().includes('wall') || p.csiCode?.startsWith('04') || p.csiCode?.startsWith('09'));
     const columnProducts = products.filter(p => p.name?.toLowerCase().includes('column') || p.csiCode?.startsWith('03'));
-    const beamProducts = products.filter(p => p.name?.toLowerCase().includes('beam') || p.csiCode?.startsWith('05'));
+    const _beamProducts = products.filter(p => p.name?.toLowerCase().includes('beam') || p.csiCode?.startsWith('05'));
     
     if (wallProducts.length > 0) {
       assemblies.push({
@@ -1935,7 +1934,7 @@ Use actual product IDs from the list above. Create realistic assemblies based on
     
     const textContent = doc.textContent || doc.text || doc.content || '';
     if (!textContent) {
-      logger.warn(`âš ï¸ No text content for ${doc.filename}`);
+      logger.warn(`âš ï¸ No text content for ${doc.filename}`);
       return [];
     }
     
@@ -2183,7 +2182,7 @@ Extract ALL element locations visible in this drawing. Be specific with coordina
     const textContent = doc.textContent || doc.text || doc.content || '';
     
     if (!textContent) {
-      logger.warn(`âš ï¸ No text content for ${doc.filename} - skipping`);
+      logger.warn(`âš ï¸ No text content for ${doc.filename} - skipping`);
       return [];
     }
     
@@ -2371,7 +2370,7 @@ Drawing content: ${doc.textContent || 'No text content available'}`
         doc.rasterPreviews = fullDoc.rasterPreviews;
         logger.info(`âœ… Found ${doc.rasterPreviews.length} raster previews from database for ${doc.filename}`);
       } else {
-        logger.warn(`âš ï¸ No raster previews available for ${doc.filename} - visual analysis may be limited`);
+        logger.warn(`âš ï¸ No raster previews available for ${doc.filename} - visual analysis may be limited`);
         // Set empty array so processing can continue
         doc.rasterPreviews = [];
       }
@@ -2384,10 +2383,10 @@ Drawing content: ${doc.textContent || 'No text content available'}`
   /**
    * Extract products from visual schedule tables (door and window schedules)
    */
-  private async extractProductsFromVisualSchedule(doc: any, options?: any): Promise<Product[]> {
+  private async extractProductsFromVisualSchedule(doc: any, _options?: any): Promise<Product[]> {
     logger.info(`ðŸ“‹ Processing VISUAL SCHEDULE: ${doc.filename}`);
     const allProducts: Product[] = [];
-    let productCounter = 1;
+    let _productCounter = 1;
     
     for (let i = 0; i < doc.rasterPreviews.length; i++) {
       const preview = doc.rasterPreviews[i];
@@ -2422,12 +2421,12 @@ Return JSON with EVERY door and window you see in the schedule:
       "id": "DOOR_D101",
       "name": "Door D101",
       "csiCode": "08.11.00",
-      "specification": "3'-0\" x 7'-0\" Single Swing Door",
+      "specification": "3'-0" x 7'-0" Single Swing Door",
       "manufacturer": "",
       "model": "",
       "properties": {
         "mark": "D101",
-        "size": "3'-0\" x 7'-0\"",
+        "size": "3'-0" x 7'-0"",
         "type": "Single Swing",
         "material": "Wood",
         "location": "Ground Floor"
@@ -2437,12 +2436,12 @@ Return JSON with EVERY door and window you see in the schedule:
       "id": "WINDOW_W101",
       "name": "Window W101",
       "csiCode": "08.51.00",
-      "specification": "4'-0\" x 5'-0\" Fixed Window",
+      "specification": "4'-0" x 5'-0" Fixed Window",
       "manufacturer": "",
       "model": "",
       "properties": {
         "mark": "W101",
-        "size": "4'-0\" x 5'-0\"",
+        "size": "4'-0" x 5'-0"",
         "type": "Fixed",
         "glazing": "Double",
         "location": "Ground Floor"
@@ -2715,7 +2714,7 @@ Return ALL grid lines you find matching these specific characteristics:
         .replace(/([{,]\s*)(\w+):/g, '$1"$2":'); // Quote unquoted keys
       
       return JSON.parse(jsonStr);
-    } catch (error) {
+    } catch (_error) {
       logger.error("Failed to parse JSON response. Full response length:", responseText.length);
       logger.error("Response start:", responseText.substring(0, 200));
       logger.error("Response end:", responseText.substring(responseText.length - 200));
@@ -2727,7 +2726,7 @@ Return ALL grid lines you find matching these specific characteristics:
         if (productsMatch) {
           return { products: JSON.parse('[' + productsMatch[1] + ']') };
         }
-      } catch (e) {
+      } catch (_e) {
         logger.error("Could not salvage partial data");
       }
       return null;

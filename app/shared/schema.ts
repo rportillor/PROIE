@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, decimal, integer, boolean, json, jsonb, unique, index, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, decimal, integer, boolean, jsonb, unique, index, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1150,7 +1150,7 @@ export type ProjectCodeAccess = typeof projectCodeAccess.$inferSelect;
 // Document revision management service (simplified)
 export class DocumentRevisionService {
   // Create a new revision of an existing document
-  static createRevision(baseDoc: Document, notes?: string): Partial<InsertDocument> {
+  static createRevision(baseDoc: Document, _notes?: string): Partial<InsertDocument> {
     return {
       projectId: baseDoc.projectId,
       filename: baseDoc.filename,

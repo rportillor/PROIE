@@ -43,7 +43,7 @@ type ConfigForm = z.infer<typeof configSchema>;
 interface AIConfigurationModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (config: ConfigForm) => Promise<void>;
+  onSave: (_config: ConfigForm) => Promise<void>;
   initialConfig?: Partial<ConfigForm>;
   isLoading?: boolean;
 }

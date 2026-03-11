@@ -4,8 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Building2, Calendar, MapPin, FileText, Search, Filter, Zap } from "lucide-react";
-import { FloorGenerationButton } from "@/components/bim/FloorGenerationButton";
+import { Plus, Calendar, MapPin, Search, Filter, Zap } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Project } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
@@ -37,7 +36,7 @@ export default function ProjectsPage() {
       // Enhanced device detection
       const userAgent = navigator.userAgent.toLowerCase();
       const width = window.innerWidth;
-      const height = window.innerHeight;
+      const _height = window.innerHeight;
       
       // More comprehensive iPad detection
       const isIpadDevice = /ipad/.test(userAgent) || 

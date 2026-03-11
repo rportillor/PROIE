@@ -5,11 +5,10 @@
  * without document evidence. This module handles LOD expansion with proper control.
  */
 import crypto from "crypto";
-import type { LODProfile } from "./lod-profile";
 
 // 🔧 LOD EXPANSION CONTROL FLAGS
-const SKIP_LOD_ARTIFICIAL_EXPANSION = true; // DISABLED - use only real document elements
-const DOCUMENT_ONLY_MODE = true; // Only expand elements found in documents
+const _SKIP_LOD_ARTIFICIAL_EXPANSION = true; // DISABLED - use only real document elements
+const _DOCUMENT_ONLY_MODE = true; // Only expand elements found in documents
 
 type XY = { x:number; y:number };
 type Storey = { name?: string; elevation?: number };

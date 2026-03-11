@@ -51,7 +51,7 @@ export async function loadFileBuffer(storageKey: string): Promise<Buffer | null>
 }
 
 import { db } from "../db";
-import { bimElements, bimModels } from "@shared/schema";
+import { bimElements as _bimElements, bimModels } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
 // Single-call model delete; relies on ON DELETE CASCADE

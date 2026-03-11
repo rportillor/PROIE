@@ -261,7 +261,7 @@ router.post('/validate', async (req, res) => {
       await db.execute(sql`SELECT set_config('app.current_company_id', 'test-validation-company', true)`);
       
       const userSetting = await db.execute(sql`SELECT current_setting('app.current_user_id', true) as user_id`);
-      const companySetting = await db.execute(sql`SELECT current_setting('app.current_company_id', true) as company_id`);
+      const _companySetting = await db.execute(sql`SELECT current_setting('app.current_company_id', true) as company_id`);
 
       results.tests.push({
         name: 'Tenant Context Setting',

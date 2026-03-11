@@ -18,7 +18,6 @@
  */
 
 import type { IssueRecord, IssuePriority } from './issue-log';
-import type { ClashGroup } from './dedup-engine';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES

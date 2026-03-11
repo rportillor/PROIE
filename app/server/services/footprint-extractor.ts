@@ -1,6 +1,6 @@
 // server/services/footprint-extractor.ts
 import { storage } from "../storage";
-import { extractPdfTextAndPages } from "../services/pdf-extract";
+import { extractPdfTextAndPages } from "./pdf-extract";
 import sharp from "sharp";
 
 type EnsureArgs = {
@@ -26,7 +26,7 @@ type SiteExtract = {
 const FT2M = 0.3048;
 
 const PLAN_RE = /(site\s*plan|property\s*line|lot\s*line|key\s*plan|civil|parking|grid|north\s*arrow)/i;
-const SITE_FILE_HINT = /(A0*0?2|SITE[_\-\s]*PLAN|C\-|C0)/i; // catch typical naming
+const SITE_FILE_HINT = /(A0*0?2|SITE[_\-\s]*PLAN|C-|C0)/i; // catch typical naming
 
 function closePoly(poly: Pt[] | null): Pt[] | null {
   if (!poly || poly.length < 3) return null;
@@ -40,12 +40,13 @@ function inMeters(poly: Pt[] | null, units?: string): Pt[] | null {
   if (/ft|feet|imperial/.test(u)) return poly.map(p => ({ x: p.x * FT2M, y: p.y * FT2M }));
   return poly;
 }
-function bboxDims(poly: Pt[] | null) {
+function _bboxDims(poly: Pt[] | null) {
   if (!poly || poly.length < 3) return null;
   let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
   for (const p of poly) { if (p.x<minX)minX=p.x; if (p.y<minY)minY=p.y; if (p.x>maxX)maxX=p.x; if (p.y>maxY)maxY=p.y; }
   return { width: maxX - minX, length: maxY - minY };
 }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function simplifyRDP(points: Pt[], eps=2): Pt[] {
   if (points.length <= 3) return points;
   const dmax = (p:Pt, a:Pt, b:Pt) => {
@@ -124,11 +125,11 @@ async function rasterHullFromPreview(imgPath: string): Promise<Pt[] | null> {
 
     // Simple edge sampling: pick pixels darker than threshold (ink)
     const pts: Pt[] = [];
-    let sum=0;
+    let _sum=0;
     for (let y=0;y<H;y+=2){
       for (let x=0;x<W;x+=2){
         const v = data[y*W + x];
-        sum += v;
+        _sum += v;
         if (v < 110) { // ink-ish
           // sparsify
           if ((x + y) % 6 === 0) pts.push({ x, y });
@@ -161,7 +162,7 @@ export async function ensureFootprintForModel(args: EnsureArgs): Promise<SiteExt
       const prop = closePoly(inMeters(md?.site?.property_line || null, a?.units));
       if (bld || prop) return { units: a?.units, property_line: prop || undefined, building_footprint: bld || undefined, legend: md?.site?.legend, legend_line_types: md?.site?.legend_line_types, notes: a?.notes, source: "metadata" };
     }
-  } catch {}
+  } catch { /* intentionally empty */ }
 
   // 1) Try Claude on site plan text
   const siteDocs = await pickSitePlanDocs(projectId, maxDocs);
@@ -182,7 +183,7 @@ export async function ensureFootprintForModel(args: EnsureArgs): Promise<SiteExt
       for (const i of take) {
         pages.push({ filename: d.filename, page: i+1, text: pageTexts[i].slice(0, Math.ceil(maxChars/maxPagesPerDoc)), docId: d.id, previews });
       }
-    } catch {}
+    } catch { /* intentionally empty */ }
   }
 
   if (pages.length && anthropicClient?.messages?.create) {
@@ -225,7 +226,7 @@ Rules:
         try {
           const updateMeta = (storage as any).updateBimModelMetadata?.bind(storage);
           if (updateMeta) await updateMeta(modelId, { site: { property_line: prop || null, legend, legend_line_types: legendLine }, analysis: { units, footprint: bld || null, perimeter: bld || null } });
-        } catch {}
+        } catch { /* intentionally empty */ }
         return { units, property_line: prop || undefined, building_footprint: bld || undefined, legend, legend_line_types: legendLine, source: "claude-siteplan" };
       }
     } catch {/* fall through to raster */}
@@ -254,7 +255,7 @@ Rules:
       try {
         const updateMeta = (storage as any).updateBimModelMetadata?.bind(storage);
         if (updateMeta) await updateMeta(modelId, { analysis: { footprint: res.building_footprint, perimeter: res.building_footprint, dimensions: dims || null } });
-      } catch {}
+      } catch { /* intentionally empty */ }
       return res;
     }
   }
@@ -266,7 +267,7 @@ Rules:
     try {
       const updateMeta = (storage as any).updateBimModelMetadata?.bind(storage);
       if (updateMeta) await updateMeta(modelId, { analysis: { footprint: sq, perimeter: sq, dimensions: dims } });
-    } catch {}
+    } catch { /* intentionally empty */ }
     return { building_footprint: sq, legend: [], legend_line_types: [], source: "text-dims" };
   }
 

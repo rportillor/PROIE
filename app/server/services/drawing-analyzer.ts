@@ -18,7 +18,7 @@ function classifySheet(filename:string, pages:Page[]){
   return { E:isE, M:isM, P:isP, FP:isFP, A:isA, S:isS };
 }
 
-function parseSpacing(text:string, kind:"light"|"sprinkler"|"receptacle"){
+function _parseSpacing(_text:string, _kind:"light"|"sprinkler"|"receptacle"){
   // Don't try to parse spacing from text - construction drawings show spacing
   // visually with dimension lines and numbers without explicit units.
   // Claude's visual analysis will identify the actual spacing from the drawings.
@@ -60,7 +60,7 @@ export async function analyzeDrawingsForFacts(projectId:string, docs:Doc[]) {
     let pageTexts: string[] = [];
     try {
       const full = await storage.getDocument(doc.id);
-      const { pageTexts: pages, fullText } = await extractPdfTextAndPages({
+      const { pageTexts: pages, fullText: _fullText } = await extractPdfTextAndPages({
         id: doc.id, name: doc.filename, storageKey: full?.storageKey || null
       });
       pageTexts = pages;

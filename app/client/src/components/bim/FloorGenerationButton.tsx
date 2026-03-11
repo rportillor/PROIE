@@ -6,11 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Building2, CheckCircle, AlertCircle, Layers } from 'lucide-react';
-import { apiRequest } from '@/lib/queryClient';
 
 interface FloorGenerationButtonProps {
   projectId: string;
-  onSuccess?: (modelId: string) => void;
+  onSuccess?: (_modelId: string) => void;
   disabled?: boolean;
 }
 
@@ -35,7 +34,7 @@ export function FloorGenerationButton({ projectId, onSuccess, disabled }: FloorG
   const [error, setError] = useState<string>('');
   const [floorAnalysis, setFloorAnalysis] = useState<FloorAnalysis | null>(null);
 
-  const analyzeFloors = async () => {
+  const _analyzeFloors = async () => {
     try {
       const token = localStorage.getItem('auth_token');
       if (!token) {

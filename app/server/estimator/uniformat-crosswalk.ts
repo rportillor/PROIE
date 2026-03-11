@@ -19,7 +19,6 @@
 
 import type {
   EstimateLineItem,
-  FloorSummary,
   EstimateSummary,
 } from './estimate-engine';
 

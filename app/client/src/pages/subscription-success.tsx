@@ -19,7 +19,7 @@ export default function SubscriptionSuccess() {
   const searchParams = new URLSearchParams(window.location.search);
   const sessionId = searchParams.get('session_id');
 
-  const { data: session, isLoading } = useQuery({
+  const { data: _session, isLoading } = useQuery({
     queryKey: ['/api/subscription/session', sessionId],
     enabled: !!sessionId,
   });

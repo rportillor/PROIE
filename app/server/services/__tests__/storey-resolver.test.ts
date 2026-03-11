@@ -14,7 +14,6 @@ import {
   crossReferenceStoreysAndGrids,
 } from '../storey-resolver';
 
-import type { Storey, Grid, StoreyValidation, GridValidation } from '../storey-resolver';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  TEST DATA

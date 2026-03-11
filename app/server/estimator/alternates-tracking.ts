@@ -18,7 +18,7 @@
 //            CIQS estimating practices
 // =============================================================================
 
-import type { EstimateSummary } from './estimate-engine';
+import type { EstimateSummary as _EstimateSummary } from './estimate-engine';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -152,7 +152,7 @@ export function buildScenario(
  */
 export function generateCommonVEAlternates(
   baseBidTotal: number,
-  projectType: string
+  _projectType: string
 ): AlternateItem[] {
   const now = new Date().toISOString();
   const alternates: AlternateItem[] = [];
@@ -247,7 +247,7 @@ export function generateAlternateSummary(
   // Auto-generate three standard scenarios
   const addIds = alternates.filter(a => a.type === 'add').map(a => a.alternateId);
   const deductIds = alternates.filter(a => a.type === 'deduct' || (a.type === 'substitution' && a.netImpact < 0)).map(a => a.alternateId);
-  const allIds = alternates.map(a => a.alternateId);
+  const _allIds = alternates.map(a => a.alternateId);
 
   const scenarios: AlternateScenario[] = [
     buildScenario('SCN-BUDGET', 'Budget Option', 'Accept all deducts and value-saving substitutions', deductIds, alternates, baseBidTotal),

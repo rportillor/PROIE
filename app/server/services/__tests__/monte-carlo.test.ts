@@ -8,10 +8,8 @@
 import {
   runMonteCarloSimulation,
   formatMonteCarloReport,
-} from '../../estimator/monte-carlo';
-import type {
-  MonteCarloConfig,
-  MonteCarloResult,
+  type MonteCarloResult,
+  type MonteCarloConfig,
 } from '../../estimator/monte-carlo';
 import type { EstimateSummary, EstimateLineItem, FloorSummary } from '../../estimator/estimate-engine';
 

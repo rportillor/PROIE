@@ -1246,7 +1246,7 @@ export function generateEstimateFromElements(
     const floor = el.storeyName || el.storey?.name || props.floor || 'Unassigned';
     const ev = props.evidenceRefs || (props.sourceDocument ? [props.sourceDocument] : []);
     const type = (el.elementType || el.type || el.category || '').toLowerCase();
-    const desc = (el.description || props.description || props.name || '').toLowerCase();
+    const _desc = (el.description || props.description || props.name || '').toLowerCase();
     const csi = (props.csiCode || el.csiCode || '').toLowerCase();
     const ids = [el.id || el.elementId];
 
@@ -2412,7 +2412,7 @@ export async function buildEstimateForModel(modelId: string, opts?: { scheduleDo
   // returned unchanged.
   const SEQUENCE_EXCLUDED_DIVS = new Set(['21','22','23','25','26','27','28','09']);
 
-  let sequenceCalibrated = false;
+  let _sequenceCalibrated = false;
   if (projectId) {
     try {
       const confirmedSeq = await (storage as any).getLatestConstructionSequence?.(projectId, modelId);
@@ -2534,7 +2534,7 @@ export async function buildEstimateForModel(modelId: string, opts?: { scheduleDo
           (estimate as any).sequenceCalibrated      = true;
           (estimate as any).sequenceCalibratedCount = calibratedCount;
           (estimate as any).confirmedSequenceId     = confirmedSeq.id;
-          sequenceCalibrated = true;
+          _sequenceCalibrated = true;
           console.log(`[STEP-4-SEQ] Sequence-calibrated ${calibratedCount} line items from confirmed sequence ${confirmedSeq.id}`);
         }
 

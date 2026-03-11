@@ -72,8 +72,8 @@ interface AuditEntry {
 
 // ─── MAIN COMPONENT ─────────────────────────────────────────────────────────
 
-export function RateManagerTab({ projectId, modelId }: { projectId: string; modelId: string }) {
-  const { toast } = useToast();
+export function RateManagerTab({ projectId: _projectId, modelId: _modelId }: { projectId: string; modelId: string }) {
+  const { toast: _toast } = useToast();
   const [subTab, setSubTab] = useState<RateSubTab>("unit");
   const [unitFilter, setUnitFilter] = useState("");
   const [mepFilter, setMepFilter] = useState("");
@@ -133,7 +133,7 @@ export function RateManagerTab({ projectId, modelId }: { projectId: string; mode
 
 // ─── FILTER SEARCH BOX ─────────────────────────────────────────────────────
 
-function FilterBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+function FilterBox({ value, onChange, placeholder }: { value: string; onChange: (_v: string) => void; placeholder: string }) {
   return (
     <div className="relative max-w-sm">
       <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400" />
@@ -227,8 +227,9 @@ function CsvToolbar({ exportUrl, importEndpoint, onImportDone }: {
 
 // ─── UNIT RATES SECTION ─────────────────────────────────────────────────────
 
-function UnitRatesSection({ data, filter, onFilterChange }: { data: UnitRate[]; filter: string; onFilterChange: (v: string) => void }) {
+function UnitRatesSection({ data, filter, onFilterChange }: { data: UnitRate[]; filter: string; onFilterChange: (_v: string) => void }) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [editingCode, setEditingCode] = useState<string | null>(null);
   const [editRow, setEditRow] = useState<Partial<UnitRate>>({});
 
@@ -365,8 +366,9 @@ function UnitRatesSection({ data, filter, onFilterChange }: { data: UnitRate[]; 
 
 // ─── MEP RATES SECTION ──────────────────────────────────────────────────────
 
-function MEPRatesSection({ data, filter, onFilterChange }: { data: MEPRate[]; filter: string; onFilterChange: (v: string) => void }) {
+function MEPRatesSection({ data, filter, onFilterChange }: { data: MEPRate[]; filter: string; onFilterChange: (_v: string) => void }) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [editingCode, setEditingCode] = useState<string | null>(null);
   const [editRow, setEditRow] = useState<Partial<MEPRate>>({});
 
@@ -505,8 +507,9 @@ function MEPRatesSection({ data, filter, onFilterChange }: { data: MEPRate[]; fi
 
 // ─── REGIONAL FACTORS SECTION ───────────────────────────────────────────────
 
-function RegionalFactorsSection({ data, filter, onFilterChange }: { data: RegionalFactor[]; filter: string; onFilterChange: (v: string) => void }) {
+function RegionalFactorsSection({ data, filter, onFilterChange }: { data: RegionalFactor[]; filter: string; onFilterChange: (_v: string) => void }) {
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editRow, setEditRow] = useState<Partial<RegionalFactor>>({});
 

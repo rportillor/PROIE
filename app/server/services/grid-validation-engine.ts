@@ -55,7 +55,7 @@ const MAX_TYPICAL_FAMILIES = 4;
 
 /** Minimum confidence thresholds per entity level */
 const MIN_AXIS_CONFIDENCE = 0.15;
-const MIN_NODE_CONFIDENCE = 0.10;
+const _MIN_NODE_CONFIDENCE = 0.10;
 const MIN_RUN_CONFIDENCE = 0.25;
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -310,7 +310,7 @@ function validateTopology(
   result: ExtractorResult,
   issues: ValidationIssue[],
 ): void {
-  const { families, axes, nodes, nodeAxes } = result;
+  const { families, axes, nodes, nodeAxes: _nodeAxes } = result;
 
   // ── Family count check ──
   if (families.length < MIN_FAMILIES) {

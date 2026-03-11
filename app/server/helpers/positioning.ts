@@ -198,7 +198,7 @@ export function computePositionForElement(opts: {
 
 // Optional OO API (matches your docs)
 export class EnhancedPositioning {
-  constructor(private analysis?: BuildingAnalysis | null, private mode: PositioningMode = "auto") {}
+  constructor(private _analysis?: BuildingAnalysis | null, private _mode: PositioningMode = "auto") {}
   
   place(index: number, total: number, storey?: BuildingStorey, existing?: Vec3, elementType?: string) {
     return computePositionForElement({
@@ -206,9 +206,9 @@ export class EnhancedPositioning {
       total,
       storey,
       existing: { real: existing },
-      analysis: this.analysis,
-      elementType: this.mode === "forcePerimeter" ? elementType : elementType,
-      mode: this.mode,
+      analysis: this._analysis,
+      elementType: this._mode === "forcePerimeter" ? elementType : elementType,
+      mode: this._mode,
       typeAware: true,
     });
   }

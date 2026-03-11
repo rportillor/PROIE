@@ -107,7 +107,7 @@ export default function FileDropzone({ projectId }: FileDropzoneProps) {
     });
 
     // Fast progress simulation without loops
-    newFiles.forEach((fileItem, index) => {
+    newFiles.forEach((fileItem, _index) => {
       let progress = 0;
       const interval = setInterval(() => {
         progress += 25; // Faster progress increments

@@ -1,10 +1,8 @@
-import { useState, useEffect } from "react";
-import { useParams } from "wouter";
+import { useState } from "react";
 import Viewer3D, { type SelectedElement } from "./viewer-3d";
 import ModelProperties from "./model-properties";
-import { UNIT_SYSTEMS, getUnitSystemFromProject } from "./unit-utils";
+import { getUnitSystemFromProject } from "./unit-utils";
 import type { UnitSystem } from "./unit-utils";
-import { useQuery } from "@tanstack/react-query";
 
 interface BimViewerProps {
   projectId?: string;
@@ -14,12 +12,12 @@ interface BimViewerProps {
   buildingCode?: string;
 }
 
-export default function BimViewer({ 
-  projectId, 
-  modelId, 
-  country, 
-  location, 
-  buildingCode 
+export default function BimViewer({
+  projectId: _projectId,
+  modelId,
+  country,
+  location,
+  buildingCode
 }: BimViewerProps) {
   const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(null);
   const [showBothUnits, setShowBothUnits] = useState<boolean>(false);
@@ -29,7 +27,7 @@ export default function BimViewer({
   });
 
   // Interface for BIM model data
-  interface BimModel {
+  interface _BimModel {
     filePath?: string;
     id: string;
     name: string;

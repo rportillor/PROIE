@@ -11,8 +11,6 @@ import {
 } from '../../estimator/bid-leveling';
 import type {
   BidPackage,
-  BidLevelConfig,
-  BidLevelingReport,
 } from '../../estimator/bid-leveling';
 import type { EstimateSummary, EstimateLineItem, FloorSummary } from '../../estimator/estimate-engine';
 

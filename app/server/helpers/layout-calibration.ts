@@ -14,8 +14,8 @@ async function tryFootprintService() {
 }
 
 type Pt = { x:number; y:number };
-type P3 = { x:number; y:number; z:number };
-type Storey = { name?: string; elevation?: number };
+type _P3 = { x:number; y:number; z:number };
+type _Storey = { name?: string; elevation?: number };
 
 // Configuration values must come from Claude's analysis of construction documents
 // No hardcoded defaults allowed - spacing should be extracted from actual drawings
@@ -93,7 +93,7 @@ async function tryEnsureFootprint(projectId:string, modelId:string):Promise<Pt[]
       const poly = (r as any)?.building_footprint || (r as any)?.footprint || (r as any)?.perimeter;
       if (Array.isArray(poly) && poly.length>=3) return poly.map((p:any)=>({x:Number(p.x), y:Number(p.y)}));
     }
-  }catch{}
+  }catch{ /* intentionally empty */ }
   return null;
 }
 async function tryEnsurePropertyLine(projectId:string, modelId:string):Promise<Pt[]|null>{
@@ -104,7 +104,7 @@ async function tryEnsurePropertyLine(projectId:string, modelId:string):Promise<P
       const poly = (r as any)?.property_line;
       if (Array.isArray(poly) && poly.length>=3) return poly.map((p:any)=>({x:Number(p.x), y:Number(p.y)}));
     }
-  }catch{}
+  }catch{ /* intentionally empty */ }
   return null;
 }
 
@@ -123,7 +123,7 @@ function inferFootprintFromElements(elements:any[]):Pt[]|null{
   return null;
 }
 
-function synthesizeFootprintFromMEP(elements:any[]):Pt[] {
+function _synthesizeFootprintFromMEP(elements:any[]):Pt[] {
   // 🚨 CRITICAL ERROR: Should NEVER reach this fallback
   // Building footprint must come from construction drawings, not MEP fixture counts
   console.error(`❌ CRITICAL: synthesizeFootprintFromMEP should never be called`);
@@ -185,7 +185,7 @@ function applyScaleAndPosition(elements:any[], opts:{scale:number; yaw:number; t
 function spreadDuplicates(elements:any[], rect:Pt[]){
   const seen = new Map<string, number>();
   const edgesArr = edges(rect);
-  let edgeIdx = 0, t = 0;
+  let edgeIdx = 0, _t = 0;
 
   for (const e of elements) {
     const { g } = parseGeometry(e);
@@ -204,14 +204,14 @@ function spreadDuplicates(elements:any[], rect:Pt[]){
     g.location.realLocation = { x: q.x, y: q.y, z: p.z };
     e.geometry = g;
 
-    if (offset >= L*0.9) { edgeIdx++; t = 0; } else { t += step; }
+    if (offset >= L*0.9) { edgeIdx++; _t = 0; } else { _t += step; }
   }
   return elements;
 }
 
 // Tile MEP uniformly inside rect (when they collapsed to one point):
 function tileMEPInside(elements:any[], rect:Pt[], spacingFromAnalysis?: {light?: number; sprinkler?: number}){
-  const types = countByType(elements);
+  const _types = countByType(elements);
   const mep = elements.filter(e => /(LIGHT|SPRINKLER|RECEPTACLE|DUCT|PIPE|CONDUIT|DIFFUSER|PANEL|MECH)/i.test(String(e?.elementType||e?.type||e?.category||"")));
   if (!mep.length) return elements;
 
@@ -287,7 +287,7 @@ export async function calibrateAndPositionElements(
   } = {}
 ){
   // "preferClaude" uses the same footprint-priority chain as "auto"
-  const mode = opts.mode === "preferClaude" ? "auto" : (opts.mode ?? "auto");
+  const _mode = opts.mode === "preferClaude" ? "auto" : (opts.mode ?? "auto");
 
   // 0) Unit scale & sanitize positions
   const scale = detectScale(elements);

@@ -17,7 +17,7 @@
 // Standards: NBC 2020, OBC 2024, CSA, ASHRAE 90.1, NECB 2017, AODA
 // =============================================================================
 
-import type { EstimateSummary, EstimateLineItem } from './estimate-engine';
+import type { EstimateSummary } from './estimate-engine';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -790,7 +790,7 @@ export function formatCodesRegisterReport(
       if (!byCode.has(item.codeEntryId)) byCode.set(item.codeEntryId, []);
       byCode.get(item.codeEntryId)!.push(item);
     }
-    for (const [codeId, items] of byCode) {
+    for (const [_codeId, items] of byCode) {
       const totalForCode = items.reduce((s, i) => s + i.adderAmount, 0);
       out.push('    ' + items[0].codeName + ' → ' + f(totalForCode) + ' across ' + items.length + ' line items');
       // Show top 5 by adder amount

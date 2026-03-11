@@ -12,10 +12,8 @@ import {
   generateRateVariants,
   formatRateVariantReport,
   DIVISION_VARIANCE_FACTORS,
-} from '../../estimator/rate-variants';
-import type {
-  DivisionVarianceFactor,
-  RateVariantSummary,
+  type RateVariantSummary,
+  type DivisionVarianceFactor,
 } from '../../estimator/rate-variants';
 import type { EstimateSummary, EstimateLineItem, FloorSummary } from '../../estimator/estimate-engine';
 

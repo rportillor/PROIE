@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import { parseString } from 'xml2js';
 
 // DXF Parser - will be initialized when needed
 let DxfParser: any;
@@ -70,7 +69,7 @@ export class CADParser {
     if (!DxfParser) {
       try {
         const module = await import('module');
-        const require = (module as any).createRequire(import.meta.url);
+        const _require = (module as any).createRequire(import.meta.url);
         DxfParser = (await import('dxf-parser')).default;
       } catch (error) {
         console.warn('DXF Parser not available:', error);
@@ -206,7 +205,7 @@ export class CADParser {
     };
   }
 
-  private async parseDWG(filePath: string): Promise<CADParseResult> {
+  private async parseDWG(_filePath: string): Promise<CADParseResult> {
     // ❌ DEAD-END TRAP ELIMINATED: No mock DWG parsing allowed
     // Claude must analyze the actual DWG file content for real geometry extraction
     
@@ -271,7 +270,7 @@ NO hardcoded fallbacks allowed - Claude analysis ONLY!
       const lineElements: any[] = [];
       
       // Extract all lines and text from DXF
-      dxf.entities.forEach((entity: any, index: number) => {
+      dxf.entities.forEach((entity: any, _index: number) => {
         if (entity.type === 'LINE' && entity.vertices && entity.vertices.length >= 2) {
           const start = entity.vertices[0];
           const end = entity.vertices[entity.vertices.length - 1];
@@ -448,7 +447,7 @@ NO hardcoded fallbacks allowed - Claude analysis ONLY!
     const entities: any[] = [];
     
     // Convert grid lines to CAD entities
-    gridSystem.gridLines.forEach((gridLine: any, index: number) => {
+    gridSystem.gridLines.forEach((gridLine: any, _index: number) => {
       entities.push({
         id: gridLine.id,
         type: 'LINE',

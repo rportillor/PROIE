@@ -56,7 +56,7 @@ diagRouter.get("/__diag", async (req,res)=>{
     try {
       const getCounts = (storage as any).debugCounts?.bind(storage);
       if (getCounts) Object.assign(dbInfo, await getCounts());
-    } catch {}
+    } catch { /* debug counts not available */ }
 
     res.json({
       node: process.version,

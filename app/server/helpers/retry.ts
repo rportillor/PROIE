@@ -12,7 +12,7 @@ interface RetryOptions {
 export async function withRetry<T>(
   operation: () => Promise<T>,
   options: RetryOptions,
-  context = "operation"
+  _context = "operation"
 ): Promise<T> {
   let lastError: any;
   

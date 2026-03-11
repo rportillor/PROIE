@@ -20,7 +20,7 @@
 // Standards: CCDC 2 GC 2.2.8 (communications), CIQS documentation practices
 // =============================================================================
 
-import type { EstimateSummary, EstimateLineItem } from './estimate-engine';
+
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 

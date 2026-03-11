@@ -17,7 +17,7 @@
  * ══════════════════════════════════════════════════════════════════════════════
  */
 
-import type { IssueRecord, IssueStatus, IssuePriority, RFIRecord } from './issue-log';
+import type { IssueRecord, IssueStatus } from './issue-log';
 import type { ClashGroup } from './dedup-engine';
 import type { RawClash } from './spatial-clash-engine';
 
@@ -174,7 +174,7 @@ export function serializeBCFToXML(topics: BCFTopic[], projectName: string = ''):
     const topicDir = topic.guid;
 
     // markup.bcf
-    const componentsXml = topic.components.map(c => `
+    const _componentsXml = topic.components.map(c => `
       <Component IfcGuid="${escapeXml(c.ifcGuid)}" Selected="${c.selected}" Visible="${c.visible}">
         <OriginatingSystem>${escapeXml(c.originatingSystem)}</OriginatingSystem>
         <AuthoringToolId>${escapeXml(c.authoringToolId)}</AuthoringToolId>
@@ -351,7 +351,7 @@ export interface MeetingSummaryData {
  * Generate an HTML meeting summary for weekly coordination.
  */
 export function generateHTMLMeetingSummary(data: MeetingSummaryData): string {
-  const { projectName, meetingDate, issues, clashGroups, deltaHighlights } = data;
+  const { projectName, meetingDate, issues, clashGroups: _clashGroups, deltaHighlights } = data;
 
   // Summary statistics
   const openIssues = issues.filter(i => !['RESOLVED', 'WONT_FIX', 'DUPLICATE'].includes(i.status));

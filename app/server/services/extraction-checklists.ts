@@ -54,10 +54,8 @@ import type {
   GapType,
   Discipline,
 } from './types';
-import { formatEvidenceRef } from './types';
 import type { DrawingParsingParams, CrossDocQAParams } from './prompt-library';
 import { getDrawingParsingPrompt, getCrossDocQAPrompt } from './prompt-library';
-import { validateEvidenceReference } from './document-control-register';
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -417,7 +415,7 @@ export function detectConflicts(extraction: ExtractionResult): ConflictRecord[] 
   // ─── Rule 1: Conflicting dimensions ───────────────────────────────
   // Same appliesTo + same dimType but different values across sheets
   const dimGroups = groupBy(extraction.dimensions, d => `${d.appliesTo}::${d.dimType}`);
-  for (const [key, rows] of Object.entries(dimGroups)) {
+  for (const [_key, rows] of Object.entries(dimGroups)) {
     if (rows.length < 2) continue;
     const values = new Set(rows.map(r => (r as any).width ?? (r as any).height ?? (r as any).depth ?? (r as any).value));
     if (values.size > 1) {
@@ -487,7 +485,7 @@ export function detectConflicts(extraction: ExtractionResult): ConflictRecord[] 
   for (const constraint of extraction.constraints) {
     if (constraint.type === 'design' || constraint.type === 'access') {
       // Look for system references in constraint description
-      const systemRefs = extraction.systems.filter(s =>
+      const _systemRefs = extraction.systems.filter(s =>
         constraint.description.includes(s.system) ||
         constraint.description.includes(s.tag)
       );
@@ -793,7 +791,7 @@ export function detectCrossDisciplineConflicts(
   );
   const dimGroups = groupBy(allDims, d => `${d.appliesTo}::${d.dimType}`);
 
-  for (const [key, rows] of Object.entries(dimGroups)) {
+  for (const [_key, rows] of Object.entries(dimGroups)) {
     if (rows.length < 2) continue;
     const disciplines = new Set(rows.map((r: any) => r.discipline));
     if (disciplines.size < 2) continue; // Same discipline — already caught within-discipline

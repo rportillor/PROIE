@@ -15,8 +15,6 @@ import {
 } from '../../estimator/benchmark-core';
 import type {
   BenchmarkPack,
-  BenchmarkConfig,
-  BenchmarkReport,
   ProjectCategory,
 } from '../../estimator/benchmark-core';
 import type { EstimateSummary, EstimateLineItem, FloorSummary } from '../../estimator/estimate-engine';

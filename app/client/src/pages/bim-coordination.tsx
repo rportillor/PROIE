@@ -19,10 +19,10 @@ import { useState, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
-import { Card, CardContent } from "@/components/ui/card";
+
+
 import { Badge } from "@/components/ui/badge";
-import { Loader2 } from "lucide-react";
-import {
+import { Loader2 ,
   Shield,
   AlertTriangle,
   FileText,

@@ -11,25 +11,15 @@ import path from 'path';
 import { logger } from './utils/enterprise-logger';
 import { CADParser, type CADParseResult } from './cad-parser';
 import { loadAllRules, evaluateRules } from './compliance/rules-engine';
-import type { AnalysisOptions, RealBIMElement, RealQuantity, StoreyData } from './types/shared-bim-types';
-import { getLodProfile } from "./helpers/lod-profile";
-import { expandWithLod } from "./helpers/lod-expander";
-import { balancedAssemble } from "./services/balanced-assembler";
-import { sanitizeElements } from "./helpers/element-sanitizer";
-import { calibrateAndPositionElements } from "./helpers/layout-calibration";
-import { buildNonUniformGridsFromAnalysis, computePrimaryAngles } from "./services/grid-extractor";
+import type { AnalysisOptions, RealBIMElement, StoreyData } from './types/shared-bim-types';
 import { analyzeDrawingsForFacts } from "./services/drawing-analyzer";
 import { placeFromDrawingFacts } from "./helpers/symbol-placer";
 import { inferStoreysIfMissing } from "./helpers/storey-inference";
-import { isTrustworthyCoordSet } from './helpers/positioning-guard';
-import { repairLayout } from './helpers/layout-repair';
-import { extractPlacementByFamily, familyKey, selectSampleForIndex } from "./helpers/claude-placement";
-import { snapToGrid, clampToFootprint } from "./helpers/placement-snap";
 import { GeometryValidator, validateExtractedGeometry, GridSystem } from './helpers/geometry-validator';
-import { normaliseElevation, normaliseToMetres, toMetres } from './helpers/unit-normaliser';
+import { normaliseElevation, toMetres } from './helpers/unit-normaliser';
 
 // 📏 Unit Conversion Constants
-const UNIT_CONVERSIONS = {
+const _UNIT_CONVERSIONS = {
   METER_TO_FEET: 3.28084,
   SQM_TO_SQFT: 10.7639,
   CBM_TO_CBFT: 35.3147,
@@ -37,7 +27,7 @@ const UNIT_CONVERSIONS = {
 } as const;
 
 // 🎯 Drawing Facts Enrichment Function
-async function enrichWithDrawingFacts(projectId:string, modelId:string, baseElements:any[], modelMeta:any, docs:any[]){
+async function _enrichWithDrawingFacts(projectId:string, modelId:string, baseElements:any[], modelMeta:any, docs:any[]){
   try {
     const { enabled, facts } = await analyzeDrawingsForFacts(projectId, docs);
     if (!enabled) return baseElements;
@@ -912,7 +902,7 @@ Document: ${path.basename(filePath)}`;
    */
   private async generateElementsFromAIAnalysis(
     aiAnalysis: any,
-    options: any
+    _options: any
   ): Promise<{
     elements: RealBIMElement[];
     storeys: StoreyData[];
@@ -933,7 +923,7 @@ Document: ${path.basename(filePath)}`;
       } else {
         parsedData = aiAnalysis;
       }
-    } catch (e) {
+    } catch (_e) {
       logger.warn('Failed to parse Claude JSON, using fallback');
       parsedData = {};
     }
@@ -1225,7 +1215,7 @@ Document: ${path.basename(filePath)}`;
   /**
    * Process assembly cross-references for detailed components
    */
-  private processAssemblyCrossReferences(crossRefs: any, storeys: StoreyData[], buildingAnalysis?: any): RealBIMElement[] {
+  private processAssemblyCrossReferences(crossRefs: any, storeys: StoreyData[], _buildingAnalysis?: any): RealBIMElement[] {
     const elements: RealBIMElement[] = [];
     // Dynamic index based on existing elements to avoid conflicts
     if (!storeys || storeys.length === 0) {
@@ -1249,7 +1239,7 @@ Document: ${path.basename(filePath)}`;
   /**
    * Create BIM element from CSI item with new item code format: CSI.ElementType
    */
-  private createBIMElementFromCSIItem(item: any, storeys: StoreyData[], index: number, division: string, buildingAnalysis?: any): RealBIMElement {
+  private createBIMElementFromCSIItem(item: any, storeys: StoreyData[], index: number, division: string, _buildingAnalysis?: any): RealBIMElement {
     const storey = storeys[index % storeys.length];
     const elementType = this.mapCSIToElementType(item.item, division);
     
@@ -1284,7 +1274,7 @@ Document: ${path.basename(filePath)}`;
   /**
    * Create BIM element from assembly component with new item code format
    */
-  private createBIMElementFromComponent(component: any, assembly: any, storeys: StoreyData[], index: number, buildingAnalysis?: any): RealBIMElement {
+  private createBIMElementFromComponent(component: any, assembly: any, storeys: StoreyData[], index: number, _buildingAnalysis?: any): RealBIMElement {
     const storey = storeys[index % storeys.length];
     const elementType = this.mapCSIToElementType(component.description, component.csi);
     
@@ -1343,7 +1333,7 @@ Document: ${path.basename(filePath)}`;
     }
     
     // Fallback for shorter codes
-    const twoDigit = cleaned.substring(0, 2).padStart(2, '0');
+    const _twoDigit = cleaned.substring(0, 2).padStart(2, '0');
     // Extract actual subdivision from specifications instead of defaulting to .00
     throw new Error('❌ INCOMPLETE CSI CODE: Cannot determine subdivision without complete CSI specification.\n🔍 Claude MUST extract full CSI codes (e.g., "04 20 13") from construction documents - no defaults allowed!');
   }
@@ -1516,7 +1506,7 @@ Document: ${path.basename(filePath)}`;
     };
   }
   
-  private extractElementsFromText(aiAnalysis: any, storeys: StoreyData[]): RealBIMElement[] {
+  private extractElementsFromText(_aiAnalysis: any, _storeys: StoreyData[]): RealBIMElement[] {
     // Fallback method for backward compatibility
     logger.warn('Using fallback text extraction - CSI assemblies not found');
     return [];
@@ -1533,7 +1523,7 @@ Document: ${path.basename(filePath)}`;
     return this.generateElementsFromAIAnalysis(claudeAnalysis, options);
   }
 
-  private createRealElement(type: string, storey: StoreyData, index: number, aiAnalysis?: any): RealBIMElement {
+  private createRealElement(type: string, storey: StoreyData, index: number, _aiAnalysis?: any): RealBIMElement {
     return {
       id: `elem-${type}-${index}`,
       type: type,
@@ -2292,7 +2282,7 @@ Document: ${path.basename(filePath)}`;
 
     const widthM     = toMetres(rawWidth,             'dimension') ?? (Number(rawWidth)  / 1000);
     const riseM      = toMetres(riseMm,               'dimension') ?? (Number(riseMm)    / 1000);
-    const runM       = toMetres(runMm,                'dimension') ?? (Number(runMm)     / 1000);
+    const _runM      = toMetres(runMm,                'dimension') ?? (Number(runMm)     / 1000);
     const rawLength  = stairData.length ?? (Number(rises) * Number(runMm));
     const lengthM    = toMetres(rawLength,            'dimension') ?? (Number(rawLength) / 1000);
     const totalRise  = Number(rises) * riseM;
@@ -2513,7 +2503,7 @@ Document: ${path.basename(filePath)}`;
    * 📐 Derive approximate geometry from CSI quantity data (for assembly-format elements)
    * Used when explicit coordinates are not available in the CSI assembly path.
    */
-  private deriveGeometryFromQuantity(quantity: any, storey: StoreyData, elementType: string): any {
+  private deriveGeometryFromQuantity(quantity: any, storey: StoreyData, _elementType: string): any {
     // Try to extract a meaningful dimension from the quantity object
     const q = quantity || {};
     const area   = q.area   || q.area_m2   || q.surface_area || 0;
@@ -2646,11 +2636,11 @@ Document: ${path.basename(filePath)}`;
     return Array.from(storeyMap.values()).sort((a, b) => a.elevation - b.elevation);
   }
   
-  private extractStoreysFromCAD(filePath: string): StoreyData[] {
+  private extractStoreysFromCAD(_filePath: string): StoreyData[] {
     throw new Error('❌ CANNOT USE DEFAULT STOREYS: Claude must extract actual floor elevations from CAD drawings!\n🔍 Check architectural plans, sections, and elevations for floor-to-floor heights and datum levels.\n⚠️ NO DEFAULTS ALLOWED - Use actual measurements from construction documents.');
   }
 
-  private convertCADComponentToBIMElement(component: any, index: number): RealBIMElement {
+  private convertCADComponentToBIMElement(component: any, _index: number): RealBIMElement {
     throw new Error(`❌ MISSING STOREY DATA FOR CAD COMPONENT: Component type '${component.type || 'UNKNOWN'}' must be associated with actual storey elevation from CAD drawings!\n🔍 Claude must extract floor levels from architectural plans.`);
   }
 
@@ -2659,7 +2649,7 @@ Document: ${path.basename(filePath)}`;
     return type.includes('wall') || type.includes('door') || type.includes('window');
   }
 
-  private convertCADEntityToBIMElement(entity: any, index: number): RealBIMElement {
+  private convertCADEntityToBIMElement(entity: any, _index: number): RealBIMElement {
     throw new Error(`❌ MISSING STOREY DATA FOR CAD ENTITY: Entity type '${entity.type || 'UNKNOWN'}' must be associated with actual storey elevation from CAD drawings!\n🔍 Claude must extract floor levels from architectural plans.`);
   }
 
@@ -2910,7 +2900,7 @@ Document: ${path.basename(filePath)}`;
   /**
    * 🎯 Extract building facts for compliance validation
    */
-  private extractBuildingFactsFromAnalysis(claudeAnalysis: any, elements: RealBIMElement[]): Record<string, any> {
+  private extractBuildingFactsFromAnalysis(claudeAnalysis: any, _elements: RealBIMElement[]): Record<string, any> {
     const facts: Record<string, any> = {};
     
     // Extract from Claude analysis

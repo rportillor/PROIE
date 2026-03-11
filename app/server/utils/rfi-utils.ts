@@ -1,9 +1,9 @@
-import { eq, desc, like } from "drizzle-orm";
+import { desc, like } from "drizzle-orm";
 import { db } from "../db";
 import { rfis } from "@shared/schema";
 
 // Generate unique RFI number for a project
-export async function generateRfiNumber(projectId: string): Promise<string> {
+export async function generateRfiNumber(_projectId: string): Promise<string> {
   const year = new Date().getFullYear();
   
   // Get the latest RFI number for this project and year

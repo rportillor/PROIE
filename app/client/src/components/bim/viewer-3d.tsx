@@ -13,7 +13,7 @@ export type UnitSystem = typeof UNIT_SYSTEMS[keyof typeof UNIT_SYSTEMS];
 export interface ViewerProps {
   ifcUrl?: string;
   modelId?: string;
-  onElementSelect?: (e: SelectedElement|null) => void;
+  onElementSelect?: (_e: SelectedElement|null) => void;
   unitSystem?: UnitSystem;
   showBothUnits?: boolean;
 }
@@ -109,7 +109,7 @@ function getDims(e:any){
   };
 }
 
-function getRealLocation(e:any){
+function _getRealLocation(e:any){
   const type = (e.elementType || e.type || "").toLowerCase();
   
   // 🏗️ WALLS: Use start/end midpoint for accurate positioning
@@ -129,11 +129,11 @@ function getRealLocation(e:any){
   if (typeof e?.location === 'string' && e.location !== '{}') {
     try {
       parsedLocation = JSON.parse(e.location);
-    } catch(err) {
+    } catch {
       console.warn('Failed to parse location:', e.location);
     }
   }
-  
+
   const p = e?.geometry?.location?.realLocation
         || e?.properties?.realLocation
         || e?.geometry?.location?.coordinates
@@ -158,7 +158,7 @@ function detectGridFromElements(elements: any[]): { xs: number[]; ys: number[] }
     if (typeof e?.location === 'string' && e.location !== '{}') {
       try {
         parsedLocation = JSON.parse(e.location);
-      } catch(err) {
+      } catch {
         console.warn('Failed to parse location:', e.location);
       }
     }
@@ -559,7 +559,7 @@ export default function Viewer3D({ modelId }: ViewerProps){
       
       // 🏗️ ELEMENT CONNECTIVITY: Group connected elements
       const wallConnections = new Map();
-      const mepConnections = new Map();
+      const _mepConnections = new Map();
       
       // Build connectivity maps
       elements.forEach((el: any, idx: number) => {
@@ -580,7 +580,7 @@ export default function Viewer3D({ modelId }: ViewerProps){
         yLines: gridAnalysis.ys.slice(0, 10)
       });
       
-      const edgeMat = new THREE.LineBasicMaterial({ color: 0x000000, opacity: 0.25, transparent: true });
+      const _edgeMat = new THREE.LineBasicMaterial({ color: 0x000000, opacity: 0.25, transparent: true });
       const box = new THREE.Box3();
 
       // 🎯 COORDINATE TRANSFORMATION: Properly transform building coordinates to Three.js coordinate system
@@ -588,13 +588,13 @@ export default function Viewer3D({ modelId }: ViewerProps){
       // Three.js: X=X, Y=height (vertical), Z=depth
       let minZ = Infinity, maxZ = -Infinity;
       let minBuildingY = Infinity, maxBuildingY = -Infinity;
-      const rawCoords = elements.map((e: any) => {
+      const _rawCoords = elements.map((e: any) => {
         // Parse location if it's a JSON string
         let parsedLocation = null;
         if (typeof e?.location === 'string' && e.location !== '{}') {
           try {
             parsedLocation = JSON.parse(e.location);
-          } catch(err) {
+          } catch {
             console.warn('Failed to parse location:', e.location);
           }
         }
@@ -628,7 +628,7 @@ export default function Viewer3D({ modelId }: ViewerProps){
         if (typeof e?.location === 'string' && e.location !== '{}') {
           try {
             parsedLocation = JSON.parse(e.location);
-          } catch(err) {
+          } catch {
             // Ignore parse errors
           }
         }
@@ -673,14 +673,14 @@ export default function Viewer3D({ modelId }: ViewerProps){
         // Openings & Doors/Windows
         const isDoor = /(door|entrance|exit|portal)/.test(type);
         const isWindow = /(window|glazing|curtain.wall)/.test(type);
-        const isOpening = isDoor || isWindow || /(opening|aperture)/.test(type);
+        const _isOpening = isDoor || isWindow || /(opening|aperture)/.test(type);
         
         // Vertical Transportation & Circulation
         const isStair = /(stair|step|riser|tread|flight)/.test(type);
         const isRailing = /(railing|handrail|guardrail|balustrade)/.test(type);
         const isElevator = /(elevator|lift)/.test(type);
         const isEscalator = /(escalator|moving.walk)/.test(type);
-        const isVerticalTransport = isElevator || isEscalator;
+        const _isVerticalTransport = isElevator || isEscalator;
         
         // MEP Systems
         const isHVAC = /(hvac|duct|air|ventilation|fan|vav|ahu)/.test(type);
@@ -697,7 +697,7 @@ export default function Viewer3D({ modelId }: ViewerProps){
         const isBathroom = /(toilet|sink|basin|shower|bath|tub|urinal|bidet)/.test(type);
         const isKitchen = /(kitchen|cabinet|range|oven|dishwasher|refrigerator)/.test(type);
         const isCounter = /(counter|countertop|worktop|island)/.test(type);
-        const isFixture = isBathroom || isKitchen || /(fixture|appliance)/.test(type);
+        const _isFixture = isBathroom || isKitchen || /(fixture|appliance)/.test(type);
         
         // Furniture & Equipment
         const isFurniture = /(furniture|desk|chair|table|bed|sofa|shelf)/.test(type);
@@ -708,7 +708,7 @@ export default function Viewer3D({ modelId }: ViewerProps){
         const isDrainage = /(drainage|drain|gutter|downspout|catch.basin)/.test(type);
         const isPaving = /(paving|asphalt|concrete.slab|sidewalk|driveway|parking)/.test(type);
         const isUtility = /(utility|gas|water.main|sewer.main|electrical.service)/.test(type);
-        const isSiteWork = isLandscaping || isDrainage || isPaving || isUtility;
+        const _isSiteWork = isLandscaping || isDrainage || isPaving || isUtility;
         
         // Interior Components & Finishes
         const isPartition = /(partition|drywall|gypsum|glass.partition)/.test(type);
@@ -717,13 +717,13 @@ export default function Viewer3D({ modelId }: ViewerProps){
         const isPaint = /(paint|coating|finish)/.test(type);
         const isMillwork = /(millwork|trim|molding|baseboard|crown)/.test(type);
         const isFinish = isFlooring || isPaint || isMillwork || /(finish)/.test(type);
-        const isInsulation = /(insulation|thermal|vapor|barrier)/.test(type);
+        const _isInsulation = /(insulation|thermal|vapor|barrier)/.test(type);
         
         // Exterior Wall Materials
         const isBrick = /(brick|masonry|stone|granite|limestone)/.test(type);
         const isSiding = /(siding|cladding|vinyl|aluminum|wood.siding)/.test(type);
         const isCurtainWall = /(curtain.wall|glass.wall|storefront)/.test(type);
-        const isExteriorFinish = isBrick || isSiding || isCurtainWall;
+        const _isExteriorFinish = isBrick || isSiding || isCurtainWall;
         
         // Structural Elements
         const isStruct = isColumn || isBeam || isFoundation || /(structural|frame|truss)/.test(type);
@@ -1374,7 +1374,7 @@ export default function Viewer3D({ modelId }: ViewerProps){
               if(!three.current) return; 
               const {camera,controls} = three.current;
               const grid = three.current.scene.getObjectByName("grid") as THREE.GridHelper;
-              const size = 40; const center = new THREE.Vector3(0,0,0);
+              const _size = 40; const center = new THREE.Vector3(0,0,0);
               if(grid){ grid.position.set(0,0,0); }
               controls.target.copy(center); 
               camera.position.set(10,8,10); 

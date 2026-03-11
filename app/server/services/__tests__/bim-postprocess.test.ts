@@ -18,7 +18,7 @@ jest.mock("../../storage", () => ({
 }));
 
 jest.mock("../../helpers/layout-repair", () => ({
-  repairLayout: jest.fn((_elems: any[], _opts?: any) => ({
+  repairLayout: jest.fn((_elems: any[]) => ({
     elements: _elems || [],
     footprint: [],
     propertyLine: [],

@@ -31,7 +31,7 @@ export function setupWebSocket(server: HTTPServer): SocketIOServer {
       socket.userId = user.id;
       socket.user = user;
       next();
-    } catch (error) {
+    } catch (_error) {
       next(new Error("Authentication failed"));
     }
   });
@@ -45,7 +45,7 @@ export function setupWebSocket(server: HTTPServer): SocketIOServer {
     // Handle AI processing requests
     socket.on("ai:start-processing", async (data) => {
       try {
-        const { documentId, configId, projectId } = data;
+        const { documentId: _documentId, configId: _configId, projectId } = data;
         
         if (!projectId) {
           socket.emit("ai:error", { message: "Project ID required for comprehensive analysis" });

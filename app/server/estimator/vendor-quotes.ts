@@ -17,7 +17,7 @@
 // Standards: CIQS, CCDC 10 (Stipulated Price Tender Call)
 // =============================================================================
 
-import type { EstimateSummary, EstimateLineItem } from './estimate-engine';
+import type { EstimateSummary } from './estimate-engine';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 

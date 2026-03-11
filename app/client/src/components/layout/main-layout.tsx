@@ -8,7 +8,7 @@ interface MainLayoutProps {
 
 export default function MainLayout({ children }: MainLayoutProps) {
   const [isIphone, setIsIphone] = useState(false);
-  const [isIpad, setIsIpad] = useState(false);
+  const [_isIpad, setIsIpad] = useState(false);
 
   useEffect(() => {
     const checkDevice = () => {

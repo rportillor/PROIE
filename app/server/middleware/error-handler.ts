@@ -31,7 +31,7 @@ export function createError(message: string, statusCode = 500, code = "INTERNAL_
   return new BimError(message, statusCode, code, details);
 }
 
-export function globalErrorHandler(err: AppError, req: Request, res: Response, next: NextFunction) {
+export function globalErrorHandler(err: AppError, req: Request, res: Response, _next: NextFunction) {
   const errorId = err.errorId || crypto.randomBytes(4).toString('hex');
   const statusCode = err.statusCode || 500;
   

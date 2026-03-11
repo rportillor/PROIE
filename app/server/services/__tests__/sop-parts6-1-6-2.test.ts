@@ -25,10 +25,8 @@ import {
   deleteAnalysis,
   validateAnalysis,
   createEmptyAnalysis,
-  addWorkArea,
   addSafetyIssue,
   getSafetyIssuesBySeverity,
-  addTradeDependency,
 } from '../constructability-engine';
 
 import type { ConstructabilityAnalysis, SafetyIssue } from '../constructability-engine';

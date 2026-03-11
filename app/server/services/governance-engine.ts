@@ -18,7 +18,7 @@
  * ══════════════════════════════════════════════════════════════════════════════
  */
 
-import type { IssueRecord, IssuePriority, IssueStatus, IssueLogManager } from './issue-log';
+import type { IssueRecord, IssuePriority, IssueStatus } from './issue-log';
 import type { DeltaSummary } from './delta-tracker';
 import type { TrendReport, TrendAlert } from './trend-analytics';
 import type { MilestoneProtectionReport } from './milestone-protection';

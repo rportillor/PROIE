@@ -396,7 +396,7 @@ import {
   overrideScores,
 } from '../priority-scoring';
 
-import type { ScoringInput, ScoringResult } from '../priority-scoring';
+import type { ScoringInput } from '../priority-scoring';
 
 describe('priority-scoring.ts', () => {
   test('calculatePriorityScores returns valid result', () => {

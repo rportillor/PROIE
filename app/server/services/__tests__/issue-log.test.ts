@@ -19,7 +19,6 @@ import type {
   IssueStatus,
   IssuePriority,
   PriorityScores,
-  IssueRecord,
 } from '../issue-log';
 
 import type { ClashGroup } from '../dedup-engine';
@@ -418,9 +417,9 @@ describe('IssueLogManager', () => {
 
   test('filter by multiple statuses (array)', () => {
     const i1 = manager.createManual(makeManualIssueInput());
-    const i2 = manager.createManual(makeManualIssueInput());
+    manager.createManual(makeManualIssueInput());
     manager.updateStatus(i1.id, 'IN_REVIEW', 'u', 'c');
-    // i2 stays OPEN
+    // second issue stays OPEN
 
     const results = manager.filter({ status: ['OPEN', 'IN_REVIEW'] });
     expect(results).toHaveLength(2);

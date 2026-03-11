@@ -18,8 +18,7 @@
  */
 
 import type { DeltaSummary } from './delta-tracker';
-import type { ClashSeverity } from './clash-detection-engine';
-import type { IssueRecord, IssuePriority } from './issue-log';
+import type { IssueRecord } from './issue-log';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES

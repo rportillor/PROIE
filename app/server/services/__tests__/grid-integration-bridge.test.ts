@@ -32,7 +32,6 @@ jest.mock('../grid-storage', () => ({
 
 import {
   convertValidationToFindings,
-  type GridFinding,
 } from '../grid-integration-bridge';
 
 import {

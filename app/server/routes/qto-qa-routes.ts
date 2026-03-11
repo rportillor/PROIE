@@ -36,7 +36,7 @@ import {
   runQTOExtraction,
   checkModelDropGate,
   formatQAReportSummary,
-  generateGapsFromQA,
+  generateGapsFromQA as _generateGapsFromQA,
   type QTOExtractionResult,
 } from '../services/qto-qa-engine';
 

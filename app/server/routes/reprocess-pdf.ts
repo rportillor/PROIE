@@ -104,7 +104,7 @@ router.post('/:documentId', async (req, res) => {
       try {
         extractedText = await fs.readFile(textFile, 'utf8');
         logger.info(`Extracted text length: ${extractedText.length} characters`);
-      } catch (e) {
+      } catch (_e) {
         logger.warn('No extracted text file found');
       }
       
@@ -112,7 +112,7 @@ router.post('/:documentId', async (req, res) => {
         const metadataStr = await fs.readFile(metadataFile, 'utf8');
         metadata = JSON.parse(metadataStr);
         logger.info(`Metadata extracted: ${JSON.stringify(metadata)}`);
-      } catch (e) {
+      } catch (_e) {
         logger.warn('No metadata file found');
       }
       

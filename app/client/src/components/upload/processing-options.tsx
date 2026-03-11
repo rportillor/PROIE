@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Settings, Brain, Table, Eye, Search, FileText, MapPin, Shield } from "lucide-react";
 
 interface ProcessingOptionsProps {
-  onOptionsChange?: (options: ProcessingConfig) => void;
+  onOptionsChange?: (_options: ProcessingConfig) => void;
 }
 
 interface ProcessingConfig {
@@ -243,8 +242,8 @@ export default function ProcessingOptions({ onOptionsChange }: ProcessingOptions
               <h4 className="font-medium mb-2">Active Modes</h4>
               <ul className="space-y-1 text-muted-foreground">
                 {Object.entries(config.modes)
-                  .filter(([_, enabled]) => enabled)
-                  .map(([mode, _]) => (
+                  .filter(([_key, enabled]) => enabled)
+                  .map(([mode, _enabled]) => (
                     <li key={mode} className="flex items-center gap-2">
                       <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                       {mode.replace(/([A-Z])/g, ' $1').toLowerCase()}

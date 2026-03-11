@@ -34,7 +34,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Download,
   Eye,
   FileText,
   Camera,

@@ -15,9 +15,9 @@ import {
 } from '../../estimator/labor-burden';
 import type {
   TradeRate,
-  StatutoryBurden,
-  CrewComposition,
   LoadedLaborRate,
+  CrewComposition,
+  StatutoryBurden,
 } from '../../estimator/labor-burden';
 
 // ─── Test Data ──────────────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ const CARPENTER_TRADE: TradeRate = {
   ],
 };
 
-const ELECTRICIAN_TRADE: TradeRate = {
+const _ELECTRICIAN_TRADE: TradeRate = {
   tradeCode: 'ELEC',
   tradeName: 'Electrician',
   baseWageHourly: 48.25,
@@ -58,7 +58,7 @@ const ELECTRICIAN_TRADE: TradeRate = {
 
 // ─── Helper ─────────────────────────────────────────────────────────────────
 
-function round2(n: number): number {
+function _round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 

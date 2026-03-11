@@ -24,21 +24,16 @@ import { randomUUID } from 'crypto';
 import type {
   AABB,
   ResolvedElement,
-  Clash,
   ClashCategory,
   ClashSeverity,
-  ClashDetectionResult,
   ClearanceRequirements,
-  Discipline,
 } from './clash-detection-engine';
 import {
   type ClashTestTemplate,
-  type SelectionSet,
   resolveSelectionSet,
   getSelectionSet,
   getEnabledTemplates,
 } from './clash-test-templates';
-import type { Gap, EvidenceReference } from './types';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 1. GEOMETRY UTILITIES
@@ -103,7 +98,7 @@ export function aabbPenetrationDepth(a: AABB, b: AABB): number {
 // 2. BROAD PHASE — SWEEP-AND-PRUNE
 // ═══════════════════════════════════════════════════════════════════════════════
 
-interface IndexedElement {
+interface _IndexedElement {
   index: number;
   element: ResolvedElement;
 }
@@ -259,13 +254,13 @@ export function evaluatePair(
   // Soft / code / tolerance clash: check clearance
   const distance_m = aabbMinDistance(boxA, boxB);
   const distance_mm = distance_m * 1000;
-  const expandedA = expandAABB(boxA, tolerance_m);
+  const _expandedA = expandAABB(boxA, tolerance_m);
 
   // Also check if they physically overlap (which is worse than soft clash)
   if (aabbOverlaps(boxA, boxB)) {
     const overlapVol = aabbOverlapVolume(boxA, boxB);
     const penDepth = aabbPenetrationDepth(boxA, boxB);
-    const loc = aabbCentroid(boxA);
+    const _loc = aabbCentroid(boxA);
     const severity = resolveSeverity(template, elA, elB);
 
     return {

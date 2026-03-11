@@ -80,7 +80,7 @@ export function useProgressTracking(modelId: string | null) {
         startPolling();
       };
       
-    } catch (error) {
+    } catch {
       console.warn('SSE not supported, using polling');
       startPolling();
     }

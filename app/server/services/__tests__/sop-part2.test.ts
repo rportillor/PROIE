@@ -19,7 +19,7 @@ import {
   csiDivisionToDiscipline,
 } from '../discipline-sop';
 
-import type { DisciplineCode, DisciplineDefinition } from '../discipline-sop';
+import type { DisciplineCode } from '../discipline-sop';
 
 describe('discipline-sop.ts', () => {
   test('all 7 discipline codes are defined', () => {
@@ -178,7 +178,7 @@ import {
   runModelDropGate,
 } from '../model-drop-gating';
 
-import type { GateVerdict, GateResult } from '../model-drop-gating';
+import type { GateResult } from '../model-drop-gating';
 
 describe('model-drop-gating.ts', () => {
   test('DEFAULT_THRESHOLDS is defined', () => {

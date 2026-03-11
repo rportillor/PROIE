@@ -37,7 +37,7 @@ jest.mock('../../helpers/geom-utils', () => ({
 
 import { ensureFootprintForModel } from '../footprint-extractor';
 import { storage } from '../../storage';
-import { extractPdfTextAndPages } from '../../services/pdf-extract';
+import { extractPdfTextAndPages } from "../pdf-extract";
 
 const mockStorage = storage as any;
 

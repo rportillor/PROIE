@@ -11,7 +11,7 @@ import { storage } from '../storage';
 import { logger } from '../utils/enterprise-logger';
 import { claudeCostMonitor } from '../services/claude-cost-monitor';
 import { inferStoreyElevation } from '../helpers/storeys';
-import type { Project } from '@shared/schema';
+
 
 const router = Router();
 const anthropic = new Anthropic({
@@ -55,7 +55,7 @@ router.post('/:projectId', async (req, res) => {
     
     // Determine units based on project country
     const isCanadian = project.country?.toLowerCase() === 'canada';
-    const units = isCanadian ? {
+    const _units = isCanadian ? {
       area: 'm²',
       volume: 'm³', 
       length: 'm',
@@ -184,7 +184,7 @@ router.post('/:projectId', async (req, res) => {
     try {
       const boqItems = await storage.getBoqItems(projectId);
       const projectTotal = boqItems.reduce((sum, item) => sum + parseFloat(item.amount || "0"), 0);
-      await storage.updateProject(projectId, { estimateValue: projectTotal.toString() } as Partial<Project>);
+      await storage.updateProject(projectId, { estimateValue: projectTotal.toString() });
       logger.info(`✅ Updated project estimate value to $${projectTotal.toFixed(2)}`);
     } catch (error) {
       logger.error("Failed to update project estimate value:", { error: error instanceof Error ? error.message : String(error) });
@@ -327,28 +327,28 @@ ${combinedContent}
 - Include grid references: "Wall between Grid A-3 to B-3"
 
 📐 **DOOR/WINDOW DIMENSIONS FROM SCHEDULES:**
-- Read exact sizes from door schedule: "D101: 3'-0\" x 7'-0\" (915mm x 2134mm)"
-- Read window dimensions: "W201: 4'-0\" x 5'-0\" (1220mm x 1524mm)" 
+- Read exact sizes from door schedule: "D101: 3'-0" x 7'-0" (915mm x 2134mm)"
+- Read window dimensions: "W201: 4'-0" x 5'-0" (1220mm x 1524mm)" 
 - Include frame thickness and sill heights
 
 🔧 **M&E EXACT MEASUREMENTS:**
 
 **ELECTRICAL:**
-- Conduit runs: Measure length along routing path (e.g., "EMT 1\": 23.5m from Panel EP-1 to JB-201")
+- Conduit runs: Measure length along routing path (e.g., "EMT 1": 23.5m from Panel EP-1 to JB-201")
 - Cable lengths: Calculate based on circuit routing (e.g., "Circuit 1: 42m of 12 AWG THHN")
-- Panel dimensions: Read from schedules (e.g., "EP-1: 24\" x 36\" x 8\" (600x900x200mm)")
-- Junction boxes: Count and size (e.g., "JB-201: 12\" x 12\" x 6\" at Grid C-2")
+- Panel dimensions: Read from schedules (e.g., "EP-1: 24" x 36" x 8" (600x900x200mm)")
+- Junction boxes: Count and size (e.g., "JB-201: 12" x 12" x 6" at Grid C-2")
 
 **HVAC:**
-- Duct dimensions: Read from mechanical plans (e.g., "Main supply: 36\" x 12\" reducing to 24\" x 12\"")
+- Duct dimensions: Read from mechanical plans (e.g., "Main supply: 36" x 12" reducing to 24" x 12"")
 - Calculate duct surface area for sheet metal (e.g., "152 m² of 24ga galvanized")
-- Equipment footprints: Extract from schedules (e.g., "AHU-1: 8'-0\" x 6'-0\" x 7'-6\" high")
-- Diffuser/grille counts and sizes (e.g., "24 EA 24\"x24\" supply diffusers")
+- Equipment footprints: Extract from schedules (e.g., "AHU-1: 8'-0" x 6'-0" x 7'-6" high")
+- Diffuser/grille counts and sizes (e.g., "24 EA 24"x24" supply diffusers")
 
 **PLUMBING:**
-- Pipe lengths: Trace runs on drawings (e.g., "2\" copper supply: 18.3m horizontal + 9.2m vertical")
+- Pipe lengths: Trace runs on drawings (e.g., "2" copper supply: 18.3m horizontal + 9.2m vertical")
 - Fixture counts from schedules (e.g., "Floor 2: 8 lavatories, 6 water closets, 2 urinals")
-- Equipment sizes (e.g., "HWH-1: 48\" dia x 72\" high, 500 gallon")
+- Equipment sizes (e.g., "HWH-1: 48" dia x 72" high, 500 gallon")
 
 **CONCRETE VOLUMES:**
 - Calculate foundation areas × thickness = ${context.units?.volume || 'm³'}
@@ -370,20 +370,20 @@ Division 04: Extract masonry with EXACT wall lengths and heights from dimension 
 Division 05: Extract steel with EXACT beam/column sizes and lengths:
 - Columns: Specify shape (round/square/rectangular) and dimensions (e.g., "HSS 300x300x12, 3.5m high" for square, "406mm dia x 12mm thick, 3.5m high" for round, "W310x202, 3.5m high" for wide flange)
 - Beams: Include profile and span (e.g., "W410x67, 8.2m span", "HSS 250x150x8, 6.5m span")
-Division 06: Extract wood with ACTUAL dimensions (e.g., "2x10 joists, 16\" o.c., 4.8m spans")
+Division 06: Extract wood with ACTUAL dimensions (e.g., "2x10 joists, 16" o.c., 4.8m spans")
 Division 07: Extract insulation with EXACT areas from room takeoffs
 Division 08: Extract doors/windows with EXACT sizes from schedules (not generic 1.0 x 2.0)
 Division 09: Extract finishes with EXACT room areas calculated from dimensions
 
 Division 15-16 MECHANICAL:
-- Extract HVAC ducts with sizes (e.g., "24\" x 12\" main supply duct, 85 linear feet")
-- Extract equipment with dimensions (e.g., "RTU-1: 96\" x 72\" x 48\" high")
-- Extract piping with lengths (e.g., "2\" copper: 125 LF horizontal, 48 LF vertical")
+- Extract HVAC ducts with sizes (e.g., "24" x 12" main supply duct, 85 linear feet")
+- Extract equipment with dimensions (e.g., "RTU-1: 96" x 72" x 48" high")
+- Extract piping with lengths (e.g., "2" copper: 125 LF horizontal, 48 LF vertical")
 
 Division 26-28 ELECTRICAL:
-- Extract conduits with exact routing lengths (e.g., "1\" EMT: 185m total")
+- Extract conduits with exact routing lengths (e.g., "1" EMT: 185m total")
 - Extract cables by circuit (e.g., "12 AWG: 850m total across 42 circuits")
-- Extract panels with dimensions (e.g., "Panel A: 30\" x 48\" x 8\" surface mount")
+- Extract panels with dimensions (e.g., "Panel A: 30" x 48" x 8" surface mount")
 - Extract devices with counts (e.g., "82 duplex receptacles, 46 switches, 38 LED fixtures")
 
 MANDATORY: Return JSON with "materials" array containing 120+ individual construction items.
@@ -741,11 +741,11 @@ function generateItemCode(element: any): string {
 function estimateRate(element: any): string {
   // 🚫 NO FALLBACK RATES - User must input real costs
   // Only use $0.00 to indicate unknown costs
-  const rates = {
+  const _rates = {
     // Keep these $0 to force user input of real rates
   };
-  
-  const description = (element.description || '').toLowerCase();
+
+  const _description = (element.description || '').toLowerCase();
   
   // Always return $0 - no fallback costs, user must input real rates
   return '0.00';

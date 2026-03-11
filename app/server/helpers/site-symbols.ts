@@ -1,7 +1,7 @@
 // server/helpers/site-symbols.ts
 import crypto from "crypto";
 
-type XY = { x:number; y:number };
+type _XY = { x:number; y:number };
 type Storey = { name?:string; elevation?:number };
 
 export function mapPagePointToModel(

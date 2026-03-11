@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CheckCircle, Globe, MapPin, FileText } from "lucide-react";
+import { Globe, MapPin, FileText } from "lucide-react";
 import type { SelectedElement } from "./viewer-3d";
 import { UNIT_SYSTEMS, formatLength, formatArea, formatVolume } from "./unit-utils";
 import type { UnitSystem } from "./unit-utils";
@@ -9,9 +9,9 @@ import type { UnitSystem } from "./unit-utils";
 interface ModelPropertiesProps {
   selectedElement: SelectedElement | null;
   unitSystem: UnitSystem;
-  onUnitSystemChange: (unitSystem: UnitSystem) => void;
+  onUnitSystemChange: (_unitSystem: UnitSystem) => void;
   showBothUnits: boolean;
-  onShowBothUnitsChange: (showBoth: boolean) => void;
+  onShowBothUnitsChange: (_showBoth: boolean) => void;
   country?: string;
   location?: string;
   buildingCode?: string;

@@ -8,7 +8,7 @@
 
 // Mock the DB module so importing it does not require DATABASE_URL
 const mockDelete = jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) });
-const mockTransaction = jest.fn(async (cb: (tx: any) => Promise<void>) => {
+const mockTransaction = jest.fn(async (cb: (_tx: any) => Promise<void>) => {
   await cb({ delete: mockDelete });
 });
 jest.mock("../../db", () => ({

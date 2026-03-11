@@ -6,7 +6,7 @@
 import { Router } from 'express';
 import {
   generateRTM, getRequirement, getGaps,
-  getRequirementsByType, getRequirementsByPriority,
+  getRequirementsByType as _getRequirementsByType, getRequirementsByPriority as _getRequirementsByPriority,
   getAllRequirements, getCoverageByType,
 } from '../services/rtm-generator';
 

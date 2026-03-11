@@ -4,17 +4,13 @@ import type { BimModel, Document } from "@shared/schema";
 import Anthropic from '@anthropic-ai/sdk';
 import { RealQTOProcessor } from './real-qto-processor';
 import { ConstructionWorkflowProcessor } from './construction-workflow-processor';
-import type { RealBIMElement, AnalysisOptions } from './types/shared-bim-types';
 import { convertRealElementToLegacyFormat, getDocumentPath } from './helpers/bim-converter';
-import { deriveBuildingAnalysisFromClaude, analysisFromRawElements, validateOrRecomputeAnalysis } from './helpers/building-analysis';
+import { deriveBuildingAnalysisFromClaude, validateOrRecomputeAnalysis } from './helpers/building-analysis';
 import { extractPdfTextAndPages } from "./services/pdf-extract";
 import { scorePage } from "./helpers/page-scorer";
 import { estimateTokensForText, selectWithinBudget, chunkByTokens } from "./helpers/text-budget";
 import { mergeClaudeResults } from "./helpers/analysis-merge";
 import { calibrateAndPositionElements } from "./helpers/layout-calibration";
-import { ensureFootprintForModel } from "./services/footprint-extractor";
-import { placeDetectedSymbolsAsElements } from "./helpers/site-symbols";
-import { applySiteContext } from "./helpers/site-utils";
 import { postprocessAndSaveBIM } from "./services/bim-postprocess";
 import { getLodProfile } from "./helpers/lod-profile";
 import { deriveQuantitiesForElements } from "./helpers/quantity-derive";
@@ -132,7 +128,7 @@ async function buildElementsFromClaude(modelId: string, realQTOResult: any, anal
   }
 
   const mode = (process.env.POSITIONING_MODE as any) || "auto"; // "auto" | "forcePerimeter" | "preferClaude"
-  const total = realQTOResult?.elements?.length || 0;
+  const _total = realQTOResult?.elements?.length || 0;
 
   // Analysis logging for debugging
   logger.debug('Building analysis available', {
@@ -343,7 +339,7 @@ export class BIMGenerator {
         const modelAge = existingModel.createdAt 
           ? new Date().getTime() - new Date(existingModel.createdAt).getTime()
           : 0;
-        const isStuck = existingModel.status === 'generating' && modelAge > 30 * 60 * 1000; // 30 minutes
+        const _isStuck = existingModel.status === 'generating' && modelAge > 30 * 60 * 1000; // 30 minutes
         
         // For now, we'll continue with generation to add more elements
         console.log(`📋 Continuing generation to add more elements to existing ${existingElements.length} elements`);
@@ -439,7 +435,7 @@ export class BIMGenerator {
         console.warn(`[watchdog] ${reason}`);
         try {
           await _status({ status: "failed", progress: 1.0, message: "Generation aborted by watchdog", error: reason });
-        } catch {}
+        } catch { /* intentionally empty */ }
       });
       
       // Initial status update
@@ -624,7 +620,7 @@ export class BIMGenerator {
       
       // Get project unit system for proper QTO processing
       const unitSystem = requirements.units || 'metric';
-      const project = await storage.getProject(projectId);
+      const _project = await storage.getProject(projectId);
       
       // 🎯 Process with real QTO system using ALL CONSTRUCTION DOCUMENTS
       console.log(`🔍 TRACE: About to process ${documents.length} documents with QTO system`);
@@ -891,7 +887,7 @@ export class BIMGenerator {
         }
         
         // ✅ Back-compat alias for older code paths
-        const result = realQTOResult;
+        const _result = realQTOResult;
       } else {
         // 🚨 NO FALLBACK TO FAKE DATA - Require real documents
         console.log('❌ No construction documents found - cannot generate BIM without real drawings');
@@ -1744,7 +1740,7 @@ Analyze these construction documents as a professional QS would - identify the d
 
       // Per-batch Claude → per-batch RealQTO
       const parts: any[] = [];
-      const elementParts: any[][] = [];
+      const _elementParts: any[][] = [];
 
       for (let i = 0; i < batches.length; i++) {
         const chunk = batches[i];
@@ -2567,7 +2563,7 @@ Error: ${error}
 
   private async generateBIMMetadata(elements: BIMElement[], requirements: BIMGenerationRequirements, strategy: any): Promise<any> {
     try {
-      const metadataAnalysis = await anthropic.messages.create({
+      const _metadataAnalysis = await anthropic.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 2500,
         system: "You are a BIM metadata and standards expert. Generate comprehensive project metadata including classifications, standards compliance, and professional documentation.",
@@ -2658,14 +2654,14 @@ DO NOT return fake components - require real analysis!
     return elements;
   }
 
-  private createElementFromAnalysis(line: string, index: number, document: Document): BIMElement | null {
+  private createElementFromAnalysis(_line: string, _index: number, _document: Document): BIMElement | null {
     // This function should NOT generate fake elements with arbitrary dimensions
     throw new Error('❌ FAKE ELEMENT GENERATION BLOCKED: This function should not create elements without real dimensions!\\n' +
       '🔍 Claude MUST extract actual element dimensions from the construction documents.\\n' +
       '⚠️ NO FAKE DIMENSIONS ALLOWED - Elements must have real measurements from drawings.');
   }
 
-  private generateFallbackComponents(document: Document): BIMElement[] {
+  private generateFallbackComponents(_document: Document): BIMElement[] {
     throw new Error(`
 🚫 MOCK COMPONENTS BLOCKED: This function should NEVER be called!
 

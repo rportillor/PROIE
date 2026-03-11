@@ -44,11 +44,8 @@ import type {
   TradeDependency,
   Gap,
   GapType,
-  Discipline,
   EvidenceReference,
-  ConstraintRow,
 } from './types';
-import { formatEvidenceRef } from './types';
 import type { ConstructabilityParams } from './prompt-library';
 import { getConstructabilityPrompt } from './prompt-library';
 import { getAllConstraints, getAllSystems } from './extraction-checklists';
@@ -656,7 +653,7 @@ export function formatConstructabilitySummary(projectId: string): string {
   const analysis = analyses.get(projectId);
   if (!analysis) return `No constructability analysis for project ${projectId}.`;
 
-  const validation = validateAnalysis(analysis);
+  const _validation = validateAnalysis(analysis);
   const tradeOrder = buildTradeExecutionOrder(analysis);
 
   const lines: string[] = [

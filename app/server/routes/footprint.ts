@@ -1,7 +1,7 @@
 // server/routes/footprint.ts
 import { Router } from "express";
 import { ensureFootprintForModel } from "../services/footprint-extractor";
-import { storage } from "../storage";
+import { storage as _storage } from "../storage";
 import Anthropic from '@anthropic-ai/sdk';
 
 export const footprintRouter = Router();
@@ -22,7 +22,7 @@ footprintRouter.post("/bim/models/:modelId/footprint/ensure", async (req, res) =
           anthropic = new Anthropic({ apiKey });
         }
       }
-    } catch {}
+    } catch { /* anthropic client not available */ }
 
     const out = await ensureFootprintForModel({ modelId, projectId, anthropicClient: anthropic });
     res.json({ ok: true, ...out });

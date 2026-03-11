@@ -39,7 +39,6 @@ import type {
   GapType,
   Discipline,
 } from './types';
-import { formatEvidenceRef } from './types';
 
 
 // ═══════════════════════════════════════════════════════════════════════════════

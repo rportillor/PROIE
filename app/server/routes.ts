@@ -2,13 +2,11 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { extractProjectFacts } from "./compliance/extract-project-facts";
-import { PRNG } from "./helpers/prng";
 import { EnhancedErrorHandler } from "./helpers/enhanced-error-handler";
-import { ProgressTracker } from "./helpers/progress-tracker";
 import { SessionTracker } from "./helpers/session-tracker";
 import { similarityAnalyzer } from "./services/similarity-analyzer";
-import { safeJsonParse, parseJsonWithSchema, securitySchemas } from "./utils/secure-json";
-import { logger, securityLogger } from "./utils/enterprise-logger";
+import { safeJsonParse } from "./utils/secure-json";
+import { logger } from "./utils/enterprise-logger";
 
 // Normalizers for API responses to fix schema mismatches
 type DimLike = { width?: number; height?: number; depth?: number; length?: number };
@@ -61,20 +59,17 @@ export function normalizeDocumentForApi(doc: any) {
     estimateImpact: doc?.estimateImpact ?? doc?.estimate_impact ?? "unknown",
   };
 }
-import { insertProjectSchema, insertDocumentSchema, insertBoqItemSchema, insertComplianceCheckSchema, insertReportSchema, insertAiConfigurationSchema, insertProcessingJobSchema, insertBimModelSchema, insertBimElementSchema, bimElements } from "@shared/schema";
+import { insertProjectSchema, insertDocumentSchema, insertBoqItemSchema, insertReportSchema, insertAiConfigurationSchema, insertProcessingJobSchema, insertBimModelSchema } from "@shared/schema";
 // [*] REMOVED: RealQTOProcessor - using ConstructionWorkflowProcessor for all processing
 // import { RealQTOProcessor } from "./real-qto-processor";
-import { deleteModelCascade } from "./services/storage-file-resolver";
 import { smartAnalysisService } from "./smart-analysis-service";
 // [*] REMOVED: All BIM generators - using ConstructionWorkflowProcessor only
 // import { BIMGenerator } from "./bim-generator";
 // import { ImprovedBIMGenerator } from "./improved-bim-generator";
-import { authenticateToken, optionalAuth, register, login, getProfile, refreshToken } from "./auth";
+import { authenticateToken, register, login, getProfile, refreshToken } from "./auth";
 import { setupProductRoutes } from "./product-routes";
 import { stripe, PLANS, TRIAL_DAYS, createCheckoutSession, createBillingPortalSession, constructWebhookEvent, isPlanKey } from "./stripe";
 import type { PlanKey } from "./stripe";
-import { CADParser, type CADParseResult } from "./cad-parser";
-import { StandardsService } from "./standards-service";
 import { AICoach } from "./ai-coach";
 import { DocumentSimilarityAnalyzer } from "./document-similarity";
 // [*] FIX: Remove duplicate - using imported singleton
@@ -82,7 +77,6 @@ import { readSimilarityCache } from "./services/similarity-cache";
 import { regulatoryAnalysisService } from "./regulatory-cache";
 import rfiRoutes from "./routes/rfis";
 import multer from "multer";
-import type { Request } from "express";
 import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
@@ -90,10 +84,10 @@ import { createSecureFileFilter, generateSecureFilename, fileUploadLimiter, file
 import fileServingRouter from "./routes/file-serving";
 import { fromPath } from "pdf2pic";
 // [*] FIX PACK #1: Import real PDF extraction service
-import { extractPdf, updateDocumentWithExtractedContent } from "./pdf-extraction-service";
+import { extractPdf } from "./pdf-extraction-service";
 
 // Helper function to detect sheet number and title from page text
-function detectSheetInfo(pageText: string): { sheetNumber?: string; sheetTitle?: string } {
+function _detectSheetInfo(pageText: string): { sheetNumber?: string; sheetTitle?: string } {
   if (!pageText) return {};
   
   // Common patterns for architectural drawings
@@ -122,7 +116,7 @@ function detectSheetInfo(pageText: string): { sheetNumber?: string; sheetTitle?:
 }
 
 // Helper function to extract PDF pages as images
-async function extractPDFPages(
+async function _extractPDFPages(
   pdfPath: string, 
   filename: string, 
   textContent: string, 
@@ -146,12 +140,11 @@ async function extractPDFPages(
     const results = await convert.bulk(-1); // Convert all pages
     
     for (let i = 0; i < results.length; i++) {
-      const result = results[i];
       const pageNumber = i + 1;
       
       // Detect sheet info from text
       const pageText = pageTexts[i] || '';
-      const { sheetNumber, sheetTitle } = detectSheetInfo(pageText);
+      const { sheetNumber, sheetTitle } = _detectSheetInfo(pageText);
       
       // Create a public URL for the image (simplified - in production use cloud storage)
       const imageUrl = `/api/files/images/${filename}/page.${pageNumber}.png`;
@@ -280,7 +273,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Product selection routes
   setupProductRoutes(app);
   const aiCoach = new AICoach();
-  const oldSimilarityAnalyzer = new DocumentSimilarityAnalyzer();
+  const _oldSimilarityAnalyzer = new DocumentSimilarityAnalyzer();
   
   // Authentication endpoints
   app.post("/api/auth/register", register);
@@ -656,7 +649,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // const gridSystem = (processor as any).extractBuildingGridFromClaudeAnalysis(JSON.stringify(analysis.analysisData));
       
       return res.status(410).json({ 
-        error: 'PARALLEL PATH BLOCKED: All processing must use construction methodology (specs[*] âproducts[*] âassemblies[*] âelements)',
+        error: 'PARALLEL PATH BLOCKED: All processing must use construction methodology (specs[*] âproducts[*] âassemblies[*] âelements)',
         useInstead: '/api/bim/models/:modelId/generate'
       });
       
@@ -679,7 +672,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: "Authentication required" });
       }
       const userId = req.user.id;
-      const projectId = req.query.projectId as string;
+      const _projectId = req.query.projectId as string;
       const context = {
         projectType: req.query.projectType as string,
         currentPhase: req.query.currentPhase as string,
@@ -766,7 +759,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: "Authentication required" });
       }
       const { projectId, findingId, findingTitle, findingDescription, customQuestion, priority = 'Medium' } = req.body;
-      const userId = req.user.id;
+      const _userId = req.user.id;
 
       if (!projectId || !findingTitle) {
         return res.status(400).json({ error: "Project ID and finding title are required" });
@@ -940,7 +933,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       } catch (error) {
-        console.warn('[*]  Could not load from bim_elements table:', error);
+        console.warn('[*]  Could not load from bim_elements table:', error);
       }
       
       // Second: If no elements from table, try parsing geometry_data JSON (fallback)
@@ -1012,10 +1005,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           // Fallback: empty elements array
           elements = [];
-          console.log('[*]  Using empty elements array as fallback');
+          console.log('[*]  Using empty elements array as fallback');
         }
       } else {
-        console.log('[*]  No geometry data found for model:', latestModel.id);
+        console.log('[*]  No geometry data found for model:', latestModel.id);
       }
 
       res.json({
@@ -1040,15 +1033,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[*] Starting CSI code regeneration for project ${projectId}...`);
       
       // Get all BoQ items for this project (they contain the item codes to update)
-      console.log(`[*]  Fetching BoQ items for project ${projectId}...`);
+      console.log(`[*]  Fetching BoQ items for project ${projectId}...`);
       const elements = await storage.getBoqItems(projectId);
-      console.log(`[*]  Found ${elements?.length || 0} BoQ items`);
+      console.log(`[*]  Found ${elements?.length || 0} BoQ items`);
       
       if (!elements || elements.length === 0) {
         return res.status(404).json({ error: 'No BIM elements found for this project' });
       }
       
-      console.log(`[*]  Found ${elements.length} elements to update with new CSI codes`);
+      console.log(`[*]  Found ${elements.length} elements to update with new CSI codes`);
       
       let updatedCount = 0;
       
@@ -1057,7 +1050,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           // Generate proper CSI item code format
           const elementType = "Element".toLowerCase();
-          const category = (element.category || "general").toLowerCase();
+          const _category = (element.category || "general").toLowerCase();
           
           // Simple CSI code generation based on element type
           let csiDivision = "01"; // Default General Requirements
@@ -1081,7 +1074,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           updatedCount++;
         } catch (error) {
-          console.warn(`[*]  Failed to update element ${element.id}:`, error);
+          console.warn(`[*]  Failed to update element ${element.id}:`, error);
         }
       }
       
@@ -1106,12 +1099,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!req.user) {
         return res.status(401).json({ error: "Authentication required" });
       }
-      const userId = req.user.id;
+      const _userId = req.user.id;
       
       // [*] SYSTEM FIX: Check if analysis is running before starting new one
       const isRunning = SessionTracker.isRunning(projectId, 'similarity_heatmap');
       if (isRunning) {
-        console.log(`[*]  Heatmap request blocked - analysis already running for project ${projectId}`);
+        console.log(`[*]  Heatmap request blocked - analysis already running for project ${projectId}`);
         return res.status(202).json({ 
           message: "Analysis in progress", 
           projectId,
@@ -1141,12 +1134,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!req.user) {
         return res.status(401).json({ error: "Authentication required" });
       }
-      const userId = req.user.id;
+      const _userId = req.user.id;
       
       // [*] SYSTEM FIX: Check if analysis is running before starting new one
       const isRunning = SessionTracker.isRunning(projectId, 'compliance_overlaps');
       if (isRunning) {
-        console.log(`[*]  Compliance overlap request blocked - analysis already running for project ${projectId}`);
+        console.log(`[*]  Compliance overlap request blocked - analysis already running for project ${projectId}`);
         return res.status(202).json({ 
           message: "Analysis in progress", 
           projectId,
@@ -1775,7 +1768,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/projects/:projectId/documents/:documentId/revisions", authenticateToken, fileUploadLimiter, fileUploadCSP, upload.single('file'), async (req, res) => {
     try {
-      const { projectId, documentId } = req.params;
+      const { projectId: _projectId, documentId } = req.params;
       const { revisionNotes } = req.body;
       const file = req.file;
 
@@ -1812,7 +1805,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Document Approval Workflow APIs
   app.post("/api/projects/:projectId/documents/:documentId/submit-review", authenticateToken, async (req, res) => {
     try {
-      const userId = req.user?.id || 'anonymous';
+      const _userId = req.user?.id || 'anonymous';
       const updatedDocument = await storage.updateDocument(req.params.documentId, {
         analysisStatus: 'Under Review'
       });
@@ -1830,7 +1823,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/projects/:projectId/documents/:documentId/approve", authenticateToken, async (req, res) => {
     try {
-      const userId = req.user?.id || 'anonymous';
+      const _userId = req.user?.id || 'anonymous';
       const approvedDocument = await storage.updateDocument(req.params.documentId, {
         analysisStatus: 'Approved'
       });
@@ -1848,7 +1841,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/projects/:projectId/documents/:documentId/reject", authenticateToken, async (req, res) => {
     try {
-      const userId = req.user?.id || 'anonymous';
+      const _userId = req.user?.id || 'anonymous';
       const { reason } = req.body;
       
       if (!reason) {
@@ -2517,7 +2510,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/projects/:projectId/bim-models", authenticateToken, async (req, res) => {
     try {
       const models = await storage.getBimModels(req.params.projectId);
-      // [*] FIX: Transform BIM model fields to API format (snake_case [*] â camelCase)
+      // [*] FIX: Transform BIM model fields to API format (snake_case [*] â camelCase)
       const { transformBimModels } = await import("@shared/field-transforms");
       res.json(transformBimModels(models));
     } catch (error) {
@@ -2816,14 +2809,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           // [*] BLOCKED: Regeneration must use construction methodology
           // const { BIMGenerator } = await import("./bim-generator");
-          // All regeneration must go through construction methodology (specs[*] âproducts[*] âassemblies[*] âelements)
+          // All regeneration must go through construction methodology (specs[*] âproducts[*] âassemblies[*] âelements)
           
           throw new Error('PARALLEL PATH BLOCKED: Model regeneration must use construction methodology. Use /api/bim/models/:modelId/generate instead');
-          
-          console.log(`[*] Regeneration completed for model ${modelId}`);
-          await storage.updateBimModel(modelId, { 
-            status: 'completed'
-          });
         } catch (error: any) {
           console.error(`[*] BIM regeneration failed for model ${modelId}:`, error);
           await storage.updateBimModel(modelId, { 
@@ -2871,8 +2859,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // [*] FIX: Add missing AI coach endpoint
   app.post('/api/ai-coach/analysis', authenticateToken, async (req, res) => {
     try {
-      const { content, projectId } = req.body;
-      
+      const { content: _content, projectId: _projectId2 } = req.body;
+
       // Simple AI coach response
       res.json({
         analysis: "Based on your project, consider reviewing the structural connections and ensuring compliance with local building codes.",
@@ -3026,7 +3014,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Calculate average processing time based on documents processed
-      const totalDocuments = projects.reduce((sum: number, p: any) => {
+      const totalDocuments = projects.reduce((sum: number, _p: any) => {
         try {
           // Count documents for each project - approximate based on project activity
           return sum + 10; // Approximate documents per project
@@ -3065,8 +3053,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // [*] FIX: Add missing standards/building-codes endpoints
   app.get('/api/standards/building-codes', authenticateToken, async (req, res) => {
     try {
-      const { region } = req.query;
-      
+      const { region: _region } = req.query;
+
       // Return available building codes for region
       res.json({
         canada: [
@@ -3130,26 +3118,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // [*] FIX: Add missing analysis endpoints
   app.get('/api/analysis/similarity/:documentId', authenticateToken, async (req, res) => {
     try {
-      const { documentId } = req.params;
+      const { documentId: _documentId } = req.params;
       res.json({
         similarDocuments: [],
         conflictAnalysis: { conflicts: [], score: 0.95 },
         recommendations: ["Review structural specifications", "Check dimensional consistency"]
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch similarity analysis" });
     }
   });
 
   app.post('/api/analysis/semantic-search', authenticateToken, async (req, res) => {
     try {
-      const { query, projectId } = req.body;
+      const { query: _query, projectId: _projectId3 } = req.body;
       res.json({
         results: [],
         searchTime: 250,
         totalResults: 0
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to perform semantic search" });
     }
   });
@@ -3158,7 +3146,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/notifications', authenticateToken, async (req, res) => {
     try {
       res.json([]);
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch notifications" });
     }
   });
@@ -3167,7 +3155,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       res.json({ message: `Notification ${id} marked as read` });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to mark notification as read" });
     }
   });
@@ -3175,14 +3163,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // [*] FIX: Add missing reports endpoints
   app.get('/api/reports/compliance/:projectId', authenticateToken, async (req, res) => {
     try {
-      const { projectId } = req.params;
+      const { projectId: _projectId4 } = req.params;
       res.json({
         overallScore: 0.92,
         violations: [],
         recommendations: ["Ensure fire egress compliance", "Review accessibility standards"],
         lastUpdated: new Date().toISOString()
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to generate compliance report" });
     }
   });
@@ -3225,7 +3213,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="BoQ-${projectId}-${now}.csv"`);
       res.send('\uFEFF' + csvRows);
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: 'Failed to generate report' });
     }
   });
@@ -3243,7 +3231,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
     try {
       res.json([]);
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch users" });
     }
   });
@@ -3257,7 +3245,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         memory: process.memoryUsage(),
         lastCheck: new Date().toISOString()
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch system health" });
     }
   });
@@ -3265,18 +3253,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // [*] FIX: Add missing search endpoints
   app.get('/api/search/documents', authenticateToken, async (req, res) => {
     try {
-      const { q, projectId } = req.query;
+      const { q: _q, projectId: _projectId5 } = req.query;
       res.json({ results: [], totalCount: 0 });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to search documents" });
     }
   });
 
   app.get('/api/search/projects', authenticateToken, async (req, res) => {
     try {
-      const { q } = req.query;
+      const { q: _q2 } = req.query;
       res.json({ results: [], totalCount: 0 });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to search projects" });
     }
   });
@@ -3324,7 +3312,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="BoQ-${projectId}-${now}.csv"`);
       res.send('\uFEFF' + csvRows);
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: 'Failed to generate export' });
     }
   });
@@ -3337,7 +3325,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         category: "general",
         priority: "medium"
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch AI tips" });
     }
   });
@@ -3350,7 +3338,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { alertId } = req.params;
       res.json({ message: `Alert ${alertId} acknowledged` });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to acknowledge alert" });
     }
   });
@@ -3358,7 +3346,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/alerts', authenticateToken, requireAdmin, async (req, res) => {
     try {
       res.json([]);
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch alerts" });
     }
   });
@@ -3374,7 +3362,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/system/logs', authenticateToken, requireAdmin, async (req, res) => {
     try {
       res.json({ logs: [], totalCount: 0 });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch logs" });
     }
   });
@@ -3385,7 +3373,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { documentId } = req.params;
       const updates = req.body;
       res.json({ message: `Document ${documentId} updated`, updates });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to update document" });
     }
   });
@@ -3394,7 +3382,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { documentId } = req.params;
       res.json({ message: `Document ${documentId} deleted` });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to delete document" });
     }
   });
@@ -3411,20 +3399,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         progress: 0,
       });
       res.json({ jobId: job.id, status: job.status, documentId });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to process document" });
     }
   });
 
   app.get('/api/documents/:documentId/analysis', authenticateToken, async (req, res) => {
     try {
-      const { documentId } = req.params;
+      const { documentId: _documentId2 } = req.params;
       res.json({ 
         analysis: { confidence: 0.95, extractedElements: [] },
         processingTime: 1250,
         status: 'completed'
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch document analysis" });
     }
   });
@@ -3444,7 +3432,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/projects/:projectId/team', authenticateToken, async (req, res) => {
     try {
       res.json({ members: [], permissions: [] });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch team" });
     }
   });
@@ -3464,7 +3452,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { modelId } = req.params;
       const updates = req.body;
       res.json({ message: `BIM model ${modelId} updated`, updates });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to update BIM model" });
     }
   });
@@ -3473,7 +3461,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { modelId } = req.params;
       res.json({ message: `BIM model ${modelId} deleted` });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to delete BIM model" });
     }
   });
@@ -3490,7 +3478,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         metadata: { version: model.version || '1.0', format: (model as any).format || 'IFC', status: model.status },
         properties: { floors: floors.size, elements: elements.length, lastModified: model.updatedAt ?? model.createdAt }
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch BIM model metadata" });
     }
   });
@@ -3500,8 +3488,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { modelId } = req.params;
       const model = await storage.getBimModel(modelId);
       if (!model) return res.status(404).json({ error: 'BIM model not found' });
-      const elements = await storage.getBimElements(modelId);
-      const boqItems = model.projectId ? await storage.getBoqItems(model.projectId) : [];
+      const _elements = await storage.getBimElements(modelId);
+      const _boqItems = model.projectId ? await storage.getBoqItems(model.projectId) : [];
       const { BoqBimValidator } = await import('./boq-bim-validator');
       const validator = new BoqBimValidator();
       const result = await validator.validateProject(model.projectId || '');
@@ -3510,7 +3498,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         validationResults: { errors: result.discrepancies?.length ?? 0, warnings: result.recommendations?.length ?? 0, confidenceScore: result.confidenceScore ?? 0 },
         report: result.recommendations?.join('; ') ?? 'Validation complete'
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to validate BIM model" });
     }
   });
@@ -3530,7 +3518,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: 'Not authenticated' });
       res.json({ userId, authenticated: true });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch session" });
     }
   });
@@ -3545,7 +3533,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         size: 2048576,
         uploadedAt: new Date().toISOString()
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch upload info" });
     }
   });
@@ -3554,7 +3542,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { fileId } = req.params;
       res.json({ message: `File ${fileId} deleted` });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to delete file" });
     }
   });
@@ -3562,14 +3550,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Compliance and standards
   app.get('/api/compliance/check/:projectId', authenticateToken, async (req, res) => {
     try {
-      const { projectId } = req.params;
+      const { projectId: _projectId6 } = req.params;
       res.json({
         overall: 'compliant',
         score: 0.94,
         violations: [],
         recommendations: ['Review emergency egress', 'Verify structural loads']
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to perform compliance check" });
     }
   });
@@ -3595,7 +3583,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         note: 'Use /api/projects/:id/boq-with-costs for full itemised breakdown',
         confidence: boqJ.length > 0 ? 0.87 : 0, currency: 'CAD'
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to generate cost estimate" });
     }
   });
@@ -3623,7 +3611,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdAt: job.createdAt,
         completedAt: job.completedAt,
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch workflow status" });
     }
   });
@@ -3638,7 +3626,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const updated = await storage.updateProcessingJob(jobId, { status: 'cancelled' } as any);
       res.json({ message: `Job ${jobId} cancelled`, job: updated });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to cancel job" });
     }
   });
@@ -3652,20 +3640,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalAnalysisTime: 125000,
         avgProcessingTime: 2500
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch usage analytics" });
     }
   });
 
   app.get('/api/insights/trends/:projectId', authenticateToken, async (req, res) => {
     try {
-      const { projectId } = req.params;
+      const { projectId: _projectId7 } = req.params;
       res.json({
         trends: { costTrend: 'stable', timelineTrend: 'ahead' },
         predictions: { completionDate: null, finalCost: null,
           note: 'Use /api/projects/:id/boq-with-costs for current cost data' }
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch insights" });
     }
   });
@@ -3682,7 +3670,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalApiCalls: 2500,
         claudeUsage: { dailyUsage: 15, limit: 50 }
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch usage summary" });
     }
   });
@@ -3690,7 +3678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/claude-usage/emergency-stop', authenticateToken, async (req, res) => {
     try {
       res.json({ message: 'Claude processing emergency stopped', stopped: true });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to emergency stop" });
     }
   });
@@ -3703,7 +3691,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         limit: 50,
         breakdown: { analysis: 12, coaching: 3, generation: 0 }
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to generate usage report" });
     }
   });
@@ -3716,7 +3704,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         uptime: process.uptime(),
         version: '15.29.0'
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Health check failed" });
     }
   });
@@ -3724,7 +3712,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/errors', authenticateToken, async (req, res) => {
     try {
       res.json({ errors: [], totalCount: 0 });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch errors" });
     }
   });
@@ -3733,7 +3721,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/rfis', authenticateToken, async (req, res) => {
     try {
       res.json([]);
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch RFIs" });
     }
   });
@@ -3741,7 +3729,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/projects/:projectId/rfis', authenticateToken, async (req, res) => {
     try {
       res.json([]);
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch project RFIs" });
     }
   });
@@ -3749,7 +3737,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/projects/:projectId/rfis/stats', authenticateToken, async (req, res) => {
     try {
       res.json({ total: 0, pending: 0, resolved: 0, overdue: 0 });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch RFI stats" });
     }
   });
@@ -3757,7 +3745,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Project analysis endpoints  
   app.get('/api/projects/:projectId/floor-analysis', authenticateToken, async (req, res) => {
     try {
-      const { projectId } = req.params;
+      const { projectId: _projectId8 } = req.params;
       res.json({
         floors: [
           { id: 'floor-1', name: 'Ground Floor', elements: 320, area: 2500 },
@@ -3768,7 +3756,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalElements: 1268,
         totalArea: 9700
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch floor analysis" });
     }
   });
@@ -3776,7 +3764,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/projects/:projectId/bim-models/generate-by-floor', authenticateToken, async (req, res) => {
     // [*] BLOCKED: Parallel path eliminated - all generation must use construction methodology
     res.status(410).json({
-      error: 'PARALLEL PATH BLOCKED: All BIM generation must use construction methodology (specs[*] âproducts[*] âassemblies[*] âelements)',
+      error: 'PARALLEL PATH BLOCKED: All BIM generation must use construction methodology (specs[*] âproducts[*] âassemblies[*] âelements)',
       useInstead: '/api/bim/models/:modelId/generate',
       reason: 'Floor-by-floor processing bypasses proper construction estimation workflow'
     });
@@ -3787,27 +3775,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/bim/models/:modelId/calibration', authenticateToken, async (req, res) => {
     try {
-      const { modelId } = req.params;
+      const { modelId: _modelId } = req.params;
       res.json({
         calibrated: true,
         accuracy: 0.96,
         referencePoints: 4,
         lastCalibration: new Date().toISOString()
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch calibration data" });
     }
   });
 
   app.get('/api/elements', authenticateToken, async (req, res) => {
     try {
-      const { projectId, type } = req.query;
+      const { projectId: _projectId9, type: _type } = req.query;
       res.json({
         elements: [],
         totalCount: 0,
         types: ['Wall', 'Column', 'Beam', 'Door', 'Window']
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch elements" });
     }
   });
@@ -3816,7 +3804,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/projects/:projectId/change-requests', authenticateToken, async (req, res) => {
     try {
       res.json([]);
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch change requests" });
     }
   });
@@ -3824,7 +3812,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/projects/:projectId/change-requests/stats', authenticateToken, async (req, res) => {
     try {
       res.json({ total: 0, pending: 0, approved: 0, rejected: 0 });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch change request stats" });
     }
   });
@@ -3837,7 +3825,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get('/api/projects/:projectId/documents/:documentId', authenticateToken, async (req, res) => {
     try {
-      const { projectId, documentId } = req.params;
+      const { projectId: _projectId10, documentId } = req.params;
       res.json({
         id: documentId,
         name: `Document ${documentId}`,
@@ -3846,7 +3834,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: 'processed',
         uploadedAt: new Date().toISOString()
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch document" });
     }
   });
@@ -3858,7 +3846,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { id: 'config-1', name: 'Standard Analysis', model: 'claude-3', parameters: {} },
         { id: 'config-2', name: 'Detailed BIM', model: 'claude-3', parameters: {} }
       ]);
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch AI configurations" });
     }
   });
@@ -3871,7 +3859,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         remainingQuota: 35,
         breakdown: { analysis: 60, generation: 30, coaching: 10 }
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch AI usage stats" });
     }
   });
@@ -3879,9 +3867,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // BIM models general endpoint
   app.get('/api/bim/models', authenticateToken, async (req, res) => {
     try {
-      const { projectId } = req.query;
+      const { projectId: _projectId11 } = req.query;
       res.json([]);
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch BIM models" });
     }
   });
@@ -3920,7 +3908,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         usage: null,   // Requires usage tracking table (roadmap U-2)
         billing: null, // Requires Stripe integration (roadmap B-1)
       });
-    } catch (error) {
+    } catch (_error) {
       res.status(500).json({ error: "Failed to fetch account info" });
     }
   });
@@ -3966,7 +3954,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       console.log(`[*] Resuming BIM generation for model ${modelId}`);
-      console.log(`[*]  Current state: Chunk ${currentChunk}/${totalChunks}, ${productsFound} products`);
+      console.log(`[*]  Current state: Chunk ${currentChunk}/${totalChunks}, ${productsFound} products`);
       
       // Update status to generating
       await storage.updateBimModel(modelId, {
@@ -4034,7 +4022,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // [*] BLOCKED: Parallel path eliminated - all generation must use construction methodology
   app.post("/api/projects/:projectId/bim-models/generate", authenticateToken, async (req, res) => {
     return res.status(410).json({ 
-      error: 'PARALLEL PATH BLOCKED: All BIM generation must use construction methodology (specs[*] âproducts[*] âassemblies[*] âelements)',
+      error: 'PARALLEL PATH BLOCKED: All BIM generation must use construction methodology (specs[*] âproducts[*] âassemblies[*] âelements)',
       useInstead: '/api/bim/models/:modelId/generate',
       reason: 'Project-level generation bypasses proper construction estimation workflow'
     });
@@ -4052,7 +4040,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get the BIM model for this project
       const models = await storage.getBimModels(projectId);
       if (models.length === 0) {
-        console.log(`[*]  No BIM models found for project ${projectId}`);
+        console.log(`[*]  No BIM models found for project ${projectId}`);
         return res.json({ elements: [] });
       }
       
@@ -4306,7 +4294,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let failedChecks = complianceChecks.filter(c => 
         c.status?.toLowerCase() === "failed" || c.status === "Failed"
       ).length;
-      let pendingChecks = complianceChecks.filter(c => 
+      let _pendingChecks = complianceChecks.filter(c => 
         c.status?.toLowerCase() === "pending" || 
         c.status?.toLowerCase() === "in_progress"
       ).length;
@@ -4609,12 +4597,12 @@ const runningAnalyses = new Set<string>();
 const analysisProgress = new Map<string, { stage: string; progress: number; startTime: number }>();
 
 // 🚨🚨🚨 DEPRECATED ANALYSIS PIPELINE - CREATES DUPLICATES 🚨🚨🚨
-async function runComprehensiveAnalysis(documentId: string, projectId: string) {
+async function _runComprehensiveAnalysis(documentId: string, projectId: string) {
   // CRITICAL ALERT: This function creates hardcoded BOQ items and duplicates
   console.error(`🚨🚨🚨 DEPRECATED FUNCTION CALLED: runComprehensiveAnalysis for document ${documentId}!`);
   console.error(`[*] PROJECT: ${projectId} - This will create 49 duplicates!`);
   console.error(`[*] USE INSTEAD: POST /api/comprehensive-analysis/${projectId}`);
-  console.error(`[*]  STACK TRACE:`, new Error().stack);
+  console.error(`[*]  STACK TRACE:`, new Error().stack);
   
   // Alert via monitoring system
   const { alertDeprecatedPath } = await import('./monitoring/deprecated-path-monitor');
@@ -4626,7 +4614,7 @@ async function runComprehensiveAnalysis(documentId: string, projectId: string) {
   }
   // [*] CRITICAL FIX: Check if analysis is already running
   if (runningAnalyses.has(documentId)) {
-    console.log(`[*]  Analysis already running for document ${documentId}, skipping duplicate start`);
+    console.log(`[*]  Analysis already running for document ${documentId}, skipping duplicate start`);
     return;
   }
 
@@ -4639,7 +4627,7 @@ async function runComprehensiveAnalysis(documentId: string, projectId: string) {
     }
 
     if (document.analysisStatus === "Processing") {
-      console.log(`[*]  Document ${documentId} already has Processing status, skipping duplicate analysis`);
+      console.log(`[*]  Document ${documentId} already has Processing status, skipping duplicate analysis`);
       return;
     }
 
@@ -4876,13 +4864,13 @@ async function runComprehensiveAnalysis(documentId: string, projectId: string) {
   }
 }
 
-// [*]  Analysis Progress API - Get Real-time Progress for UI
-function getAnalysisProgress(documentId: string) {
+// [*]  Analysis Progress API - Get Real-time Progress for UI
+function _getAnalysisProgress(documentId: string) {
   return analysisProgress.get(documentId) || null;
 }
 
 // [*] Get All Running Analyses - For Dashboard/Debugging
-function getRunningAnalyses() {
+function _getRunningAnalyses() {
   return {
     total: runningAnalyses.size,
     analyses: Array.from(runningAnalyses).map(docId => ({

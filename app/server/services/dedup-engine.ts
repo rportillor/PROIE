@@ -210,7 +210,7 @@ export function groupByRootCause(clashes: RawClash[]): ClashGroup[] {
   const result: ClashGroup[] = [];
   let groupIdx = 1;
 
-  for (const [key, group] of groups) {
+  for (const [_key, group] of groups) {
     const offender = group.offender;
     const zone = offender.storey || 'UNKNOWN';
     const highestSeverity = group.clashes.reduce<ClashSeverity>(

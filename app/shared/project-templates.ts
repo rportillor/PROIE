@@ -1,4 +1,3 @@
-import { Building2, Home, Factory, Truck, Calendar, DollarSign, Users, FileText } from "lucide-react";
 
 export interface ProjectTemplate {
   id: string;

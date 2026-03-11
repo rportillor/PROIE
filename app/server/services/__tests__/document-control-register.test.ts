@@ -31,13 +31,6 @@ import {
   deleteRegister,
 } from '../document-control-register';
 
-import type {
-  RevisionEvent,
-  TransmittalRecord,
-  UnitDatumConvention,
-  DocumentRegister,
-  RegisterValidation,
-} from '../document-control-register';
 
 import type { DocumentControlEntry, DocumentStatus } from '../types';
 

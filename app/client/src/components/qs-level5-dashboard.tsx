@@ -18,7 +18,7 @@
 // Version: v14.27 — H-3 complete
 // =============================================================================
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,7 @@ import { apiRequest } from "@/lib/queryClient";
 import {
   BarChart3, Shield, FileCheck, DollarSign, Scale, ClipboardList, FileText,
   ChevronRight, RefreshCw, Download, CheckCircle, XCircle, AlertTriangle,
-  Lock, Unlock, Send, Eye, TrendingUp, Layers, Cpu, Activity, Database
+  Lock, Unlock, Send, TrendingUp, Layers, Cpu, Activity, Database
 } from "lucide-react";
 import { RateManagerTab } from "@/components/rate-manager";
 
@@ -617,7 +617,7 @@ function BenchmarkTab({ projectId, modelId, projectData }: { projectId: string; 
 //  TAB 4: TRADE DATA (labor burden, rebar, vendor quotes, alternates)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function TradeDataTab({ projectId, modelId }: { projectId: string; modelId: string }) {
+function TradeDataTab({ projectId, modelId: _modelId }: { projectId: string; modelId: string }) {
   const [subTab, setSubTab] = useState<"labor" | "rebar" | "quotes" | "alternates">("labor");
 
   const { data: laborData }     = useQuery<any>({ queryKey: [`/api/qs5/labor-burden`],                          enabled: subTab === "labor" });
@@ -2524,7 +2524,7 @@ function EngineBoqCostsTab({ projectId }: { projectId: string }) {
   return <EngineCostEstimateTab projectId={projectId} />;  // BOQ Costs reuses Cost Estimate view
 }
 
-function EngineCostUpdateTab({ projectId }: { projectId: string }) {
+function EngineCostUpdateTab({ projectId: _projectId }: { projectId: string }) {
   return (
     <div className="p-6 text-muted-foreground text-sm">
       Cost Update module — Phase 2 (pending live cost feed integration)

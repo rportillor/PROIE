@@ -97,7 +97,7 @@ export interface BenchmarkPack {
   benchmarks: BenchmarkRange[];   // Cost ranges per type
   expectedDivisions: ExpectedDivisions[];  // Required divisions per type
   divisionProportions: DivisionProportion[]; // Typical division splits
-  getProjectTypeName(type: string): string;  // Lookup display name
+  getProjectTypeName(_type: string): string;  // Lookup display name
 }
 
 // ─── Pack Registry ───────────────────────────────────────────────────────────

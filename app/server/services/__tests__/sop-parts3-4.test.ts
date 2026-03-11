@@ -145,7 +145,6 @@ import {
   createEmptyExtraction,
 } from '../extraction-checklists';
 
-import type { ExtractionResult } from '../extraction-checklists';
 
 describe('extraction-checklists.ts', () => {
   test('DISCIPLINE_CHECKLISTS has entries for main disciplines', () => {
@@ -155,7 +154,7 @@ describe('extraction-checklists.ts', () => {
   });
 
   test('each checklist has required fields', () => {
-    for (const [disc, checklist] of Object.entries(DISCIPLINE_CHECKLISTS)) {
+    for (const [, checklist] of Object.entries(DISCIPLINE_CHECKLISTS)) {
       expect(checklist.discipline).toBeDefined();
       expect(Array.isArray(checklist.requiredTables)).toBe(true);
       expect(checklist.requiredTables.length).toBeGreaterThan(0);

@@ -1,21 +1,16 @@
 import { useState, useEffect } from 'react';
-import { useParams , Link } from 'wouter';
+import { useParams } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
-  ArrowLeft, 
-  BarChart3, 
-  MessageCircle, 
-  FileText, 
+  ArrowLeft,
+  FileText,
   Building,
   TrendingUp,
-  Users,
   Clock,
-  FileQuestion,
-  GitBranch,
   RefreshCw,
   Box
 } from 'lucide-react';
@@ -26,7 +21,6 @@ import { AICoach } from '@/components/ai-coach/AICoach';
 import { RfiDashboard } from '@/components/rfi/RfiDashboard';
 import { ChangeRequestDashboard } from '@/components/change-requests/ChangeRequestDashboard';
 import BIMIntegrationCard from '@/components/bim-integration-card';
-import AIProcessingLoader from '@/components/loading/ai-processing-loader';
 import type { Project } from '@shared/schema';
 
 export default function ProjectAnalysis() {

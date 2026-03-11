@@ -137,14 +137,14 @@ export function evaluateRules(facts: Record<string, any>, rules: Rule[]): {
 
 function generateViolationDescription(rule: Rule, facts: Record<string, any>): string {
   // Generate specific violation descriptions based on rule type
-  const descriptions: Record<string, (r: Rule, f: Record<string, any>) => string> = {
-    "nbc_3.2.5.12": (r, f) => `Automatic sprinkler system required. Building has fire area of ${f.fire_area_m2}m² (exceeds 2000m² limit) and height of ${f.building_height_m}m.`,
-    "nbc_3.4.2.1": (r, f) => `Insufficient exits. Building has occupant load of ${f.occupant_load} but only ${f.number_of_exits} exit(s).`,
-    "nbc_3.8.3.3": (r, f) => `Barrier-free path width of ${f.barrier_free_path_width_mm}mm is below minimum 920mm requirement.`,
-    "ibc_903.2": (r, f) => `Automatic sprinkler system required for ${f.occupancy_group} occupancy with ${f.fire_area_sqft} sq.ft. fire area.`,
-    "ibc_1006.2": (r, f) => `Building with occupant load of ${f.occupant_load} requires ${f.occupant_load > 1000 ? 4 : f.occupant_load > 500 ? 3 : 2} exits, but only has ${f.number_of_exits}.`,
-    "csa_a23.1_6.2": (r, f) => `Concrete strength of ${f.concrete_fc_MPa}MPa insufficient for ${f.exposure_class} exposure class.`,
-    "asce7_26.5": (r, f) => `Design wind speed of ${f.basic_wind_speed_mph}mph is below required ${f.location_wind_speed_mph}mph for this location.`
+  const descriptions: Record<string, (_r: Rule, f: Record<string, any>) => string> = {
+    "nbc_3.2.5.12": (_r, f) => `Automatic sprinkler system required. Building has fire area of ${f.fire_area_m2}m² (exceeds 2000m² limit) and height of ${f.building_height_m}m.`,
+    "nbc_3.4.2.1": (_r, f) => `Insufficient exits. Building has occupant load of ${f.occupant_load} but only ${f.number_of_exits} exit(s).`,
+    "nbc_3.8.3.3": (_r, f) => `Barrier-free path width of ${f.barrier_free_path_width_mm}mm is below minimum 920mm requirement.`,
+    "ibc_903.2": (_r, f) => `Automatic sprinkler system required for ${f.occupancy_group} occupancy with ${f.fire_area_sqft} sq.ft. fire area.`,
+    "ibc_1006.2": (_r, f) => `Building with occupant load of ${f.occupant_load} requires ${f.occupant_load > 1000 ? 4 : f.occupant_load > 500 ? 3 : 2} exits, but only has ${f.number_of_exits}.`,
+    "csa_a23.1_6.2": (_r, f) => `Concrete strength of ${f.concrete_fc_MPa}MPa insufficient for ${f.exposure_class} exposure class.`,
+    "asce7_26.5": (_r, f) => `Design wind speed of ${f.basic_wind_speed_mph}mph is below required ${f.location_wind_speed_mph}mph for this location.`
   };
   
   const generator = descriptions[rule.id];
@@ -156,7 +156,7 @@ function generateViolationDescription(rule: Rule, facts: Record<string, any>): s
   return `Non-compliance detected: ${rule.title} (${rule.standard} ${rule.clause})`;
 }
 
-function generateRecommendation(rule: Rule, facts: Record<string, any>): string {
+function generateRecommendation(rule: Rule, _facts: Record<string, any>): string {
   // Generate specific recommendations based on rule type
   const recommendations: Record<string, string> = {
     "nbc_3.2.5.12": "Install automatic sprinkler system throughout the building per NFPA 13 standards.",

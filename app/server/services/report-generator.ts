@@ -22,12 +22,10 @@
  *  @version 1.0.0
  */
 
-import { storage } from '../storage';
+import { storage as _storage } from '../storage';
 import type {
   Gap,
   EvidenceReference,
-  Discipline,
-  formatEvidenceRef,
 } from './types';
 
 
@@ -1152,7 +1150,7 @@ export function generateScheduleOfValues(
     // Per-storey phases
     const remainingPct = 70;
     const storeys = boqReport.storeySubtotals.filter(s => s.storey !== 'Unknown');
-    const pctPerStorey = storeys.length > 0 ? remainingPct / storeys.length : remainingPct;
+    const _pctPerStorey = storeys.length > 0 ? remainingPct / storeys.length : remainingPct;
 
     for (const storey of storeys) {
       phases.push({
@@ -1392,7 +1390,7 @@ function getLabourSplit(div: string): number {
   return splits[div] ?? 0.50;
 }
 
-function estimateClashCost(severity: string, category: string): number {
+function estimateClashCost(severity: string, _category: string): number {
   const baseCosts: Record<string, number> = {
     CRITICAL: 25000, HIGH: 10000, MEDIUM: 3000, LOW: 500, INFORMATIONAL: 0,
   };
@@ -1441,7 +1439,7 @@ function generateStandardExclusions(trade: string): string[] {
   return common;
 }
 
-function generateStandardClarifications(trade: string): string[] {
+function generateStandardClarifications(_trade: string): string[] {
   return [
     'Pricing based on construction documents as issued',
     'Overtime and shift premiums not included unless specified',

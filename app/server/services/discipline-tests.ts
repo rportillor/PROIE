@@ -106,7 +106,7 @@ export interface DisciplineTestResult {
 const STRUCTURAL_TYPES = ['column', 'beam', 'slab', 'wall', 'foundation'];
 const MEP_TYPES = ['duct', 'pipe', 'conduit', 'cable tray'];
 const SLEEVE_KEYWORDS = ['sleeve', 'penetration', 'opening', 'core hole', 'corehole'];
-const FIRESTOP_KEYWORDS = ['firestop', 'fire stop', 'fire_stop', 'intumescent'];
+const _FIRESTOP_KEYWORDS = ['firestop', 'fire stop', 'fire_stop', 'intumescent'];
 
 /**
  * Detect penetrations between MEP and structural elements.

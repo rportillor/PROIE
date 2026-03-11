@@ -89,7 +89,7 @@ export class FileStorageService {
     try {
       const fullPath = this.getFilePath(relativePath);
       return fs.statSync(fullPath);
-    } catch (error) {
+    } catch (_error) {
       return null;
     }
   }

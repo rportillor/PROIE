@@ -24,7 +24,6 @@ import {
 import type { IssueRecord, IssueStatus, IssuePriority, StatusTransition } from '../issue-log';
 import type { RawClash } from '../spatial-clash-engine';
 import type { ClashGroup } from '../dedup-engine';
-import type { MeetingSummaryData, BCFTopic } from '../bcf-export';
 
 /** Helper to build a minimal valid IssueRecord */
 function makeIssue(overrides: Partial<IssueRecord> & { id: string; name: string }): IssueRecord {
@@ -160,7 +159,7 @@ describe('bcf-export.ts', () => {
     const xmlMap = serializeBCFToXML(topics);
     expect(xmlMap).toBeInstanceOf(Map);
     expect(xmlMap.size).toBeGreaterThan(0);
-    for (const [_filename, xml] of xmlMap) {
+    for (const [, xml] of xmlMap) {
       expect(xml).toContain('<?xml');
     }
   });
@@ -227,7 +226,6 @@ import {
   generateAllViewpoints,
 } from '../viewpoint-generator';
 
-import type { Viewpoint, ViewpointSet, Vector3 } from '../viewpoint-generator';
 
 describe('viewpoint-generator.ts', () => {
   /** Build a minimal ClashGroup for testing */
@@ -390,8 +388,6 @@ import {
 } from '../trend-analytics';
 
 import type {
-  TrendDataPoint,
-  TrendReport,
   VelocityMetrics,
   MilestoneDefinition,
 } from '../trend-analytics';

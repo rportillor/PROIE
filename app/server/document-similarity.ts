@@ -1,5 +1,4 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { storage } from './storage';
 import { RegulatoryAnalysisService } from './regulatory-cache';
 import { asyncPool } from "./helpers/async-pool";
 import { withRetry } from "./helpers/retry";
@@ -182,7 +181,7 @@ ${pair.b.text}`;
 };
 
 // add the callback type
-type ProgressCb = (p: { total: number; processed: number; skipped: number }) => void;
+type ProgressCb = (_p: { total: number; processed: number; skipped: number }) => void;
 
 // Main similarity routine with file-based cache
 export const runDocumentSimilarity = async (
@@ -252,7 +251,7 @@ export class DocumentSimilarityAnalyzer {
   async analyzeDocumentSimilarity(
     projectId: string,
     documents: DocumentMetadata[],
-    focusArea: 'general' | 'compliance' = 'general',
+    _focusArea: 'general' | 'compliance' = 'general',
     progressCallback?: (progress: number, message: string) => void
   ): Promise<SimilarityMatrix> {
     try {

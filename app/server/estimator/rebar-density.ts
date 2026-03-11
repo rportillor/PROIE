@@ -17,7 +17,7 @@
 // Standards: CSA A23.3-19, CSA G30.18, CIQS quantity surveying practices
 // =============================================================================
 
-import type { EstimateSummary } from './estimate-engine';
+import type { EstimateSummary as _EstimateSummary } from './estimate-engine';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 

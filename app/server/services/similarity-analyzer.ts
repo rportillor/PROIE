@@ -54,7 +54,7 @@ class SimilarityAnalyzer {
 
   /** Heatmap-friendly shape (very simple aggregate; adjust to taste). */
   async generateHeatmapData(projectId: string) {
-    const { readSimilarityCache } = await import("../services/similarity-cache");
+    const { readSimilarityCache } = await import("./similarity-cache");
     const cached = await readSimilarityCache(projectId);
     const sims = cached?.similarities || [];
     // Grid = top 100 pairs by score

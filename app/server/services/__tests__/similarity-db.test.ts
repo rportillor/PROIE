@@ -52,7 +52,7 @@ jest.mock("@shared/schema", () => ({
   },
 }));
 
-import { hashText, makePairKey, getCachedPairByTexts, getCachedPairByKey, upsertPair } from "../similarity-db";
+import { hashText, makePairKey, getCachedPairByTexts, getCachedPairByKey } from "../similarity-db";
 
 beforeEach(() => {
   jest.clearAllMocks();

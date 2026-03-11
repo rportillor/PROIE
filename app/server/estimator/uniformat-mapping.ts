@@ -16,7 +16,7 @@
 // Standards: ASTM E1557-09, ASTM E1804-02, CIQS Elemental Cost Analysis
 // =============================================================================
 
-import type { EstimateSummary, EstimateLineItem, FloorSummary } from './estimate-engine';
+import type { EstimateSummary, EstimateLineItem } from './estimate-engine';
 
 // ─── UNIFORMAT II Hierarchy (ASTM E1557) ─────────────────────────────────────
 // Level 1: Major Group Elements (A-G)

@@ -36,7 +36,7 @@
 // =============================================================================
 
 import type { EstimateSummary } from './estimate-engine';
-import type { BudgetStructure, AllowanceItem, RiskItem } from './budget-structure';
+import type { BudgetStructure, RiskItem } from './budget-structure';
 import type { DualSummaryReport } from './uniformat-mapping';
 
 // Legacy compatibility imports — required by generateBoE() shim

@@ -63,13 +63,8 @@ jest.mock('../../storage', () => {
 });
 
 import type {
-  AABB,
-  ResolvedElement,
-  Clash,
   ClashCategory,
   ClashSeverity,
-  ClearanceRequirements,
-  ClashDetectionResult,
   Discipline,
 } from '../clash-detection-engine';
 
@@ -113,7 +108,7 @@ describe('emptyClearanceRequirements', () => {
     const empty = emptyClearanceRequirements();
     expect(empty).toBeDefined();
     // Every value should be null
-    for (const [key, val] of Object.entries(empty)) {
+    for (const [, val] of Object.entries(empty)) {
       expect(val).toBeNull();
     }
   });

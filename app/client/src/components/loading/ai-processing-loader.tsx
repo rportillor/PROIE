@@ -156,7 +156,7 @@ export default function AIProcessingLoader({
 
   if (!isVisible) return null;
 
-  const getStatusColor = (status: string) => {
+  const _getStatusColor = (status: string) => {
     switch (status) {
       case 'completed': return 'bg-green-500';
       case 'processing': return 'bg-blue-500';
@@ -252,7 +252,7 @@ export default function AIProcessingLoader({
           </h3>
           
           <div className="space-y-4">
-            {stages.map((stage, index) => {
+            {stages.map((stage, _index) => {
               const Icon = stage.icon;
               const isActive = stage.id === currentStage;
               

@@ -18,7 +18,7 @@
 //            CRA payroll requirements, CIQS labor costing practices
 // =============================================================================
 
-import type { EstimateSummary } from './estimate-engine';
+import type { EstimateSummary as _EstimateSummary } from './estimate-engine';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 

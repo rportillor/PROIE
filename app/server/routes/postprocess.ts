@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { storage } from "../storage";
-import { postprocessAndSaveBIM } from "../services/bim-postprocess";
+import { postprocessAndSaveBIM as _postprocessAndSaveBIM } from "../services/bim-postprocess";
 
 export const postprocessRouter = Router();
 

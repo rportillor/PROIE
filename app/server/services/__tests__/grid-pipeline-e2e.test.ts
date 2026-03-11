@@ -54,8 +54,7 @@ jest.mock('../storage-file-resolver', () => ({
 import { dxfGridExtractor } from '../dxf-grid-extractor';
 import { validateAndScore } from '../grid-validation-engine';
 import { DEFAULT_DETECTION_PARAMS } from '../grid-detection-orchestrator';
-import type { ExtractorResult } from '../grid-detection-orchestrator';
-import type { InputClassification } from '../grid-detection-orchestrator';
+import type { ExtractorResult , InputClassification } from '../grid-detection-orchestrator';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SYNTHETIC DXF — 4 vertical x 3 horizontal grid (7.2m x 8.4m spacing)

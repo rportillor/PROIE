@@ -11,11 +11,9 @@ import {
   formatBudgetSummary,
 } from '../../estimator/budget-structure';
 import type {
-  BudgetConfig,
   BudgetStructure,
   AllowanceItem,
   RiskItem,
-  EscalationConfig,
 } from '../../estimator/budget-structure';
 import type { EstimateSummary, EstimateLineItem, FloorSummary } from '../../estimator/estimate-engine';
 

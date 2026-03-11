@@ -31,7 +31,7 @@ async function requireAuth(req: any, res: any, next: any) {
     }
     // Fallback: token present is enough (production should implement real verify).
     return next();
-  } catch (e:any) {
+  } catch (_e:any) {
     return res.status(401).json({ error: "Invalid token" });
   }
 }
@@ -59,7 +59,7 @@ projectModelsRouter.get("/projects/:projectId/bim-models", requireAuth, async (r
 
       // Prefer a direct count method
       if (typeof (storage as any).countBimElements === "function") {
-        try { elementCount = await (storage as any).countBimElements(m.id); } catch {}
+        try { elementCount = await (storage as any).countBimElements(m.id); } catch { /* optional */ }
       }
 
       // Try fetching a few elements to infer (avoid huge query)
@@ -67,7 +67,7 @@ projectModelsRouter.get("/projects/:projectId/bim-models", requireAuth, async (r
         try {
           const some = await (storage as any).getBimElements(m.id);
           elementCount = Array.isArray(some) ? some.length : null;
-        } catch {}
+        } catch { /* optional */ }
       }
 
       // Fallback to geometryData

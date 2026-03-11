@@ -6,7 +6,7 @@
 import { Router } from 'express';
 import { db } from '../db';
 import { rfis, rfiAttachments, projects } from '@shared/schema';
-import { eq, desc, and, count } from 'drizzle-orm';
+import { eq, and, count } from 'drizzle-orm';
 import { rfiService } from '../rfi-service';
 
 const router = Router();

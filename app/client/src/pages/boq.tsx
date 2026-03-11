@@ -166,7 +166,7 @@ export default function BoQ() {
 
   // ── Export handler — passes engine param ──────────────────────────────────
   const handleExport = () => {
-    const modelIdEl = (boqWithCosts?.elements?.[0] as any)?.modelId;
+    const _modelIdEl = (boqWithCosts?.elements?.[0] as any)?.modelId;
     // Fall back to CSV download of current data from boq-with-costs
     const rows = [
       ["Item Code", "Description", "Unit", "Quantity", "Rate", "Amount", "Floor", "Engine"],

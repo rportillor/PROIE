@@ -40,10 +40,8 @@ import type {
   ConnectorInfo,
   Discipline,
   Gap,
-  GapType,
   EvidenceReference,
 } from '../bim-coordination/types';
-import { formatEvidenceRef } from '../bim-coordination/types';
 import type { ModelQTOParams } from './prompt-library';
 import { getModelQTOPrompt } from './prompt-library';
 

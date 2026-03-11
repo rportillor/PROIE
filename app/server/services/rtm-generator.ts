@@ -4,7 +4,7 @@
 // Maps every requirement to test cases → ensures complete coverage
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { randomUUID } from 'crypto';
+import { randomUUID as _randomUUID } from 'crypto';
 
 // ─── TYPES ───────────────────────────────────────────────────────────────
 
