@@ -851,16 +851,18 @@ async function preloadDbRates(): Promise<void> {
     if (mepRows.length > 0) {
       _dbMepRateCache = new Map();
       for (const r of mepRows) {
+        const materialCAD = parseFloat(r.materialRate as string) || 0;
+        const labourCAD = parseFloat(r.labourRate as string) || 0;
         _dbMepRateCache.set(r.csiCode, {
           csiCode: r.csiCode,
           description: r.description,
           unit: r.unit,
-          materialCAD: parseFloat(r.materialRate as string) || 0,
-          labourCAD: parseFloat(r.labourRate as string) || 0,
-          unitRate: parseFloat(r.unitRate as string) || 0,
+          materialCAD,
+          labourCAD,
+          totalCAD: materialCAD + labourCAD,
           labourHrs: parseFloat(r.labourHoursPerUnit as string) || 1,
-          note: r.note ?? undefined,
-        } as MEPRateItem);
+          notes: r.note ?? undefined,
+        });
       }
       console.log(`[estimate-engine] Loaded ${_dbMepRateCache.size} MEP rates from database`);
     }
