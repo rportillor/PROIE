@@ -324,7 +324,7 @@ export default function SequenceReview() {
     retry:    false,
     queryFn:  async () => {
       const res = await fetch(`/api/projects/${projectId}/sequence`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
       });
       if (!res.ok) return null;
       const data = await res.json();
@@ -404,7 +404,7 @@ export default function SequenceReview() {
     const url = `/api/projects/${projectId}/sequence/${sequenceId}/export/${format}`;
     const res = await fetch(url, {
       method:  "POST",
-      headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
     });
     if (!res.ok) { alert("Export failed: " + (await res.text())); return; }
     const blob = await res.blob();

@@ -300,20 +300,31 @@ export default function IssueTrackerPanel() {
   const issuesQuery = useQuery<{ total: number; issues: IssueRecord[] }>({
     queryKey: ["bim-issues"],
     queryFn: async () => {
-      const res = await fetch("/api/bim-coordination/issues");
+      const tk = localStorage.getItem("auth_token");
+      const ah: Record<string, string> = {};
+      if (tk) ah["Authorization"] = `Bearer ${tk}`;
+      const res = await fetch("/api/bim-coordination/issues", { headers: ah, credentials: "include" });
       if (!res.ok) throw new Error("Failed to load issues");
       return res.json();
     },
     refetchInterval: 15000,
   });
 
+  // ── Auth helper ────────────────────────────────────────────────────────
+  function authHeaders(extra?: Record<string, string>): Record<string, string> {
+    const tk = localStorage.getItem("auth_token");
+    const h: Record<string, string> = { "Content-Type": "application/json", ...extra };
+    if (tk) h["Authorization"] = `Bearer ${tk}`;
+    return h;
+  }
+
   // ── Mutations ────────────────────────────────────────────────────────
   const transitionMutation = useMutation({
     mutationFn: async ({ issueId, newStatus, comment }: { issueId: string; newStatus: string; comment: string }) => {
-      const token = localStorage.getItem("auth_token");
       const res = await fetch(`/api/bim-coordination/issues/${issueId}/status`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json", ...(token ? { "Authorization": `Bearer ${token}` } : {}) },
+        headers: authHeaders(),
+        credentials: "include",
         body: JSON.stringify({ newStatus, user: "BIM Coordinator", comment }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -326,7 +337,8 @@ export default function IssueTrackerPanel() {
     mutationFn: async (data: any) => {
       const res = await fetch("/api/bim-coordination/issues", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
+        credentials: "include",
         body: JSON.stringify(data),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -339,7 +351,8 @@ export default function IssueTrackerPanel() {
     mutationFn: async (issueId: string) => {
       const res = await fetch(`/api/bim-coordination/issues/${issueId}/rfi`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
+        credentials: "include",
         body: JSON.stringify({ toParty: "Design Team", fromParty: "BIM Coordinator" }),
       });
       if (!res.ok) throw new Error(await res.text());

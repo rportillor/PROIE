@@ -148,7 +148,10 @@ export default function TrendChartPanel() {
   const trendQuery = useQuery<TrendReport>({
     queryKey: ["bim-trends"],
     queryFn: async () => {
-      const res = await fetch("/api/bim-coordination/trends");
+      const tk = localStorage.getItem("auth_token");
+      const ah: Record<string, string> = {};
+      if (tk) ah["Authorization"] = `Bearer ${tk}`;
+      const res = await fetch("/api/bim-coordination/trends", { headers: ah, credentials: "include" });
       if (!res.ok) throw new Error("Failed to load trends");
       return res.json();
     },
