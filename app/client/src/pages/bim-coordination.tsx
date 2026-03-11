@@ -139,7 +139,10 @@ export default function BIMCoordinationPage() {
   const summaryQuery = useQuery<CoordinationSummary>({
     queryKey: ["bim-coordination-summary", projectId],
     queryFn: async () => {
-      const res = await fetch(`/api/bim-coordination/summary?projectId=${encodeURIComponent(projectId)}`);
+      const token = localStorage.getItem("auth_token");
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(`/api/bim-coordination/summary?projectId=${encodeURIComponent(projectId)}`, { headers, credentials: "include" });
       if (!res.ok) return null;
       return res.json();
     },

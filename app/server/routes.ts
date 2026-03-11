@@ -2112,29 +2112,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Import and use the improved document revision routes
-  app.use('/api', (await import('./routes/document-revisions')).default);
-  
-  // Register floor BIM generation router
-  app.use('/api', (await import('./routes/bim-floor-generation')).floorBimRouter);
-  
-  // Comprehensive analysis router
-  app.use('/api/comprehensive-analysis', (await import('./routes/comprehensive-analysis')).default);
-  
-  // Building codes knowledge base (one-time build, infinite reuse)
-  app.use('/api/knowledge-base', (await import('./routes/knowledge-base-builder')).default);
-  
-  // PDF re-processing router
-  app.use('/api/reprocess-pdf', (await import('./routes/reprocess-pdf')).default);
-  
-  // Fix specifications router
-  app.use('/api/fix-specs', (await import('./routes/fix-specs')).default);
-  
-  // RFI Management routes
-  app.use('/api/rfis', rfiRoutes);
-  
-  // Mount secure file serving routes for 3D viewer
-  app.use('/api', fileServingRouter);
+  // Import and use the improved document revision routes (SECURITY FIX: added auth)
+  app.use('/api', authenticateToken, (await import('./routes/document-revisions')).default);
+
+  // Register floor BIM generation router (SECURITY FIX: added auth)
+  app.use('/api', authenticateToken, (await import('./routes/bim-floor-generation')).floorBimRouter);
+
+  // Comprehensive analysis router (SECURITY FIX: added auth)
+  app.use('/api/comprehensive-analysis', authenticateToken, (await import('./routes/comprehensive-analysis')).default);
+
+  // Building codes knowledge base (one-time build, infinite reuse) (SECURITY FIX: added auth)
+  app.use('/api/knowledge-base', authenticateToken, (await import('./routes/knowledge-base-builder')).default);
+
+  // PDF re-processing router (SECURITY FIX: added auth)
+  app.use('/api/reprocess-pdf', authenticateToken, (await import('./routes/reprocess-pdf')).default);
+
+  // Fix specifications router (SECURITY FIX: added auth)
+  app.use('/api/fix-specs', authenticateToken, (await import('./routes/fix-specs')).default);
+
+  // RFI Management routes (SECURITY FIX: added auth)
+  app.use('/api/rfis', authenticateToken, rfiRoutes);
+
+  // Mount secure file serving routes for 3D viewer (SECURITY FIX: added auth)
+  app.use('/api', authenticateToken, fileServingRouter);
 
   // v15.29: Mount routers that were exported but never registered.
   // bimGenerateRouter — POST /api/bim/models/:modelId/generate (the ONLY working BIM generation path)
@@ -2146,8 +2146,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // rateManagementRouter — CRUD for DB-backed unit rates, MEP rates, regional factors, OH&P
   app.use('/api/rates', authenticateToken, (await import('./routes/rate-management')).rateManagementRouter);
   // sequenceRouter — construction sequencing: propose, review, confirm, export to P6/MS Project
-  // (applies its own authenticateToken internally)
-  app.use('/api', (await import('./routes/sequence-routes')).sequenceRouter);
+  // SECURITY FIX: added auth at mount level (internal auth may still apply as defense-in-depth)
+  app.use('/api', authenticateToken, (await import('./routes/sequence-routes')).sequenceRouter);
   // qsLevel5Router — QS Level 5 measurements, bid packages, SOV, Monte Carlo, versioning
   app.use('/api/qs5', authenticateToken, (await import('./routes/qs-level5-routes')).qsLevel5Router);
   // bimCoordinationRouter — ~20 endpoints: clash detection, issues, BCF export, trends, governance
@@ -3229,8 +3229,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // [*] FIX: Add missing admin endpoints
-  app.get('/api/admin/users', authenticateToken, async (req, res) => {
+  // Admin role check middleware
+  function requireAdmin(req: any, res: any, next: any) {
+    if (!req.user) return res.status(401).json({ error: "Authentication required" });
+    if (req.user.role !== 'admin' && req.user.role !== 'Admin') {
+      return res.status(403).json({ error: "Admin access required" });
+    }
+    next();
+  }
+
+  // [*] FIX: Admin endpoints — SECURITY FIX: added requireAdmin role check
+  app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
     try {
       res.json([]);
     } catch (error) {
@@ -3238,7 +3247,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/admin/system-health', authenticateToken, async (req, res) => {
+  app.get('/api/admin/system-health', authenticateToken, requireAdmin, async (req, res) => {
     try {
       res.json({
         status: 'healthy',
@@ -3419,25 +3428,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Project management endpoints
-  app.put('/api/projects/:projectId', authenticateToken, async (req, res) => {
-    try {
-      const { projectId } = req.params;
-      const updates = req.body;
-      res.json({ message: `Project ${projectId} updated`, updates });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to update project" });
-    }
-  });
-
-  app.delete('/api/projects/:projectId', authenticateToken, async (req, res) => {
-    try {
-      const { projectId } = req.params;
-      res.json({ message: `Project ${projectId} deleted` });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to delete project" });
-    }
-  });
+  // REMOVED: Duplicate PUT/DELETE /api/projects/:projectId stubs
+  // Real implementations are at lines ~1548 (PUT) and ~1562 (DELETE) above.
 
   app.post('/api/projects/:projectId/duplicate', authenticateToken, async (req, res) => {
     // v15.29: Project duplication requires deep-copying all related records
@@ -3789,17 +3781,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  // BIM model specific endpoints
-  app.get('/api/bim-models/:modelId/ifc', authenticateToken, async (req, res) => {
-    try {
-      const { modelId } = req.params;
-      res.setHeader('Content-Type', 'application/ifc');
-      res.setHeader('Content-Disposition', `attachment; filename="model-${modelId}.ifc"`);
-      res.send('IFC/4 model content for ' + modelId);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to export IFC" });
-    }
-  });
+  // REMOVED: Duplicate stub GET /api/bim-models/:modelId/ifc
+  // Real implementation at line ~4302 reads from storage.getBimModel().ifcData
 
   app.get('/api/bim/models/:modelId/calibration', authenticateToken, async (req, res) => {
     try {
@@ -4350,7 +4333,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/bim/models/:modelId", async (req, res) => {
+  app.delete("/api/bim/models/:modelId", authenticateToken, async (req, res) => {
     try {
       await deleteModelCascade(req.params.modelId);
       res.json({ ok: true });

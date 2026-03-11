@@ -2180,7 +2180,8 @@ export function generateEstimateFromElements(
         li.productivityRate = li.productivityRate * ctf.productivityMultiplier;
         li.laborHours       = li.quantity / li.productivityRate;
       }
-      // Recompute totals after rate adjustment
+      // Recompute rate and totals after crew factor adjustment
+      li.totalRate = li.materialRate + li.laborRate + li.equipmentRate;
       li.totalCost = li.materialCost + li.laborCost + li.equipmentCost;
       crewAdjustedCount++;
     }

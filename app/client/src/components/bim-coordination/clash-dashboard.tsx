@@ -205,7 +205,10 @@ export default function ClashDashboard({ projectId, modelId }: ClashDashboardPro
   const runDetailQuery = useQuery<ClashRunDetail>({
     queryKey: ["clash-run", activeRunId],
     queryFn: async () => {
-      const res = await fetch(`/api/bim-coordination/clashes/${activeRunId}`);
+      const token = localStorage.getItem("auth_token");
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(`/api/bim-coordination/clashes/${activeRunId}`, { headers, credentials: "include" });
       if (!res.ok) throw new Error("Failed to load clash results");
       return res.json();
     },
@@ -215,9 +218,10 @@ export default function ClashDashboard({ projectId, modelId }: ClashDashboardPro
   // ── Create issue from group mutation ─────────────────────────────────
   const createIssueMutation = useMutation({
     mutationFn: async (group: ClashGroup) => {
+      const token = localStorage.getItem("auth_token");
       const res = await fetch("/api/bim-coordination/issues", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token ? { "Authorization": `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           clashGroupId: group.groupId,
           name: group.description,

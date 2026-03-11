@@ -65,8 +65,7 @@ export default function QSLevel5Dashboard() {
     queryKey: [`/api/projects/${projectId}`],
     queryFn: async () => {
       if (projectId === "default") return null;
-      const res = await fetch(`/api/projects/${projectId}`);
-      if (!res.ok) return null;
+      const res = await apiRequest("GET", `/api/projects/${projectId}`);
       return res.json();
     },
     enabled: projectId !== "default",
@@ -2248,7 +2247,8 @@ function EngineBidLevelTab({ modelId }: { modelId: string }) {
         bids: bidPackages,
         config: { varianceThreshold: 15, significantGapThreshold: 10000, normaliseBids: true },
       });
-      setResult(res);
+      const data = await res.json();
+      setResult(data);
     } catch (e: any) {
       setRunError(e?.message || "Bid leveling failed.");
     } finally {

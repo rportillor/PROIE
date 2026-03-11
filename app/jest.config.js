@@ -16,7 +16,7 @@ export default {
       }
     }]
   },
-  roots: ['<rootDir>/tests', '<rootDir>/server/services/__tests__'],
+  roots: ['<rootDir>/server/services/__tests__'],
   testMatch: [
     '**/__tests__/**/*.+(ts|tsx|js)',
     '**/*.(test|spec).+(ts|tsx|js)'

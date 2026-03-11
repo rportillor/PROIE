@@ -310,9 +310,10 @@ export default function IssueTrackerPanel() {
   // ── Mutations ────────────────────────────────────────────────────────
   const transitionMutation = useMutation({
     mutationFn: async ({ issueId, newStatus, comment }: { issueId: string; newStatus: string; comment: string }) => {
+      const token = localStorage.getItem("auth_token");
       const res = await fetch(`/api/bim-coordination/issues/${issueId}/status`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token ? { "Authorization": `Bearer ${token}` } : {}) },
         body: JSON.stringify({ newStatus, user: "BIM Coordinator", comment }),
       });
       if (!res.ok) throw new Error(await res.text());

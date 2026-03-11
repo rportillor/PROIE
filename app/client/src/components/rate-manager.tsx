@@ -163,8 +163,21 @@ function CsvToolbar({ exportUrl, importEndpoint, onImportDone }: {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
 
-  const handleExport = () => {
-    window.open(exportUrl, '_blank');
+  const handleExport = async () => {
+    try {
+      const resp = await apiRequest("GET", exportUrl);
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = exportUrl.split("/").pop() || "export.csv";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("CSV export failed:", err);
+    }
   };
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -291,16 +304,16 @@ function UnitRatesSection({ data, filter, onFilterChange }: { data: UnitRate[]; 
                           <Input className="h-7 text-sm w-16" value={editRow.unit ?? ""} onChange={e => setEditRow({ ...editRow, unit: e.target.value })} />
                         </td>
                         <td className="py-2 pr-3">
-                          <Input className="h-7 text-sm w-24 text-right" type="number" value={editRow.materialRate ?? 0} onChange={e => setEditRow({ ...editRow, materialRate: parseFloat(e.target.value) })} />
+                          <Input className="h-7 text-sm w-24 text-right" type="number" value={editRow.materialRate ?? 0} onChange={e => setEditRow({ ...editRow, materialRate: parseFloat(e.target.value) || 0 })} />
                         </td>
                         <td className="py-2 pr-3">
-                          <Input className="h-7 text-sm w-24 text-right" type="number" value={editRow.laborRate ?? 0} onChange={e => setEditRow({ ...editRow, laborRate: parseFloat(e.target.value) })} />
+                          <Input className="h-7 text-sm w-24 text-right" type="number" value={editRow.laborRate ?? 0} onChange={e => setEditRow({ ...editRow, laborRate: parseFloat(e.target.value) || 0 })} />
                         </td>
                         <td className="py-2 pr-3">
-                          <Input className="h-7 text-sm w-24 text-right" type="number" value={editRow.equipmentRate ?? 0} onChange={e => setEditRow({ ...editRow, equipmentRate: parseFloat(e.target.value) })} />
+                          <Input className="h-7 text-sm w-24 text-right" type="number" value={editRow.equipmentRate ?? 0} onChange={e => setEditRow({ ...editRow, equipmentRate: parseFloat(e.target.value) || 0 })} />
                         </td>
                         <td className="py-2 pr-3">
-                          <Input className="h-7 text-sm w-16 text-right" type="number" value={editRow.crewSize ?? 0} onChange={e => setEditRow({ ...editRow, crewSize: parseInt(e.target.value) })} />
+                          <Input className="h-7 text-sm w-16 text-right" type="number" value={editRow.crewSize ?? 0} onChange={e => setEditRow({ ...editRow, crewSize: parseInt(e.target.value) || 0 })} />
                         </td>
                         <td className="py-2 pr-3 text-gray-500 text-xs">{r.source}</td>
                         <td className="py-2 flex space-x-1">
@@ -432,13 +445,13 @@ function MEPRatesSection({ data, filter, onFilterChange }: { data: MEPRate[]; fi
                           <Input className="h-7 text-sm w-16" value={editRow.unit ?? ""} onChange={e => setEditRow({ ...editRow, unit: e.target.value })} />
                         </td>
                         <td className="py-2 pr-3">
-                          <Input className="h-7 text-sm w-24 text-right" type="number" value={editRow.materialRate ?? 0} onChange={e => setEditRow({ ...editRow, materialRate: parseFloat(e.target.value) })} />
+                          <Input className="h-7 text-sm w-24 text-right" type="number" value={editRow.materialRate ?? 0} onChange={e => setEditRow({ ...editRow, materialRate: parseFloat(e.target.value) || 0 })} />
                         </td>
                         <td className="py-2 pr-3">
-                          <Input className="h-7 text-sm w-24 text-right" type="number" value={editRow.labourRate ?? 0} onChange={e => setEditRow({ ...editRow, labourRate: parseFloat(e.target.value) })} />
+                          <Input className="h-7 text-sm w-24 text-right" type="number" value={editRow.labourRate ?? 0} onChange={e => setEditRow({ ...editRow, labourRate: parseFloat(e.target.value) || 0 })} />
                         </td>
                         <td className="py-2 pr-3">
-                          <Input className="h-7 text-sm w-24 text-right" type="number" value={editRow.unitRate ?? 0} onChange={e => setEditRow({ ...editRow, unitRate: parseFloat(e.target.value) })} />
+                          <Input className="h-7 text-sm w-24 text-right" type="number" value={editRow.unitRate ?? 0} onChange={e => setEditRow({ ...editRow, unitRate: parseFloat(e.target.value) || 0 })} />
                         </td>
                         <td className="py-2 pr-3">
                           <Input className="h-7 text-sm w-24" value={editRow.tradeLocal ?? ""} onChange={e => setEditRow({ ...editRow, tradeLocal: e.target.value })} />
@@ -565,19 +578,19 @@ function RegionalFactorsSection({ data, filter, onFilterChange }: { data: Region
                           <Input className="h-7 text-sm w-24" value={editRow.province ?? ""} onChange={e => setEditRow({ ...editRow, province: e.target.value })} />
                         </td>
                         <td className="py-2 pr-3">
-                          <Input className="h-7 text-sm w-20 text-right" type="number" step="0.01" value={editRow.compositeIndex ?? 0} onChange={e => setEditRow({ ...editRow, compositeIndex: parseFloat(e.target.value) })} />
+                          <Input className="h-7 text-sm w-20 text-right" type="number" step="0.01" value={editRow.compositeIndex ?? 0} onChange={e => setEditRow({ ...editRow, compositeIndex: parseFloat(e.target.value) || 0 })} />
                         </td>
                         <td className="py-2 pr-3">
-                          <Input className="h-7 text-sm w-20 text-right" type="number" step="0.01" value={editRow.materialIndex ?? 0} onChange={e => setEditRow({ ...editRow, materialIndex: parseFloat(e.target.value) })} />
+                          <Input className="h-7 text-sm w-20 text-right" type="number" step="0.01" value={editRow.materialIndex ?? 0} onChange={e => setEditRow({ ...editRow, materialIndex: parseFloat(e.target.value) || 0 })} />
                         </td>
                         <td className="py-2 pr-3">
-                          <Input className="h-7 text-sm w-20 text-right" type="number" step="0.01" value={editRow.laborIndex ?? 0} onChange={e => setEditRow({ ...editRow, laborIndex: parseFloat(e.target.value) })} />
+                          <Input className="h-7 text-sm w-20 text-right" type="number" step="0.01" value={editRow.laborIndex ?? 0} onChange={e => setEditRow({ ...editRow, laborIndex: parseFloat(e.target.value) || 0 })} />
                         </td>
                         <td className="py-2 pr-3">
-                          <Input className="h-7 text-sm w-20 text-right" type="number" step="0.01" value={editRow.equipmentIndex ?? 0} onChange={e => setEditRow({ ...editRow, equipmentIndex: parseFloat(e.target.value) })} />
+                          <Input className="h-7 text-sm w-20 text-right" type="number" step="0.01" value={editRow.equipmentIndex ?? 0} onChange={e => setEditRow({ ...editRow, equipmentIndex: parseFloat(e.target.value) || 0 })} />
                         </td>
                         <td className="py-2 pr-3">
-                          <Input className="h-7 text-sm w-20 text-right" type="number" step="0.01" value={editRow.taxRate ?? 0} onChange={e => setEditRow({ ...editRow, taxRate: parseFloat(e.target.value) })} />
+                          <Input className="h-7 text-sm w-20 text-right" type="number" step="0.01" value={editRow.taxRate ?? 0} onChange={e => setEditRow({ ...editRow, taxRate: parseFloat(e.target.value) || 0 })} />
                         </td>
                         <td className="py-2 flex space-x-1">
                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={saveEdit} disabled={saveMutation.isPending}>
@@ -628,7 +641,7 @@ function AuditLogSection() {
       const params = new URLSearchParams();
       if (tableFilter) params.set("table", tableFilter);
       params.set("limit", "200");
-      const resp = await fetch(`/api/rates/audit?${params}`);
+      const resp = await apiRequest("GET", `/api/rates/audit?${params}`);
       const json = await resp.json();
       return json.entries ?? [];
     },

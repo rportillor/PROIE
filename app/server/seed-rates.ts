@@ -59,10 +59,17 @@ function divisionCode(item: MEPRateItem): string {
 // ─── Main seed function ───────────────────────────────────────────────────────
 
 export async function seedRateTables(): Promise<void> {
-  // ── Guard: skip if tables already populated ──
-  const existingRates = await storage.getUnitRates();
-  if (existingRates.length > 0) {
-    console.log(`[seed-rates] unit_rates table already has ${existingRates.length} rows — skipping seed.`);
+  // ── Guard: check each table independently ──
+  const existingUnitRates = await storage.getUnitRates();
+  const existingMepRates = await storage.getMepRates().catch(() => []);
+  const existingRegionalFactors = await storage.getRegionalFactors().catch(() => []);
+
+  const hasUnitRates = existingUnitRates.length > 0;
+  const hasMepRates = (existingMepRates as any[]).length > 0;
+  const hasRegionalFactors = (existingRegionalFactors as any[]).length > 0;
+
+  if (hasUnitRates && hasMepRates && hasRegionalFactors) {
+    console.log(`[seed-rates] All rate tables populated — skipping seed.`);
     return;
   }
 
@@ -71,6 +78,9 @@ export async function seedRateTables(): Promise<void> {
   // ── 1. Seed unit_rates from CSI_RATES ──────────────────────────────────────
 
   let unitRateCount = 0;
+  if (hasUnitRates) {
+    console.log(`[seed-rates]   unit_rates already has ${existingUnitRates.length} rows — skipping.`);
+  } else
   for (const [key, rate] of Object.entries(CSI_RATES)) {
     await storage.upsertUnitRate({
       csiCode: key,
@@ -86,11 +96,14 @@ export async function seedRateTables(): Promise<void> {
     });
     unitRateCount++;
   }
-  console.log(`[seed-rates]   ✓ Inserted ${unitRateCount} unit rates from CSI_RATES`);
+  if (unitRateCount > 0) console.log(`[seed-rates]   Inserted ${unitRateCount} unit rates from CSI_RATES`);
 
   // ── 2. Seed regional_factors from CANADIAN_PROVINCIAL_FACTORS ──────────────
 
   let regionalCount = 0;
+  if (hasRegionalFactors) {
+    console.log(`[seed-rates]   regional_factors already populated — skipping.`);
+  } else
   for (const [key, factor] of Object.entries(CANADIAN_PROVINCIAL_FACTORS)) {
     await storage.upsertRegionalFactor({
       regionKey: key,
@@ -109,9 +122,13 @@ export async function seedRateTables(): Promise<void> {
     });
     regionalCount++;
   }
-  console.log(`[seed-rates]   ✓ Inserted ${regionalCount} regional factors from CANADIAN_PROVINCIAL_FACTORS`);
+  if (regionalCount > 0) console.log(`[seed-rates]   Inserted ${regionalCount} regional factors from CANADIAN_PROVINCIAL_FACTORS`);
 
   // ── 3. Seed mep_rates from ontario-mep-rates division arrays ───────────────
+
+  if (hasMepRates) {
+    console.log(`[seed-rates]   mep_rates already populated — skipping.`);
+  } else {
 
   const mepDivisions: { label: string; items: MEPRateItem[] }[] = [
     { label: 'DIV_21', items: DIV_21_FIRE_SUPPRESSION },
@@ -141,7 +158,9 @@ export async function seedRateTables(): Promise<void> {
       mepCount++;
     }
   }
-  console.log(`[seed-rates]   ✓ Inserted ${mepCount} MEP rates from ontario-mep-rates`);
+  if (mepCount > 0) console.log(`[seed-rates]   Inserted ${mepCount} MEP rates from ontario-mep-rates`);
+
+  } // end hasMepRates guard
 
   console.log(`[seed-rates] Seed complete. Totals: ${unitRateCount} unit rates, ${regionalCount} regional factors, ${mepCount} MEP rates.`);
 }

@@ -181,7 +181,10 @@ function ViewpointDialog({ groupId, open, onClose }: {
   const vpQuery = useQuery<ViewpointSet>({
     queryKey: ["bim-viewpoints", groupId],
     queryFn: async () => {
-      const res = await fetch(`/api/bim-coordination/viewpoints/${groupId}`);
+      const token = localStorage.getItem("auth_token");
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(`/api/bim-coordination/viewpoints/${groupId}`, { headers, credentials: "include" });
       if (!res.ok) throw new Error("Failed to load viewpoints");
       return res.json();
     },

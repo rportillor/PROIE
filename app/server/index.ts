@@ -96,6 +96,9 @@ app.use("/api/", speedLimiter);
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 
+// Stripe webhook needs raw body — must be registered BEFORE express.json()
+app.post("/api/webhook", express.raw({ type: "application/json" }));
+
 // Body parsing
 app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: false, limit: "5mb" }));
@@ -210,9 +213,6 @@ if (process.env.NODE_ENV === "production" || process.env.FORCE_BACKGROUND_PROCES
   })();
 }
 
-// Global error handler
-app.use(globalErrorHandler);
-
 // ── Async startup ─────────────────────────────────────────────────────────────
 (async () => {
   // registerRoutes() mounts ALL other routers WITH authenticateToken middleware.
@@ -236,6 +236,9 @@ app.use(globalErrorHandler);
     }
     app.get("/api/__routes", authenticateToken, (_req, res) => res.json(listRoutes(app)));
   }
+
+  // Global error handler — MUST be registered after all routes
+  app.use(globalErrorHandler);
 
   // Express error handler (after all routes)
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

@@ -35,7 +35,10 @@ export async function fetchAllModelElements(
   
   // Try to get all at once first
   try {
-    const response = await fetch(`/api/bim/models/${modelId}/elements?all=true`).catch(err => {
+    const token = localStorage.getItem("auth_token");
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const response = await fetch(`/api/bim/models/${modelId}/elements?all=true`, { headers, credentials: "include" }).catch(err => {
       console.error('Failed to fetch all elements:', err);
       throw err;
     });

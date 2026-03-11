@@ -108,7 +108,7 @@ import { randomUUID } from "crypto";
 import { PRNG } from "./helpers/prng";
 import bcrypt from "bcryptjs";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, isNull } from "drizzle-orm";
 import postgres from "postgres";
 import { logger } from "./utils/enterprise-logger";
 
@@ -1058,7 +1058,7 @@ export class DBStorage implements Partial<IStorage> {
   async getUnitRate(csiCode: string, region?: string | null): Promise<UnitRate | undefined> {
     const conditions = region
       ? and(eq(unitRates.csiCode, csiCode), eq(unitRates.region, region))
-      : and(eq(unitRates.csiCode, csiCode));
+      : and(eq(unitRates.csiCode, csiCode), isNull(unitRates.region));
     const rows = await db.select().from(unitRates).where(conditions).limit(1);
     return rows[0] ?? undefined;
   }
