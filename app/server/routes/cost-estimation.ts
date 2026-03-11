@@ -152,7 +152,7 @@ costEstimationRouter.post("/quick", async (req, res) => {
         state: location
       },
       projectType: "commercial",
-      timeframe: "2025-Q1"
+      timeframe: `${new Date().getFullYear()}-Q${Math.ceil((new Date().getMonth() + 1) / 3)}`
     };
 
     const estimate = await rsMeans.getCostEstimate(quickRequest);

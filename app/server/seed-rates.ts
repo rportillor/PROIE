@@ -126,6 +126,7 @@ export async function seedRateTables(): Promise<void> {
 
   // ── 3. Seed mep_rates from ontario-mep-rates division arrays ───────────────
 
+  let mepCount = 0;
   if (hasMepRates) {
     console.log(`[seed-rates]   mep_rates already populated — skipping.`);
   } else {
@@ -139,7 +140,6 @@ export async function seedRateTables(): Promise<void> {
     { label: 'DIV_28', items: DIV_28_ELECTRONIC_SAFETY },
   ];
 
-  let mepCount = 0;
   for (const { items } of mepDivisions) {
     for (const item of items) {
       await storage.upsertMepRate({

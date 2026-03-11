@@ -2251,7 +2251,7 @@ export function generateEstimateFromElements(
     if (parkMatch) return -10 + parseInt(parkMatch[1]);
     // Basement levels: B1, B2 etc.
     const bsmtMatch = fl.match(/^b(\d)/i);
-    if (bsmtMatch) return -5 + parseInt(bsmtMatch[1]);
+    if (bsmtMatch) return -5 - parseInt(bsmtMatch[1]);
     // Numbered floors: level 3, floor 4, 5th floor etc.
     const numMatch = fl.match(/(?:level|floor)?\s*(\d{1,2})(?:st|nd|rd|th)?/i);
     if (numMatch) return parseInt(numMatch[1]);

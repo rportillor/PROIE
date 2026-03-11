@@ -3833,60 +3833,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // NOTE: submit-review is already registered above (line ~1813) with real storage.updateDocument()
   // The duplicate fake handler that returned 'rev_' + Date.now() was removed in v15.29.
 
-  app.post('/api/projects/:projectId/documents/:documentId/approve', authenticateToken, async (req, res) => {
-    try {
-      const { projectId, documentId } = req.params;
-      res.json({ message: 'Document approved', approvedAt: new Date().toISOString() });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to approve document" });
-    }
-  });
-
-  app.post('/api/projects/:projectId/documents/:documentId/reject', authenticateToken, async (req, res) => {
-    try {
-      const { projectId, documentId } = req.params;
-      const { reason } = req.body;
-      res.json({ message: 'Document rejected', reason, rejectedAt: new Date().toISOString() });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to reject document" });
-    }
-  });
-
-  app.get('/api/projects/:projectId/documents/:documentId/compare', authenticateToken, async (req, res) => {
-    try {
-      const { projectId, documentId } = req.params;
-      const { from, to } = req.query;
-      res.json({
-        comparison: { changes: [], additions: [], deletions: [] },
-        fromRevision: from,
-        toRevision: to
-      });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to compare document revisions" });
-    }
-  });
-
-  app.get('/api/projects/:projectId/documents/:documentId/revisions', authenticateToken, async (req, res) => {
-    try {
-      res.json([]);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch document revisions" });
-    }
-  });
-
-  app.get('/api/projects/:projectId/documents/:documentId/view', authenticateToken, async (req, res) => {
-    try {
-      const { projectId, documentId } = req.params;
-      const { token } = req.query;
-      res.json({
-        viewUrl: `/documents/${documentId}/view`,
-        token: token,
-        expiresAt: new Date(Date.now() + 3600000).toISOString()
-      });
-    } catch (error) {
-      res.status(500).json({ error: "Failed to generate document view" });
-    }
-  });
+  // Duplicate stubs for approve/reject/compare/revisions/view removed — real handlers registered above
 
   app.get('/api/projects/:projectId/documents/:documentId', authenticateToken, async (req, res) => {
     try {
@@ -3989,66 +3936,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // [*] FIX: Add remaining missing endpoints with proper query parameter handling
 
-  // BIM model reexpand endpoints
-  app.post('/api/bim/models/:modelId/reexpand', authenticateToken, async (req, res) => {
-    // v15.29: Re-expansion is handled by regenerating the BIM model.
-    return res.status(501).json({
-      error: 'Re-expand not implemented as a separate operation',
-      detail: 'Use POST /api/bim/models/:modelId/generate to regenerate the BIM model with updated elements.',
-      useInstead: '/api/bim/models/:modelId/generate',
-    });
-  });
-
-  // BIM elements with query parameters
-  app.get('/api/bim/models/:modelId/elements', authenticateToken, async (req, res) => {
-    try {
-      const { modelId } = req.params;
-      const { all, offset = 0, limit = 100 } = req.query;
-      
-      if (all === 'true') {
-        // Return all elements
-        const allElements = await storage.getBimElements(modelId);
-        
-        // Debug: Check first few elements to see their coordinate data
-        if (allElements && allElements.length > 0) {
-          const sample = allElements.slice(0, 3).map((el: any) => ({
-            id: el.id,
-            elementType: el.elementType,
-            location: typeof el.location === 'string' ? el.location.substring(0, 100) : el.location,
-            coordinates: el.coordinates,
-            hasCoordinates: !!el.coordinates,
-            locationType: typeof el.location
-          }));
-          console.log('[*] Sample BIM elements returned:', JSON.stringify(sample, null, 2));
-        }
-        
-        res.json(allElements || []);
-      } else {
-        // Return paginated elements
-        const elements = await storage.getBimElements(modelId);
-        const paginatedElements = elements?.slice(Number(offset), Number(offset) + Number(limit)) || [];
-        res.json({
-          elements: paginatedElements,
-          total: elements?.length || 0,
-          offset: Number(offset),
-          limit: Number(limit)
-        });
-      }
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch BIM elements" });
-    }
-  });
+  // Duplicate reexpand and elements stubs removed — real handlers registered above
 
   // Project BIM models endpoint
-  app.get('/api/projects/:projectId/bim-models', authenticateToken, async (req, res) => {
-    try {
-      const { projectId } = req.params;
-      const models = await storage.getBimModels(projectId);
-      res.json(models || []);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch project BIM models" });
-    }
-  });
+  // Duplicate /api/projects/:projectId/bim-models stub removed — real handler with transformBimModels registered above
 
   // Resume BIM generation endpoint
   app.post('/api/bim/resume/:modelId', authenticateToken, async (req, res) => {
@@ -4127,16 +4018,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Project compliance checks
-  app.get('/api/projects/:projectId/compliance-checks', authenticateToken, async (req, res) => {
-    try {
-      const { projectId } = req.params;
-      const checks = await storage.getComplianceChecks(projectId);
-      res.json(checks || []);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch compliance checks" });
-    }
-  });
+  // Duplicate /api/projects/:projectId/compliance-checks stub removed — real handler registered above
 
   // Project BOQ with costs
   // GAP-3 FIX: This authenticated duplicate of boq-with-costs was dead code
@@ -4334,66 +4216,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/bim/models/:modelId", authenticateToken, async (req, res) => {
-    try {
-      await deleteModelCascade(req.params.modelId);
-      res.json({ ok: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e?.message || "delete failed" });
-    }
-  });
-
-  // Dashboard stats endpoint
-  app.get("/api/dashboard/stats", authenticateToken, async (req, res) => {
-    try {
-      // Prevent caching for real-time dashboard data  
-      res.set({
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache', 
-        'Expires': '0'
-      });
-      res.setHeader('Last-Modified', new Date().toUTCString());
-      app.set('etag', false);
-
-      if (!req.user) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-      const projects = await storage.getProjects(req.user.id);
-      const activeProjects = projects.filter(p => p.status === "In Progress").length;
-      
-      // [*] FIX: Calculate total estimates from actual BoQ items, not empty project.estimateValue
-      let totalEstimates = 0;
-      for (const project of projects) {
-        const boqItems = await storage.getBoqItems(project.id);
-        const projectTotal = boqItems.reduce((sum, item) => sum + parseFloat(item.amount || "0"), 0);
-        console.log(`[*] Project ${project.id}: ${boqItems.length} items, total: $${projectTotal}`);
-        totalEstimates += projectTotal;
-      }
-      console.log(`[*] Final totalEstimates: $${totalEstimates}`);
-
-      // [*] FIX: Proper formatting for different estimate ranges
-      let estimateDisplay;
-      if (totalEstimates >= 1000000) {
-        estimateDisplay = `$${(totalEstimates / 1000000).toFixed(1)}M`;
-      } else if (totalEstimates >= 1000) {
-        estimateDisplay = `$${(totalEstimates / 1000).toFixed(0)}K`;
-      } else {
-        estimateDisplay = `$${totalEstimates.toFixed(0)}`;
-      }
-
-      const stats = {
-        activeProjects: projects.length,
-        totalEstimates: estimateDisplay,
-        avgTime: "0 hrs",
-        complianceRate: "0%"
-      };
-
-      res.json(stats);
-    } catch (error) {
-      console.error("Error fetching dashboard stats:", error);
-      res.status(500).json({ message: "Internal server error" });
-    }
-  });
+  // Duplicate DELETE /api/bim/models/:modelId and /api/dashboard/stats removed — real handlers registered above
 
   // Building codes endpoint for Standards Navigator
   app.get("/api/building-codes", authenticateToken, async (req, res) => {
