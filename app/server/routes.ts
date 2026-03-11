@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { extractProjectFacts } from "./compliance/extract-project-facts";
 import { PRNG } from "./helpers/prng";
 import { EnhancedErrorHandler } from "./helpers/enhanced-error-handler";
 import { ProgressTracker } from "./helpers/progress-tracker";
@@ -2204,38 +2205,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/projects/:projectId/compliance-checks/run", authenticateToken, async (req, res) => {
     try {
-      // Simulate compliance checking
-      const sampleChecks = [
-        {
-          projectId: req.params.projectId,
-          standard: "NBC 9.23",
-          requirement: "Structural Load Requirements", 
-          status: "Passed" as const,
-          details: "All structural elements meet NBC load requirements",
-          recommendation: null
-        },
-        {
-          projectId: req.params.projectId,
-          standard: "CSA A23.1",
-          requirement: "Concrete Specifications",
-          status: "Passed" as const,
-          details: "Concrete mix design meets CSA standards",
-          recommendation: null
-        },
-        {
-          projectId: req.params.projectId,
-          standard: "NBC 3.1.2",
-          requirement: "Fire Safety Requirements",
-          status: "Review Required" as const,
-          details: "Exit width calculation needs verification",
-          recommendation: "Verify exit width calculations for occupancy load"
-        }
-      ];
+      const { projectId } = req.params;
 
+      // Load the real rules engine
+      const { loadAllRules, evaluateRules } = await import('./compliance/rules-engine');
+      const allRules = loadAllRules();
+
+      // Extract facts from the project's BIM model and documents
+      const facts = await extractProjectFacts(projectId);
+
+      // Run real rule evaluation
+      const result = evaluateRules(facts, allRules);
+
+      // Persist violations as compliance checks
       const createdChecks = [];
-      for (const checkData of sampleChecks) {
-        const check = await storage.createComplianceCheck(checkData);
+      for (const violation of result.violations) {
+        const check = await storage.createComplianceCheck({
+          projectId,
+          standard: `${violation.standard} ${violation.clause}`,
+          requirement: violation.title,
+          status: violation.severity === 'fail' ? 'Failed' as const : 'Review Required' as const,
+          details: violation.description,
+          recommendation: violation.recommendation
+        });
         createdChecks.push(check);
+      }
+
+      // Also record passed rules as "Passed" checks (summary)
+      if (result.passed > 0) {
+        const passedCheck = await storage.createComplianceCheck({
+          projectId,
+          standard: 'NBC/IBC/CSA/ASCE',
+          requirement: `${result.passed} rules passed`,
+          status: 'Passed' as const,
+          details: `${result.passed} of ${result.passed + result.failed + result.warnings} evaluated rules passed. Coverage: ${result.coverage.toFixed(1)}% of loaded rules.`,
+          recommendation: null
+        });
+        createdChecks.push(passedCheck);
       }
 
       res.status(201).json(createdChecks);
@@ -2245,962 +2251,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Comprehensive compliance checking endpoint
+  // Comprehensive compliance checking endpoint — uses real rules engine
   app.post("/api/projects/:projectId/compliance-checks/comprehensive", authenticateToken, async (req, res) => {
     try {
       const { categories, jurisdiction, province, state, priority } = req.body;
-      
-      // Generate comprehensive compliance checks based on selected categories and jurisdiction
-      const comprehensiveChecks = [];
-      
-      // Helper function to determine which standards to apply based on jurisdiction
-      const getApplicableStandards = (category: string, jurisdiction: string) => {
-        const standardsMap: { [key: string]: { [key: string]: string[] } } = {
-          structural: {
-            federal: jurisdiction === "provincial" ? ["NBC 4.1", "IBC Chapter 16"] : ["NBC 4.1", "CSA S16-24", "IBC Chapter 16", "ASCE 7-22"],
-            provincial: ["NBC 4.1", "Provincial Building Code", "IBC Chapter 16", "State Building Code"],
-            municipal: ["NBC 4.1", "Provincial Building Code", "Municipal Bylaw", "IBC Chapter 16", "State Code", "Local Code"],
-            custom: ["NBC 4.1", "CSA S16-24", "IBC Chapter 16", "ASCE 7-22", "Custom Standards"]
-          },
-          environmental_ca: {
-            federal: ["CEAA 2012", "CEPA 1999"],
-            provincial: ["CEAA 2012", "CEPA 1999", "Provincial EPA"],
-            municipal: ["CEAA 2012", "CEPA 1999", "Provincial EPA", "Municipal Environmental Bylaws"],
-            custom: ["CEAA 2012", "CEPA 1999", "Provincial EPA", "Custom Environmental Standards"]
-          },
-          environmental_us: {
-            federal: ["NEPA", "Clean Air Act", "Clean Water Act"],
-            provincial: ["NEPA", "Clean Air Act", "Clean Water Act", "State Environmental Laws"],
-            municipal: ["NEPA", "Clean Air Act", "Clean Water Act", "State Environmental Laws", "Local Environmental Ordinances"],
-            custom: ["NEPA", "Clean Air Act", "Clean Water Act", "Custom Environmental Requirements"]
-          }
-        };
-        return standardsMap[category]?.[jurisdiction] || [];
+      const { projectId } = req.params;
+
+      // Load real rules engine and filter by requested categories
+      const { loadRulePack, evaluateRules } = await import('./compliance/rules-engine');
+
+      // Map UI categories to rule pack standards
+      const categoryToStandard: Record<string, ("NBC"|"IBC"|"CSA"|"ASCE"|"ASTM")[]> = {
+        structural: ['NBC', 'IBC', 'ASCE'],
+        steel_design: ['CSA', 'ASCE'],
+        concrete_design: ['CSA'],
+        fire_safety: ['NBC', 'IBC'],
+        accessibility: ['NBC', 'IBC'],
+        environmental: ['NBC'],
+        electrical: ['CSA'],
+        plumbing: ['NBC'],
+        hvac: ['CSA', 'ASTM'],
+        materials: ['CSA', 'ASTM'],
+        general: ['NBC', 'IBC', 'CSA', 'ASCE']
       };
-      
-      // Structural checks - jurisdiction aware
-      if (categories.includes('structural')) {
-        const applicableStandards = getApplicableStandards('structural', jurisdiction);
-        
-        if (jurisdiction === 'federal') {
-          comprehensiveChecks.push(
-            {
-              projectId: req.params.projectId,
-              standard: "NBC 4.1.3",
-              requirement: "Federal Structural Load Analysis",
-              status: "Passed" as const,
-              details: "Dead and live loads calculated per federal NBC requirements",
-              recommendation: null
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "IBC Chapter 16",
-              requirement: "US Federal Structural Requirements",
-              status: "Passed" as const,
-              details: "Structural design meets IBC federal requirements",
-              recommendation: null
-            }
-          );
-        } else if (jurisdiction === 'provincial') {
-          const provinceName = province === 'ON' ? 'Ontario Building Code' : 
-                              province === 'BC' ? 'BC Building Code' :
-                              province === 'CA' ? 'California Building Code' :
-                              province === 'NY' ? 'New York State Building Code' :
-                              'Provincial/State Building Code';
-          comprehensiveChecks.push(
-            {
-              projectId: req.params.projectId,
-              standard: provinceName,
-              requirement: `${province} Structural Requirements`,
-              status: "Passed" as const,
-              details: `Structural design meets ${provinceName} requirements`,
-              recommendation: null
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "NBC 4.1.3",
-              requirement: "Federal Structural Load Analysis",
-              status: "Passed" as const,
-              details: "Dead and live loads calculated per NBC requirements",
-              recommendation: null
-            }
-          );
-        } else if (jurisdiction === 'municipal') {
-          comprehensiveChecks.push(
-            {
-              projectId: req.params.projectId,
-              standard: "Municipal Building Bylaw",
-              requirement: "Local Structural Requirements",
-              status: "Review Required" as const,
-              details: "Local building department review required for structural design",
-              recommendation: "Submit structural drawings to local building department"
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "Provincial Building Code",
-              requirement: "Provincial Structural Requirements", 
-              status: "Passed" as const,
-              details: "Meets provincial/state structural requirements",
-              recommendation: null
-            }
-          );
-        }
+
+      // Determine which rule packs to load based on selected categories
+      const selectedCategories = Array.isArray(categories) ? categories : ['general'];
+      const standardsToLoad = new Set<"NBC"|"IBC"|"CSA"|"ASCE"|"ASTM">();
+      for (const cat of selectedCategories) {
+        const standards = categoryToStandard[cat] || categoryToStandard['general'];
+        standards.forEach(s => standardsToLoad.add(s));
       }
 
-      // Steel design checks (latest handbook)
-      if (categories.includes('steel_design')) {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "CSA S16-24",
-            requirement: "Steel Member Design",
-            status: "Passed" as const,
-            details: "Steel members designed per CSA S16-24 latest edition",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "CISC Handbook 12th Ed",
-            requirement: "Connection Design",
-            status: "Passed" as const,
-            details: "Steel connections follow CISC Handbook 12th Edition guidelines",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "CSA S6-19",
-            requirement: "Bridge Steel Design",
-            status: "Review Required" as const,
-            details: "Bridge steel elements require updated seismic provisions",
-            recommendation: "Verify seismic design provisions per CSA S6-19"
-          }
-        );
+      // Filter by jurisdiction: Canadian projects use NBC/CSA, US projects use IBC/ASCE
+      if (jurisdiction === 'canada' || province) {
+        standardsToLoad.delete('IBC');
+      } else if (jurisdiction === 'usa' || state) {
+        standardsToLoad.delete('NBC');
       }
 
-      // Concrete design checks (real standards integration)
-      if (categories.includes('concrete_design')) {
-        if (province && ['ON', 'BC', 'AB', 'QC', 'NS', 'NB', 'MB', 'SK', 'PE', 'NL', 'YT', 'NT', 'NU'].includes(province)) {
-          // Canadian concrete standards
-          comprehensiveChecks.push(
-            {
-              projectId: req.params.projectId,
-              standard: "CSA A23.1-09",
-              requirement: "Concrete Materials and Construction Methods",
-              status: "Passed" as const,
-              details: "Concrete materials comply with CSA A23.1-09 specifications for cement, aggregates, and admixtures",
-              recommendation: null
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "CSA A23.2-09",
-              requirement: "Concrete Test Methods and Standard Practices",
-              status: "Passed" as const,
-              details: "Testing protocols follow CSA A23.2-09 for sampling, compression testing, and quality control",
-              recommendation: null
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "CSA A23.3-19",
-              requirement: "Concrete Design and Construction",
-              status: "Passed" as const,
-              details: "Structural concrete design meets CSA A23.3-19 requirements for strength and durability",
-              recommendation: null
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "CAC Concrete Design Handbook 4th Ed",
-              requirement: "Reinforcement Details and Detailing",
-              status: "Review Required" as const,
-              details: "Reinforcement detailing requires verification against CAC Handbook 4th Edition latest practices",
-              recommendation: "Verify reinforcement spacing and development lengths per CAC Handbook"
-            }
-          );
-        } else {
-          // US concrete standards
-          comprehensiveChecks.push(
-            {
-              projectId: req.params.projectId,
-              standard: "ACI 214.4R-10",
-              requirement: "Core Testing and Strength Interpretation",
-              status: "Passed" as const,
-              details: "Concrete core testing follows ACI 214.4R-10 procedures for obtaining and interpreting compressive strength results",
-              recommendation: null
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "ASTM C42/C42M-16",
-              requirement: "Drilled Core Testing Standards",
-              status: "Passed" as const,
-              details: "Core sampling and testing per ASTM C42-16 for in-place concrete strength determination",
-              recommendation: null
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "ASTM C97/C97M-15",
-              requirement: "Absorption and Bulk Specific Gravity Testing",
-              status: "Passed" as const,
-              details: "Material absorption testing follows ASTM C97-15 for dimension stone and concrete elements",
-              recommendation: null
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "ACI 318-19",
-              requirement: "Building Code Requirements for Structural Concrete",
-              status: "Review Required" as const,
-              details: "Structural concrete design requires verification against ACI 318-19 latest provisions",
-              recommendation: "Verify concrete design provisions per ACI 318-19 Building Code"
-            }
-          );
-        }
+      // Load applicable rules
+      let rules: any[] = [];
+      for (const standard of standardsToLoad) {
+        rules = rules.concat(loadRulePack(standard));
       }
 
-      // Environmental compliance - Canada (jurisdiction aware)
-      if (categories.includes('environmental_ca')) {
-        if (jurisdiction === 'federal') {
-          comprehensiveChecks.push(
-            {
-              projectId: req.params.projectId,
-              standard: "CEAA 2012",
-              requirement: "Federal Environmental Assessment",
-              status: "Passed" as const,
-              details: "Project meets federal CEAA requirements only",
-              recommendation: null
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "CEPA 1999",
-              requirement: "Federal Environmental Protection",
-              status: "Passed" as const,
-              details: "Federal toxic substances management complies with CEPA",
-              recommendation: null
-            }
-          );
-        } else if (jurisdiction === 'provincial') {
-          comprehensiveChecks.push(
-            {
-              projectId: req.params.projectId,
-              standard: "Provincial EPA",
-              requirement: "Provincial Environmental Assessment",
-              status: "Passed" as const,
-              details: "Provincial environmental assessment completed",
-              recommendation: null
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "CEAA 2012",
-              requirement: "Federal Environmental Assessment",
-              status: "Passed" as const,
-              details: "Federal CEAA requirements satisfied",
-              recommendation: null
-            }
-          );
-        } else if (jurisdiction === 'municipal') {
-          comprehensiveChecks.push(
-            {
-              projectId: req.params.projectId,
-              standard: "Municipal Environmental Bylaws",
-              requirement: "Local Environmental Compliance",
-              status: "Review Required" as const,
-              details: "Municipal environmental permits and approvals required",
-              recommendation: "Obtain all municipal environmental permits"
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "Provincial EPA",
-              requirement: "Provincial Environmental Compliance",
-              status: "Passed" as const,
-              details: "Provincial environmental permits obtained",
-              recommendation: null
-            }
-          );
-        }
+      // Extract facts from BIM model and documents
+      const facts = await extractProjectFacts(projectId);
+
+      // Run real evaluation
+      const result = evaluateRules(facts, rules);
+
+      // Persist all results as compliance checks
+      const comprehensiveChecks: any[] = [];
+
+      for (const violation of result.violations) {
+        comprehensiveChecks.push({
+          projectId,
+          standard: `${violation.standard} ${violation.clause}`,
+          requirement: violation.title,
+          status: violation.severity === 'fail' ? 'Failed' as const : 'Review Required' as const,
+          details: violation.description,
+          recommendation: violation.recommendation
+        });
       }
 
-      // Steel design checks USA (latest standards)
-      if (categories.includes('steel_design_us')) {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "AISC 360-22",
-            requirement: "Steel Building Design",
-            status: "Passed" as const,
-            details: "Steel members designed per AISC 360-22 latest specification",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "AISC 341-22",
-            requirement: "Seismic Steel Design",
-            status: "Passed" as const,
-            details: "Seismic provisions follow AISC 341-22 requirements",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "AISC Steel Manual 16th Ed",
-            requirement: "Connection Design Standards",
-            status: "Review Required" as const,
-            details: "Connection design requires verification with latest manual",
-            recommendation: "Verify connection design per AISC Manual 16th Edition"
-          }
-        );
-      }
-
-      // Concrete design checks USA (latest standards)
-      if (categories.includes('concrete_design_us')) {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "ACI 318-19",
-            requirement: "Concrete Design Requirements",
-            status: "Passed" as const,
-            details: "Concrete design meets ACI 318-19 Building Code",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "ACI 301-20",
-            requirement: "Concrete Construction Specifications",
-            status: "Passed" as const,
-            details: "Construction specifications follow ACI 301-20",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "PCI Design Handbook 8th Ed",
-            requirement: "Precast Concrete Design",
-            status: "Review Required" as const,
-            details: "Precast elements require updated design provisions",
-            recommendation: "Verify precast design per PCI Handbook 8th Edition"
-          }
-        );
-      }
-
-      // Environmental compliance - USA (jurisdiction aware)
-      if (categories.includes('environmental_us')) {
-        if (jurisdiction === 'federal') {
-          comprehensiveChecks.push(
-            {
-              projectId: req.params.projectId,
-              standard: "NEPA",
-              requirement: "Federal Environmental Policy Act",
-              status: "Passed" as const,
-              details: "Federal environmental impact assessment completed per NEPA",
-              recommendation: null
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "Clean Air Act",
-              requirement: "Federal Air Quality Compliance",
-              status: "Passed" as const,
-              details: "Federal Clean Air Act requirements met",
-              recommendation: null
-            }
-          );
-        } else if (jurisdiction === 'provincial') {
-          comprehensiveChecks.push(
-            {
-              projectId: req.params.projectId,
-              standard: "State Environmental Laws",
-              requirement: "State Environmental Compliance",
-              status: "Passed" as const,
-              details: "State-specific environmental regulations satisfied",
-              recommendation: null
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "Clean Water Act",
-              requirement: "State Water Quality Protection",
-              status: "Review Required" as const,
-              details: "State stormwater management plan requires review",
-              recommendation: "Submit stormwater plan to state environmental agency"
-            }
-          );
-        } else if (jurisdiction === 'municipal') {
-          comprehensiveChecks.push(
-            {
-              projectId: req.params.projectId,
-              standard: "Local Environmental Ordinances",
-              requirement: "Municipal Environmental Compliance",
-              status: "Review Required" as const,
-              details: "Local environmental permits and approvals required",
-              recommendation: "Obtain municipal environmental permits and approvals"
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "State Environmental Laws",
-              requirement: "State Environmental Compliance",
-              status: "Passed" as const,
-              details: "State environmental regulations satisfied",
-              recommendation: null
-            }
-          );
-        }
-      }
-
-      // Ontario Building Code compliance (real OBC for Ontario projects)
-      if (categories.includes('ontario_building_code')) {
-        if (province === 'ON') {
-          comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "OBC Part 3",
-            requirement: "Fire Protection, Occupant Safety and Accessibility",
-            status: "Passed" as const,
-            details: "Building fire protection and safety systems comply with OBC Part 3 requirements",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "OBC Part 4", 
-            requirement: "Structural Design",
-            status: "Passed" as const,
-            details: "Structural design meets OBC Part 4 structural requirements and load calculations",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "OBC Part 9",
-            requirement: "Housing and Small Buildings",
-            status: "Review Required" as const,
-            details: "Small buildings ([*] storeys, [*]m[*]²) must comply with OBC Part 9 prescriptive requirements",
-            recommendation: "Verify Part 9 compliance for residential and small commercial buildings"
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "OBC Division A",
-            requirement: "Compliance and Functional Statements",
-            status: "Passed" as const,
-            details: "Project meets OBC Division A compliance provisions and functional statements",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "OBC Part 1",
-            requirement: "General Requirements (Applies to All Buildings)",
-            status: "Passed" as const,
-            details: "General building requirements per OBC Part 1 satisfied for all building types",
-            recommendation: null
-          }
-        );
-        }
-      }
-
-      // National Building Code of Canada (NBC) - applies to all Canadian provinces
-      if (categories.includes('national_building_code') && province && ['QC', 'ON', 'BC', 'AB', 'NS', 'NB', 'MB', 'SK', 'PE', 'NL', 'YT', 'NT', 'NU'].includes(province)) {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "NBC Part 3",
-            requirement: "Fire Protection, Occupant Safety and Accessibility",
-            status: "Passed" as const,
-            details: "Building meets National Building Code Part 3 fire protection and occupant safety requirements",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "NBC Part 4",
-            requirement: "Structural Design",
-            status: "Passed" as const,
-            details: "Structural design complies with National Building Code Part 4 structural requirements",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "NBC Part 9",
-            requirement: "Housing and Small Buildings",
-            status: "Review Required" as const,
-            details: "Residential and small commercial buildings must meet NBC Part 9 prescriptive requirements",
-            recommendation: "Verify NBC Part 9 compliance for buildings [*] storeys and [*]m[*]² building area"
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "NBC Part 6",
-            requirement: "Heating, Ventilating and Air Conditioning",
-            status: "Passed" as const,
-            details: "HVAC systems designed per NBC Part 6 requirements for indoor environmental quality",
-            recommendation: null
-          }
-        );
-      }
-
-      // British Columbia Building Code (BCBC) - for BC projects
-      if (categories.includes('provincial_building_code') && province === 'BC') {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "BCBC Part 3",
-            requirement: "Fire Protection, Occupant Safety and Accessibility",
-            status: "Passed" as const,
-            details: "Building fire protection systems comply with BC Building Code Part 3 requirements",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "BCBC Part 4",
-            requirement: "Structural Design",
-            status: "Passed" as const,
-            details: "Structural design meets BC Building Code Part 4 seismic and structural requirements",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "BCBC Part 10",
-            requirement: "Energy Efficiency",
-            status: "Review Required" as const,
-            details: "Building envelope and energy systems must comply with BC energy efficiency requirements",
-            recommendation: "Verify BCBC Part 10 energy efficiency compliance and BC Energy Step Code"
-          }
-        );
-      }
-
-      // Alberta Building Code (ABC) - for Alberta projects
-      if (categories.includes('provincial_building_code') && province === 'AB') {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "ABC Part 3",
-            requirement: "Fire Protection, Occupant Safety and Accessibility",
-            status: "Passed" as const,
-            details: "Fire protection systems comply with Alberta Building Code Part 3 requirements",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "ABC Part 4",
-            requirement: "Structural Design",
-            status: "Passed" as const,
-            details: "Structural design meets Alberta Building Code Part 4 structural requirements",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "ABC Part 9",
-            requirement: "Housing and Small Buildings",
-            status: "Review Required" as const,
-            details: "Residential buildings must comply with Alberta Building Code Part 9 prescriptive requirements",
-            recommendation: "Verify ABC Part 9 compliance for residential construction"
-          }
-        );
-      }
-
-      // International Building Code (IBC) - for US states
-      if (categories.includes('international_building_code') && state) {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "IBC Chapter 7",
-            requirement: "Fire and Smoke Protection Features",
-            status: "Passed" as const,
-            details: "Building fire protection systems comply with IBC Chapter 7 fire and smoke protection requirements",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "IBC Chapter 16",
-            requirement: "Structural Design",
-            status: "Passed" as const,
-            details: "Structural design meets International Building Code Chapter 16 structural requirements",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "IBC Chapter 11",
-            requirement: "Accessibility",
-            status: "Review Required" as const,
-            details: "Building accessibility features must comply with IBC Chapter 11 and ADA requirements",
-            recommendation: "Verify IBC Chapter 11 accessibility compliance and ADA Standards"
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "IBC Chapter 13",
-            requirement: "Energy Efficiency",
-            status: "Review Required" as const,
-            details: "Building energy systems must comply with IBC Chapter 13 energy conservation requirements",
-            recommendation: "Verify compliance with IECC energy conservation standards"
-          }
-        );
-      }
-
-      // International Residential Code (IRC) - for US residential projects
-      if (categories.includes('international_residential_code') && state) {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "IRC Chapter 3",
-            requirement: "Building Planning",
-            status: "Passed" as const,
-            details: "Residential building planning meets IRC Chapter 3 requirements for room sizes and ceiling heights",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "IRC Chapter 6",
-            requirement: "Wall Construction",
-            status: "Passed" as const,
-            details: "Wall framing and construction comply with IRC Chapter 6 structural requirements",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "IRC Chapter 8",
-            requirement: "Roof-Ceiling Construction",
-            status: "Review Required" as const,
-            details: "Roof and ceiling construction must meet IRC Chapter 8 structural and ventilation requirements",
-            recommendation: "Verify IRC Chapter 8 roof construction and attic ventilation compliance"
-          }
-        );
-      }
-
-      // ASCE Structural Standards - for all structural design projects
-      if (categories.includes('structural_standards')) {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "ASCE 7-22",
-            requirement: "Minimum Design Loads and Associated Criteria for Buildings",
-            status: "Passed" as const,
-            details: "Structural loads calculated per ASCE 7-22 minimum design loads for buildings and other structures",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "ASCE 41-23",
-            requirement: "Seismic Evaluation and Retrofit of Existing Buildings",
-            status: "Review Required" as const,
-            details: "Existing building seismic evaluation required per ASCE 41-23 standards",
-            recommendation: "Complete ASCE 41-23 seismic evaluation for existing building modifications"
-          }
-        );
-      }
-
-      // AISC Steel Construction Standards - for steel structure projects
-      if (categories.includes('steel_construction')) {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "AISC 360-22",
-            requirement: "Specification for Structural Steel Buildings",
-            status: "Passed" as const,
-            details: "Steel structural design complies with AISC 360-22 specification for structural steel buildings",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "AISC 341-22",
-            requirement: "Seismic Provisions for Structural Steel Buildings",
-            status: "Review Required" as const,
-            details: "Steel seismic design must comply with AISC 341-22 seismic provisions",
-            recommendation: "Verify AISC 341-22 seismic design provisions for steel moment frames and braced frames"
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "AISC 358-22",
-            requirement: "Prequalified Connections for Special and Intermediate Steel Moment Frames",
-            status: "Passed" as const,
-            details: "Steel moment frame connections meet AISC 358-22 prequalified connection requirements",
-            recommendation: null
-          }
-        );
-      }
-
-      // Environmental Assessment compliance checks (real CEAA and NEPA)
-      if (categories.includes('environmental_assessment')) {
-        if (province && ['QC', 'ON', 'BC', 'AB', 'NS', 'NB', 'MB', 'SK', 'PE', 'NL', 'YT', 'NT', 'NU'].includes(province)) {
-          // Canadian Environmental Assessment Act
-          comprehensiveChecks.push(
-            {
-              projectId: req.params.projectId,
-              standard: "CEAA 2012",
-              requirement: "Canadian Environmental Assessment Act (Repealed 2019)",
-              status: "Review Required" as const,
-              details: "Project subject to federal environmental assessment under CEAA 2012 framework before repeal",
-              recommendation: "Verify current environmental assessment requirements under Impact Assessment Act"
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "Impact Assessment Act",
-              requirement: "Federal Environmental Impact Assessment (Current)",
-              status: "Review Required" as const,
-              details: "Project requires environmental impact assessment under current federal legislation",
-              recommendation: "Submit impact assessment report per current federal environmental legislation"
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "Provincial Environmental Assessment",
-              requirement: "Provincial Environmental Compliance",
-              status: "Passed" as const,
-              details: "Provincial environmental assessment and permits obtained per jurisdiction requirements",
-              recommendation: null
-            }
-          );
-        } else {
-          // US National Environmental Policy Act
-          comprehensiveChecks.push(
-            {
-              projectId: req.params.projectId,
-              standard: "NEPA 1969",
-              requirement: "National Environmental Policy Act Environmental Impact Statement",
-              status: "Passed" as const,
-              details: "Environmental impact assessment completed per NEPA 1969 requirements for federal actions",
-              recommendation: null
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "NEPA Section 102(C)",
-              requirement: "Detailed Environmental Impact Statement",
-              status: "Review Required" as const,
-              details: "Detailed statement on environmental effects, alternatives, and resource commitments required",
-              recommendation: "Complete NEPA Section 102(C) detailed environmental impact statement"
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "Council on Environmental Quality",
-              requirement: "CEQ Guidelines Compliance",
-              status: "Passed" as const,
-              details: "Environmental assessment follows Council on Environmental Quality guidelines established under NEPA",
-              recommendation: null
-            }
-          );
-        }
-      }
-
-      // Materials compliance checks (real BNQ standards for recycled materials)
-      if (categories.includes('materials')) {
-        if (province && ['QC', 'ON', 'BC', 'AB', 'NS', 'NB', 'MB', 'SK', 'PE', 'NL', 'YT', 'NT', 'NU'].includes(province)) {
-          // Canadian materials standards
-          comprehensiveChecks.push(
-            {
-              projectId: req.params.projectId,
-              standard: "BNQ 2560-600/2002",
-              requirement: "Recycled Concrete and Asphalt Materials Classification",
-              status: "Passed" as const,
-              details: "Recycled aggregates from concrete, asphalt, and brick residues meet BNQ 2560-600/2002 classification standards",
-              recommendation: null
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "CSA A23.1-09",
-              requirement: "Aggregate Materials Specifications",
-              status: "Passed" as const,
-              details: "Construction aggregates comply with CSA A23.1-09 material specifications",
-              recommendation: null
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "CSA A3000-18",
-              requirement: "Cementitious Materials Standards",
-              status: "Review Required" as const,
-              details: "Cement and supplementary materials require verification against CSA A3000-18",
-              recommendation: "Verify cement specifications per CSA A3000-18 latest edition"
-            }
-          );
-        } else {
-          // US materials standards
-          comprehensiveChecks.push(
-            {
-              projectId: req.params.projectId,
-              standard: "ASTM C33/C33M",
-              requirement: "Standard Specification for Concrete Aggregates",
-              status: "Passed" as const,
-              details: "Concrete aggregates meet ASTM C33 standard specifications",
-              recommendation: null
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "ASTM C150/C150M",
-              requirement: "Standard Specification for Portland Cement",
-              status: "Passed" as const,
-              details: "Portland cement specifications comply with ASTM C150 requirements",
-              recommendation: null
-            },
-            {
-              projectId: req.params.projectId,
-              standard: "ASTM C618",
-              requirement: "Coal Fly Ash and Raw Calcined Natural Pozzolan",
-              status: "Review Required" as const,
-              details: "Supplementary cementitious materials require ASTM C618 verification",
-              recommendation: "Verify pozzolan specifications per ASTM C618"
-            }
-          );
-        }
-      }
-
-
-      // Fire suppression checks
-      if (categories.includes('fire_suppression')) {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "NFPA 13",
-            requirement: "Sprinkler System Design",
-            status: "Passed" as const,
-            details: "Sprinkler coverage and spacing meet NFPA 13 requirements",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "ULC S536",
-            requirement: "Fire Department Connections",
-            status: "Review Required" as const,
-            details: "FDC location requires accessibility verification",
-            recommendation: "Confirm FDC accessibility for fire department vehicles"
-          }
-        );
-      }
-
-      // Fire protection checks
-      if (categories.includes('fire_protection')) {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "NBC 3.2.2",
-            requirement: "Fire Separation Requirements",
-            status: "Passed" as const,
-            details: "2-hour fire rating verified for demising walls",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "ULC S524",
-            requirement: "Fire Alarm System",
-            status: "Passed" as const,
-            details: "Smoke detection and notification system compliant",
-            recommendation: null
-          }
-        );
-      }
-
-      // Electrical checks
-      if (categories.includes('electrical')) {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "CEC Rule 8-104",
-            requirement: "Electrical Service Capacity",
-            status: "Passed" as const,
-            details: "Service entrance rated for calculated demand load",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "CSA C22.1",
-            requirement: "Emergency Power Systems",
-            status: "Review Required" as const,
-            details: "Generator sizing requires load calculation verification",
-            recommendation: "Verify emergency load calculations include all code-required systems"
-          }
-        );
-      }
-
-      // Plumbing checks
-      if (categories.includes('plumbing')) {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "NBC 7.4.6",
-            requirement: "Water Supply Sizing",
-            status: "Passed" as const,
-            details: "Domestic water service sized for fixture demand",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "CSA B45.5",
-            requirement: "Backflow Prevention",
-            status: "Passed" as const,
-            details: "Cross-connection control devices properly specified",
-            recommendation: null
-          }
-        );
-      }
-
-      // HVAC checks
-      if (categories.includes('hvac')) {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "ASHRAE 62.1",
-            requirement: "Ventilation Requirements",
-            status: "Passed" as const,
-            details: "Outside air quantities meet occupancy requirements",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "NBC 6.2.3",
-            requirement: "HVAC System Design",
-            status: "Review Required" as const,
-            details: "Heat pump sizing requires verification for climate zone",
-            recommendation: "Confirm equipment sizing for local climate conditions"
-          }
-        );
-      }
-
-      // Pressure vessel checks
-      if (categories.includes('pressure_vessels')) {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "CSA B51",
-            requirement: "Boiler Installation",
-            status: "Passed" as const,
-            details: "Boiler room clearances and ventilation adequate",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "ASME VIII",
-            requirement: "Pressure Vessel Design",
-            status: "Passed" as const,
-            details: "Pressure vessels designed to ASME code",
-            recommendation: null
-          }
-        );
-      }
-
-      // ULC standards checks
-      if (categories.includes('ulc')) {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "ULC S101",
-            requirement: "Fire Endurance Testing",
-            status: "Passed" as const,
-            details: "Assembly fire ratings verified by ULC testing",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "ULC S102",
-            requirement: "Surface Burning Characteristics",
-            status: "Passed" as const,
-            details: "Interior finishes meet flame spread requirements",
-            recommendation: null
-          }
-        );
-      }
-
-      // Local guidelines checks
-      if (categories.includes('local_guidelines')) {
-        comprehensiveChecks.push(
-          {
-            projectId: req.params.projectId,
-            standard: "Municipal Zoning",
-            requirement: "Setback Requirements",
-            status: "Passed" as const,
-            details: "Building placement meets municipal zoning requirements",
-            recommendation: null
-          },
-          {
-            projectId: req.params.projectId,
-            standard: "Local Bylaw 2024-15",
-            requirement: "Parking Requirements",
-            status: "Review Required" as const,
-            details: "Parking space count requires verification against latest bylaw",
-            recommendation: "Confirm parking calculations with current municipal requirements"
-          }
-        );
+      // Add summary of passed rules
+      if (result.passed > 0) {
+        comprehensiveChecks.push({
+          projectId,
+          standard: Array.from(standardsToLoad).join('/'),
+          requirement: `${result.passed} rules passed compliance`,
+          status: 'Passed' as const,
+          details: `${result.passed} of ${result.passed + result.failed + result.warnings} evaluated rules passed. Coverage: ${result.coverage.toFixed(1)}% of ${rules.length} loaded rules.`,
+          recommendation: null
+        });
       }
 
       // Create checks in storage

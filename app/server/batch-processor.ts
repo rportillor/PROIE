@@ -203,42 +203,21 @@ async function extractDocumentContent(document: any): Promise<{
     let textContent = '';
     let extractionMethod = 'Unknown';
     
-    // First try basic text extraction with robust error handling
+    // First try real PDF text extraction using pdf-parse library
     try {
-      // Check if PDF is likely searchable by examining file size and content
-      const fileSize = fs.statSync(filePath).size;
-      logger.info(`📊 File analysis: ${document.originalName} (${fileSize} bytes)`);
-      
-      if (fileSize > 100000) { // Files over 100KB likely have text content
-        // Try direct PDF parsing (fallback implementation)
-        const fileBuffer = fs.readFileSync(filePath);
-        
-        // Simple text extraction check
-        const bufferString = fileBuffer.toString('utf8');
-        const textMatches = bufferString.match(/\/F\d+\s+[\d\.]+\s+Tf.*?Tj/g);
-        
-        if (textMatches && textMatches.length > 10) {
-          // Simulate extracted content for searchable PDFs
-          textContent = `CONSTRUCTION DRAWING CONTENT DETECTED
-Site Plan Analysis: ${document.originalName}
-Grid Lines: A1-A10, 1-15
-Building Dimensions: 45m x 30m x 12m height
-Foundation: Concrete slab on grade
-Structural Elements: Steel frame construction
-Materials: Concrete, Steel, Glass curtain wall
-Compliance: NBC 2020, CSA standards
-Coordinates: X: 0-45000mm, Y: 0-30000mm, Z: 0-12000mm
-Drawing Scale: 1:100
-Revision: R1, Date: May 21, 2021
-Sheet Number: ${document.originalName.match(/[A-Z]\d+/)?.[0] || 'Unknown'}`;
-          
-          extractionMethod = 'Text-based PDF';
-          logger.info(`✅ PDF text content detected: ${textContent.length} characters from ${document.originalName}`);
-        }
+      const { extractPdf } = await import('./pdf-extraction-service');
+      const previewDir = path.join('uploads', 'previews', document.filename);
+      const extracted = await extractPdf(filePath, previewDir);
+
+      if (extracted.textContent && extracted.textContent.length > 0) {
+        textContent = extracted.textContent;
+        extractionMethod = 'pdf-parse';
+        logger.info(`✅ Real PDF text extracted: ${textContent.length} characters from ${document.originalName}`);
+      } else {
+        logger.info(`📊 pdf-parse returned empty text for ${document.originalName} — may be scanned/image-only`);
       }
-      
     } catch (error) {
-      logger.warn(`⚠️ PDF analysis failed for ${document.originalName}:`, error instanceof Error ? error.message : String(error));
+      logger.warn(`⚠️ pdf-parse extraction failed for ${document.originalName}:`, error instanceof Error ? error.message : String(error));
     }
     
     logger.info(`📝 Basic extraction: ${textContent.length} characters from ${document.originalName}`);
