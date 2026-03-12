@@ -21,6 +21,8 @@ export interface ViewerProps {
 }
 
 export interface SelectedElement {
+  id?: string;           // DB primary key — needed for CRUD operations
+  elementId?: string;    // Element ID within model
   expressID?: number;
   type: string;
   material?: string;
@@ -28,6 +30,9 @@ export interface SelectedElement {
   volume?: number;
   area?: number;
   properties?: Record<string, any>;
+  storeyName?: string;
+  category?: string;
+  name?: string;
 }
 
 // simple metric-only for now (keeps API)
@@ -527,6 +532,24 @@ export default function Viewer3D({ modelId }: ViewerProps){
         const elId = el?.id || el?.elementId;
         setSelectedMeshId(elId || null);
 
+        // Build SelectedElement for property panel
+        const geom = typeof el?.geometry === 'string' ? JSON.parse(el.geometry) : (el?.geometry || {});
+        const props = typeof el?.properties === 'string' ? JSON.parse(el.properties) : (el?.properties || {});
+        const dims = geom?.dimensions || {};
+        onElementSelect?.({
+          id: el?.id,
+          elementId: el?.elementId,
+          type: el?.elementType || el?.type || 'Unknown',
+          name: el?.name,
+          material: el?.material || props?.material,
+          dimensions: { height: dims.height, width: dims.width, length: dims.length || dims.depth },
+          volume: dims.volume || dims.area * dims.height,
+          area: dims.area,
+          properties: props,
+          storeyName: el?.storeyName || props?.storey?.name,
+          category: el?.category,
+        });
+
         // Attach transform gizmo
         tControls.attach(hit);
         tControls.visible = true;
@@ -535,6 +558,7 @@ export default function Viewer3D({ modelId }: ViewerProps){
         tControls.detach();
         tControls.visible = false;
         setSelectedMeshId(null);
+        onElementSelect?.(null);
       }
     };
     renderer.domElement.addEventListener('pointerdown', onPointerDown);

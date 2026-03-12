@@ -86,3 +86,102 @@ export async function fetchAllModelElements(
   
   return allElements;
 }
+
+// ── Auth helper ─────────────────────────────────────────────────────────────
+function authHeaders(): Record<string, string> {
+  const token = localStorage.getItem("auth_token");
+  const h: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) h["Authorization"] = `Bearer ${token}`;
+  return h;
+}
+
+// ── CREATE element ──────────────────────────────────────────────────────────
+export interface CreateElementPayload {
+  elementType: string;
+  name?: string;
+  geometry: {
+    dimensions: { length?: number; width?: number; height?: number; depth?: number };
+    location?: { realLocation: { x: number; y: number; z: number } };
+  };
+  properties?: Record<string, any>;
+  material?: string;
+  storeyName?: string;
+  category?: string;
+}
+
+export async function createElement(
+  modelId: string,
+  payload: CreateElementPayload,
+): Promise<{ success: boolean; element: BIMElement; relationships: any[] }> {
+  const resp = await fetch(`/api/bim/models/${modelId}/elements`, {
+    method: "POST",
+    credentials: "include",
+    headers: authHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) throw new Error(`Create failed: ${resp.status}`);
+  return resp.json();
+}
+
+// ── UPDATE element properties ───────────────────────────────────────────────
+export async function updateElement(
+  modelId: string,
+  elementId: string,
+  updates: Record<string, any>,
+): Promise<{ success: boolean; element: BIMElement; updatedFields: string[] }> {
+  const resp = await fetch(`/api/bim/models/${modelId}/elements/${elementId}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: authHeaders(),
+    body: JSON.stringify(updates),
+  });
+  if (!resp.ok) throw new Error(`Update failed: ${resp.status}`);
+  return resp.json();
+}
+
+// ── DELETE element ──────────────────────────────────────────────────────────
+export async function deleteElement(
+  modelId: string,
+  elementId: string,
+): Promise<{ success: boolean; deletedId: string; hostedElementsOrphaned: string[] }> {
+  const resp = await fetch(`/api/bim/models/${modelId}/elements/${elementId}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: authHeaders(),
+  });
+  if (!resp.ok) throw new Error(`Delete failed: ${resp.status}`);
+  return resp.json();
+}
+
+// ── SPLIT wall ──────────────────────────────────────────────────────────────
+export async function splitWall(
+  modelId: string,
+  elementId: string,
+  splitPoint: { x: number; y: number },
+): Promise<{ success: boolean; newWalls: BIMElement[]; splitRatio: number }> {
+  const resp = await fetch(`/api/bim/models/${modelId}/elements/${elementId}/split`, {
+    method: "POST",
+    credentials: "include",
+    headers: authHeaders(),
+    body: JSON.stringify({ splitPoint }),
+  });
+  if (!resp.ok) throw new Error(`Split failed: ${resp.status}`);
+  return resp.json();
+}
+
+// ── HOST element in wall ────────────────────────────────────────────────────
+export async function hostInWall(
+  modelId: string,
+  elementId: string,
+  hostWallId: string,
+  parameterT: number = 0.5,
+): Promise<{ success: boolean; element: BIMElement; position: { x: number; y: number; z: number } }> {
+  const resp = await fetch(`/api/bim/models/${modelId}/elements/${elementId}/host`, {
+    method: "POST",
+    credentials: "include",
+    headers: authHeaders(),
+    body: JSON.stringify({ hostWallId, parameterT }),
+  });
+  if (!resp.ok) throw new Error(`Host failed: ${resp.status}`);
+  return resp.json();
+}

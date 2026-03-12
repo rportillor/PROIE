@@ -15,6 +15,7 @@ import { detectRelationships } from "../services/relationship-engine";
 import { solveConstraintsOnElements } from "../services/parameter-engine";
 import { autoRouteMEP } from "../services/mep-routing";
 import { runIterativeRefinement } from "../services/iterative-refinement";
+import { sortByConstructionSequence } from "../helpers/dimension-validator";
 
 const COLOR_BY_FAMILY: Record<string, string> = {
   STRUCT: "#6B7280", ARCH: "#22C55E",
@@ -67,7 +68,8 @@ export async function postprocessAndSave(modelId: string, elements: any[], metad
   console.log("🔧 POSTPROCESS: start", modelId, "elements:", elements?.length || 0);
 
   const repaired = repairLayout(elements, { minAspectRatio: 12 });
-  let work = repaired.elements;
+  // Sort elements by construction sequence (foundation → columns → beams → walls → ...)
+  let work = sortByConstructionSequence(repaired.elements || []);
 
   work = (work || []).map(e => {
     const fam = familyOf(e);

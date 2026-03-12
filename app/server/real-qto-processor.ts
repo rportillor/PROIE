@@ -1007,7 +1007,44 @@ Document: ${path.basename(filePath)}`;
         } as StoreyData;
         storeys.push(storey);
         
-        // Process walls
+        // ── CONSTRUCTION SEQUENCE ORDER ──────────────────────────────────
+        // Elements are created in the same order a human modeler would build:
+        // 1. Foundations (substructure first)
+        // 2. Columns (vertical structure)
+        // 3. Beams (horizontal structure connecting columns)
+        // 4. Walls (enclosure between structural elements)
+        // 5. Slabs/Floors (horizontal surfaces)
+        // 6. Stairs (vertical circulation)
+        // 7. Doors (hosted in walls — walls must exist first)
+        // 8. Windows (hosted in walls — walls must exist first)
+        // 9. MEP systems (last — routed through completed structure)
+        // ──────────────────────────────────────────────────────────────────
+
+        // 1. Foundations (substructure)
+        if (floor.foundations) {
+          for (const found of floor.foundations) {
+            const foundEl = this.createFoundationElement(found, storey);
+            if (foundEl) { elements.push(foundEl); storey.elementCount++; }
+          }
+        }
+
+        // 2. Columns (vertical structure)
+        if (floor.columns) {
+          for (const col of floor.columns) {
+            const colEl = this.createColumnElement(col, storey);
+            if (colEl) { elements.push(colEl); storey.elementCount++; }
+          }
+        }
+
+        // 3. Beams (horizontal structure)
+        if (floor.beams) {
+          for (const beam of floor.beams) {
+            const beamEl = this.createBeamElement(beam, storey);
+            if (beamEl) { elements.push(beamEl); storey.elementCount++; }
+          }
+        }
+
+        // 4. Walls (enclosure)
         if (floor.walls) {
           for (const wall of floor.walls) {
             const wallElement = this.createWallElement(wall, storey);
@@ -1017,24 +1054,8 @@ Document: ${path.basename(filePath)}`;
             }
           }
         }
-        
-        // Process columns
-        if (floor.columns) {
-          for (const col of floor.columns) {
-            const colEl = this.createColumnElement(col, storey);
-            if (colEl) { elements.push(colEl); storey.elementCount++; }
-          }
-        }
 
-        // Process beams
-        if (floor.beams) {
-          for (const beam of floor.beams) {
-            const beamEl = this.createBeamElement(beam, storey);
-            if (beamEl) { elements.push(beamEl); storey.elementCount++; }
-          }
-        }
-
-        // Process slabs (floor plates)
+        // 5. Slabs/Floor plates
         if (floor.slabs) {
           for (const slab of floor.slabs) {
             const slabEl = this.createSlabElement(slab, storey);
@@ -1042,7 +1063,7 @@ Document: ${path.basename(filePath)}`;
           }
         }
 
-        // Process stairs
+        // 6. Stairs
         if (floor.stairs) {
           for (const stair of floor.stairs) {
             const stairEl = this.createStairElement(stair, storey);
@@ -1050,23 +1071,7 @@ Document: ${path.basename(filePath)}`;
           }
         }
 
-        // Process foundations (ground floor only — negative or zero elevation)
-        if (floor.foundations) {
-          for (const found of floor.foundations) {
-            const foundEl = this.createFoundationElement(found, storey);
-            if (foundEl) { elements.push(foundEl); storey.elementCount++; }
-          }
-        }
-
-        // Process MEP elements
-        if (floor.mep) {
-          for (const mep of floor.mep) {
-            const mepEl = this.createMEPElement(mep, storey);
-            if (mepEl) { elements.push(mepEl); storey.elementCount++; }
-          }
-        }
-        
-        // Process doors
+        // 7. Doors (hosted in walls — walls must exist first)
         if (floor.doors) {
           for (const door of floor.doors) {
             const doorElement = this.createDoorElement(door, storey);
@@ -1076,8 +1081,8 @@ Document: ${path.basename(filePath)}`;
             }
           }
         }
-        
-        // Process windows
+
+        // 8. Windows (hosted in walls — walls must exist first)
         if (floor.windows) {
           for (const win of floor.windows) {
             const windowElement = this.createWindowElement(win, storey);
@@ -1085,6 +1090,14 @@ Document: ${path.basename(filePath)}`;
               elements.push(windowElement);
               storey.elementCount++;
             }
+          }
+        }
+
+        // 9. MEP systems (routed through completed structure)
+        if (floor.mep) {
+          for (const mep of floor.mep) {
+            const mepEl = this.createMEPElement(mep, storey);
+            if (mepEl) { elements.push(mepEl); storey.elementCount++; }
           }
         }
       }

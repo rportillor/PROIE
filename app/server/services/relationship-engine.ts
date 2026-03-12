@@ -62,10 +62,15 @@ function storey(e: any): string {
 
 // ── Main detection ──────────────────────────────────────────────────────────
 
-const ENDPOINT_SNAP = 0.5;   // metres — endpoint coincidence tolerance
-const HOST_SNAP    = 1.0;   // metres — door/window within this of wall centreline → hosted
-const BEAM_COL_SNAP = 0.8;  // metres — beam endpoint near column centre
-const SLAB_EDGE_SNAP = 1.5; // metres — wall along slab edge
+// ── Snap tolerances (metres) ──────────────────────────────────────────────
+// Tightened in v15.31 to match how a human modeler hosts elements:
+// - A door/window within 0.4m of a wall centreline is realistic (half wall thickness + small tolerance)
+// - Beam endpoints within 0.5m of a column centre reflects actual structural connection
+// - Wall endpoint joins within 0.3m = reasonable construction tolerance
+const ENDPOINT_SNAP = 0.3;   // metres — wall endpoint coincidence tolerance
+const HOST_SNAP    = 0.4;    // metres — door/window within this of wall centreline → hosted
+const BEAM_COL_SNAP = 0.5;   // metres — beam endpoint near column centre
+const SLAB_EDGE_SNAP = 1.0;  // metres — wall along slab edge
 
 export function detectRelationships(elements: any[]): Relationship[] {
   const rels: Relationship[] = [];
