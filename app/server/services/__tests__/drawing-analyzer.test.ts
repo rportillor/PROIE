@@ -4,6 +4,18 @@
  * ══════════════════════════════════════════════════════════════════════════════
  */
 
+// Mock the storage module to avoid DATABASE_URL requirement
+jest.mock('../../storage', () => ({
+  storage: {
+    getDocument: jest.fn().mockResolvedValue(null),
+  },
+}));
+
+// Mock pdf-extract-new to avoid needing actual PDF processing
+jest.mock('../pdf-extract-new', () => ({
+  extractPdfTextAndPages: jest.fn().mockResolvedValue({ pageTexts: [], fullText: '' }),
+}));
+
 import { analyzeDrawingsForFacts } from '../drawing-analyzer';
 
 describe('drawing-analyzer.ts', () => {
@@ -18,12 +30,8 @@ describe('drawing-analyzer.ts', () => {
   });
 
   test('handles empty documents array', async () => {
-    try {
-      const result = await analyzeDrawingsForFacts('test-project', []);
-      expect(result).toBeDefined();
-    } catch (e: any) {
-      // May fail due to missing Claude API — verify controlled error
-      expect(e).toBeDefined();
-    }
+    const result = await analyzeDrawingsForFacts('test-project', []);
+    expect(result).toBeDefined();
+    expect(result).toHaveProperty('facts');
   });
 });

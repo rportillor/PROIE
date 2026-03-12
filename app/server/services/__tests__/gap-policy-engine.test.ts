@@ -21,13 +21,15 @@ import type { GapRecord, GapDetectionInput, GapRegister } from '../gap-policy-en
 
 const completeInput: GapDetectionInput = {
   elementId: 'wall-001',
-  elementType: 'wall',
-  discipline: 'ARCH',
-  storey: 'Level 1',
-  material: 'concrete',
-  systemType: undefined,
-  fireRating: 'FRL 120/120/120',
+  elementName: 'Exterior Wall',
+  discipline: 'ARC',
+  level: 'Level 1',
+  zone: 'East',
   properties: {
+    Material: 'concrete',
+    Fire_Rating: 'FRL 120/120/120',
+    Level: 'Level 1',
+    Specification_Section: 'Section 03 30 00',
     thickness: 200,
     height: 3000,
     length: 5000,
@@ -36,26 +38,25 @@ const completeInput: GapDetectionInput = {
 
 const incompleteInput: GapDetectionInput = {
   elementId: 'duct-001',
-  elementType: 'duct',
+  elementName: 'Supply Duct',
   discipline: 'MECH',
-  storey: 'Level 1',
-  material: '', // missing
-  systemType: '', // missing
-  fireRating: undefined,
-  properties: {},
+  level: 'Level 1',
+  zone: 'East',
+  properties: {
+    // missing Material, SystemType — should trigger gaps
+  },
 };
 
 const partialInput: GapDetectionInput = {
   elementId: 'pipe-001',
-  elementType: 'pipe',
-  discipline: 'PLUMB',
-  storey: 'Level 2',
-  material: 'copper',
-  systemType: 'domestic_hot',
-  fireRating: undefined,
+  elementName: 'Cold Water Pipe',
+  discipline: 'PLBG',
+  level: 'Level 2',
+  zone: 'West',
   properties: {
-    diameter: 25, // has some properties
-    // but missing length, insulation
+    SystemType: 'domestic_hot',
+    diameter: 25,
+    // Material not set for PLBG — but PLBG is not in appliesTo for GAP-MAT-01 (only STR, ARC)
   },
 };
 
@@ -64,19 +65,15 @@ const partialInput: GapDetectionInput = {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe('detectElementGaps', () => {
-  test('complete element produces no gaps', () => {
+  test('complete element produces few or no gaps', () => {
     const gaps = detectElementGaps(completeInput);
-    // A well-formed arch wall with material, fire rating, and dimensions → should have few/no gaps
-    expect(gaps.length).toBeLessThanOrEqual(1); // might flag systemType if required for ARCH
+    // A well-formed ARC wall with Material, Fire_Rating, Level, Spec should have few/no gaps
+    expect(gaps.length).toBeLessThanOrEqual(1);
   });
 
   test('incomplete element produces multiple gaps', () => {
     const gaps = detectElementGaps(incompleteInput);
     expect(gaps.length).toBeGreaterThan(0);
-
-    // Should flag missing material
-    const materialGap = gaps.find(g => g.source === 'material_property');
-    expect(materialGap).toBeDefined();
 
     // Should flag missing systemType for MECH discipline
     const systemGap = gaps.find(g => g.source === 'system_type');
@@ -98,19 +95,19 @@ describe('detectElementGaps', () => {
     }
   });
 
-  test('gap records have suggested actions', () => {
+  test('gap records have action descriptions', () => {
     const gaps = detectElementGaps(incompleteInput);
     for (const gap of gaps) {
-      expect(gap.suggestedAction).toBeDefined();
-      expect(gap.suggestedAction.length).toBeGreaterThan(0);
+      expect(gap.actionDescription).toBeDefined();
+      expect(gap.actionDescription.length).toBeGreaterThan(0);
     }
   });
 
   test('partial input flags missing properties but not present ones', () => {
     const gaps = detectElementGaps(partialInput);
-    // Should NOT flag material (copper is present)
-    const materialGap = gaps.find(g => g.source === 'material_property');
-    expect(materialGap).toBeUndefined();
+    // Should NOT flag systemType (domestic_hot is present)
+    const systemGap = gaps.find(g => g.source === 'system_type');
+    expect(systemGap).toBeUndefined();
   });
 });
 
@@ -143,21 +140,18 @@ describe('detectBatchGaps', () => {
 describe('createToleranceGap', () => {
   test('creates a gap for missing tolerance', () => {
     const gap = createToleranceGap(
-      'duct-001',
-      'beam-001',
-      'MECH',
-      'STRUCT',
-      null // null tolerance = missing
+      'CD-001',
+      'Duct vs Beam clearance',
+      'clearance_mm',
     );
     expect(gap).toBeDefined();
     expect(gap.source).toBe('clearance_tolerance');
     expect(gap.lifecycle).toBe('DETECTED');
   });
 
-  test('tolerance gap references both elements', () => {
-    const gap = createToleranceGap('elem-a', 'elem-b', 'MECH', 'STRUCT', null);
-    expect(gap.description).toContain('elem-a');
-    expect(gap.description).toContain('elem-b');
+  test('tolerance gap description references test', () => {
+    const gap = createToleranceGap('CD-001', 'Duct vs Beam clearance', 'clearance_mm');
+    expect(gap.description).toContain('CD-001');
   });
 });
 
@@ -168,30 +162,30 @@ describe('createToleranceGap', () => {
 describe('buildGapRegister', () => {
   test('builds register from gap array', () => {
     const gaps = detectBatchGaps([incompleteInput, partialInput]);
-    const register = buildGapRegister('MOOR-001', gaps);
+    const register = buildGapRegister(gaps, 'MOOR-001');
 
-    expect(register.projectId).toBe('MOOR-001');
-    expect(register.totalGaps).toBe(gaps.length);
-    expect(register.items).toHaveLength(gaps.length);
+    expect(register.projectName).toBe('MOOR-001');
+    expect(register.summary.total).toBe(gaps.length);
+    expect(register.gaps).toHaveLength(gaps.length);
   });
 
   test('register categorizes by source', () => {
     const gaps = detectBatchGaps([incompleteInput]);
-    const register = buildGapRegister('MOOR-001', gaps);
-    expect(register.bySource).toBeDefined();
+    const register = buildGapRegister(gaps);
+    expect(register.summary.bySource).toBeDefined();
   });
 
   test('register categorizes by discipline', () => {
     const gaps = detectBatchGaps([incompleteInput, partialInput]);
-    const register = buildGapRegister('MOOR-001', gaps);
-    expect(register.byDiscipline).toBeDefined();
-    expect(register.byDiscipline['MECH']).toBeGreaterThan(0);
+    const register = buildGapRegister(gaps);
+    expect(register.summary.byDiscipline).toBeDefined();
+    expect(register.summary.byDiscipline['MECH']).toBeGreaterThan(0);
   });
 
   test('empty gaps produce empty register', () => {
-    const register = buildGapRegister('MOOR-001', []);
-    expect(register.totalGaps).toBe(0);
-    expect(register.items).toHaveLength(0);
+    const register = buildGapRegister([]);
+    expect(register.summary.total).toBe(0);
+    expect(register.gaps).toHaveLength(0);
   });
 });
 
@@ -200,28 +194,16 @@ describe('buildGapRegister', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe('resolveGap', () => {
-  test('resolves a gap with RFI response', () => {
+  test('resolves a gap with value and evidence', () => {
     const gaps = detectElementGaps(incompleteInput);
     expect(gaps.length).toBeGreaterThan(0);
 
     const gap = gaps[0];
-    const resolved = resolveGap(gap, {
-      lifecycle: 'CLOSED',
-      resolvedValue: 'Sheet metal',
-      rfiNumber: 'RFI-MOOR-001',
-    });
+    const resolved = resolveGap(gap, 'Sheet metal', 'Drawing M-101 Rev B');
 
     expect(resolved.lifecycle).toBe('CLOSED');
     expect(resolved.resolvedValue).toBe('Sheet metal');
-    expect(resolved.rfiNumber).toBe('RFI-MOOR-001');
-  });
-
-  test('defers a gap', () => {
-    const gaps = detectElementGaps(incompleteInput);
-    const gap = gaps[0];
-
-    const deferred = resolveGap(gap, { lifecycle: 'DEFERRED' });
-    expect(deferred.lifecycle).toBe('DEFERRED');
+    expect(resolved.evidenceRef).toBe('Drawing M-101 Rev B');
   });
 
   test('preserves original gap data on resolve', () => {
@@ -230,7 +212,7 @@ describe('resolveGap', () => {
     const originalSource = gap.source;
     const originalElement = gap.elementId;
 
-    const resolved = resolveGap(gap, { lifecycle: 'CLOSED', resolvedValue: 'test' });
+    const resolved = resolveGap(gap, 'test-value', 'test-evidence');
     expect(resolved.source).toBe(originalSource);
     expect(resolved.elementId).toBe(originalElement);
   });

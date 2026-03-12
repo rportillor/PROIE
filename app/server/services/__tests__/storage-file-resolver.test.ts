@@ -4,6 +4,20 @@
  * ══════════════════════════════════════════════════════════════════════════════
  */
 
+// Mock the db module to avoid DATABASE_URL requirement
+jest.mock('../../db', () => ({
+  db: {
+    transaction: jest.fn(),
+    delete: jest.fn(),
+  },
+}));
+
+// Mock @shared/schema to avoid import issues
+jest.mock('@shared/schema', () => ({
+  bimElements: {},
+  bimModels: {},
+}));
+
 import { loadFileBuffer, deleteModelCascade } from '../storage-file-resolver';
 
 describe('storage-file-resolver.ts', () => {
@@ -21,7 +35,20 @@ describe('storage-file-resolver.ts', () => {
     result.catch(() => {});
   });
 
+  test('loadFileBuffer returns null for non-existent file', async () => {
+    const result = await loadFileBuffer('non-existent-key');
+    expect(result).toBeNull();
+  });
+
   test('deleteModelCascade returns a promise', () => {
+    const { db } = require('../../db');
+    db.transaction.mockImplementation(async (fn: any) => {
+      await fn({
+        delete: jest.fn().mockReturnValue({
+          where: jest.fn().mockResolvedValue(undefined),
+        }),
+      });
+    });
     const result = deleteModelCascade('fake-model-id');
     expect(result).toBeInstanceOf(Promise);
     result.catch(() => {});
