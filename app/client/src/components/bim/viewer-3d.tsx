@@ -619,7 +619,121 @@ export default function Viewer3D({ modelId }: ViewerProps){
       const yOffset = 0; // Keep building centered - no large coordinate offset
       console.log(`🎯 Coordinate system transformation: Y offset = ${yOffset.toFixed(1)}m (Building: Y=${minBuildingY.toFixed(1)} to ${maxBuildingY.toFixed(1)}, Z=${minZ.toFixed(1)} to ${maxZ.toFixed(1)})`);
 
+      // ═══════════════════════════════════════════════════════════════════
+      // HELPER: Create Three.js geometry from serialized mesh data
+      // When the 3D geometry kernel has produced real mesh data, use it
+      // instead of falling back to box approximations.
+      // ═══════════════════════════════════════════════════════════════════
+      function createMeshFromSerialized(meshData: any): THREE.BufferGeometry | null {
+        if (!meshData || !meshData.vertices || !meshData.indices) return null;
+        if (meshData.vertices.length < 9 || meshData.indices.length < 3) return null;
+
+        try {
+          const geo = new THREE.BufferGeometry();
+          const verts = new Float32Array(meshData.vertices.length);
+          // Axis swap: building Z-up → Three.js Y-up
+          for (let i = 0; i < meshData.vertices.length; i += 3) {
+            verts[i]     = meshData.vertices[i];     // X → X
+            verts[i + 1] = meshData.vertices[i + 2]; // Z → Y (up)
+            verts[i + 2] = meshData.vertices[i + 1]; // Y → Z (forward)
+          }
+          geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+          geo.setIndex(new THREE.BufferAttribute(new Uint32Array(meshData.indices), 1));
+          if (meshData.normals && meshData.normals.length === meshData.vertices.length) {
+            const norms = new Float32Array(meshData.normals.length);
+            for (let i = 0; i < meshData.normals.length; i += 3) {
+              norms[i]     = meshData.normals[i];
+              norms[i + 1] = meshData.normals[i + 2];
+              norms[i + 2] = meshData.normals[i + 1];
+            }
+            geo.setAttribute('normal', new THREE.BufferAttribute(norms, 3));
+          } else {
+            geo.computeVertexNormals();
+          }
+          geo.computeBoundingSphere();
+          return geo;
+        } catch (err) {
+          console.warn('Failed to create mesh from serialized data:', err);
+          return null;
+        }
+      }
+
+      // Color map for real mesh elements
+      function getMeshColor(type: string, material: string): number {
+        const t = (type || '').toLowerCase();
+        if (/exterior wall/.test(t)) return 0xC4A882;
+        if (/interior wall|partition/.test(t)) return 0xE8DCC8;
+        if (/curtain/.test(t)) return 0x88CCEE;
+        if (/column/.test(t)) return 0x808080;
+        if (/beam/.test(t)) return 0xA0A0A0;
+        if (/slab|floor/.test(t)) return 0xD0D0D0;
+        if (/roof/.test(t)) return 0x8B4513;
+        if (/door/.test(t)) return 0x8B6914;
+        if (/window/.test(t)) return 0x4FC3F7;
+        if (/stair/.test(t)) return 0xB0B0B0;
+        if (/footing|foundation/.test(t)) return 0x696969;
+        if (/duct/.test(t)) return 0x4CAF50;
+        if (/pipe/.test(t)) return 0x2196F3;
+        if (/cable|tray/.test(t)) return 0xFF9800;
+        if (/light/.test(t)) return 0xFFEB3B;
+        if (/sprinkler/.test(t)) return 0xF44336;
+        if (/panel/.test(t)) return 0x9C27B0;
+        if (/railing/.test(t)) return 0x708090;
+        return 0xCCCCCC;
+      }
+
+      let meshRenderedCount = 0;
+      let boxFallbackCount = 0;
+
       for(const e of elements){
+        // ═══════════════════════════════════════════════════════════════
+        // PRIORITY 1: Try to render from real mesh data (geometry kernel)
+        // ═══════════════════════════════════════════════════════════════
+        const meshData = e?.geometry?.mesh || e?.mesh;
+        const realMeshGeo = createMeshFromSerialized(meshData);
+
+        if (realMeshGeo) {
+          const elType = e.type || e.elementType || '';
+          const elMaterial = e.material || e.properties?.material || '';
+          const color = getMeshColor(elType, elMaterial);
+          const opacity = /window|glazing|curtain/i.test(elType) ? 0.4 : 1.0;
+          const isTransparent = opacity < 1;
+
+          const mat = new THREE.MeshStandardMaterial({
+            color,
+            metalness: /steel|metal|aluminum/i.test(elMaterial) ? 0.6 : 0.1,
+            roughness: /glass|glazing/i.test(elMaterial) ? 0.1 : 0.85,
+            flatShading: true,
+            transparent: isTransparent,
+            opacity,
+          });
+
+          const mesh = new THREE.Mesh(realMeshGeo, mat);
+
+          // Add edges for visual clarity
+          if (!isTransparent) {
+            const edges = new THREE.EdgesGeometry(realMeshGeo, 30);
+            const edgeMat = new THREE.LineBasicMaterial({ color: 0x000000, opacity: 0.15, transparent: true });
+            mesh.add(new THREE.LineSegments(edges, edgeMat));
+          }
+
+          mesh.userData = { element: e };
+          root.add(mesh);
+          meshRenderedCount++;
+
+          // Expand bounding box
+          realMeshGeo.computeBoundingBox();
+          if (realMeshGeo.boundingBox) {
+            box.expandByPoint(realMeshGeo.boundingBox.min);
+            box.expandByPoint(realMeshGeo.boundingBox.max);
+          }
+          continue; // Skip legacy box rendering
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // FALLBACK: Legacy box-based rendering (pre-geometry-kernel data)
+        // ═══════════════════════════════════════════════════════════════
+        boxFallbackCount++;
         const dims = getDims(e);
         if (!dims) continue; // TS18047 fix: getDims returns null when dimensions missing — skip element
 
@@ -632,14 +746,14 @@ export default function Viewer3D({ modelId }: ViewerProps){
             // Ignore parse errors
           }
         }
-        
+
         const rawLocation = e?.geometry?.location?.realLocation
               || e?.properties?.realLocation
               || e?.geometry?.location?.coordinates
               || parsedLocation
               || e?.location
               || {x:0,y:0,z:0};
-        
+
         // Coerce to metres (backward compat), then axis-swap for Three.js
         const cc2 = coerceCoordToMetres(
           Number(rawLocation.x || 0),
@@ -1144,11 +1258,16 @@ export default function Viewer3D({ modelId }: ViewerProps){
         box.expandByPoint(new THREE.Vector3(p.x + dims.width/2, p.y + dims.height, p.z + dims.depth/2));
       }
 
+      // Log mesh vs box rendering stats
+      if (meshRenderedCount > 0 || boxFallbackCount > 0) {
+        console.log(`[3D Viewer] Rendered ${meshRenderedCount} elements with real mesh geometry, ${boxFallbackCount} with box fallback`);
+      }
+
       // frame with safety net for tiny scenes
       const size = box.getSize(new THREE.Vector3());
       const diag = Math.max(10, size.length(), 30); // ensure at least ~30m diag for camera
       const center = box.getCenter(new THREE.Vector3());
-      
+
       // Building should now be properly centered around origin
       console.log(`🎯 Building centered at:`, {
         x: center.x.toFixed(2), 

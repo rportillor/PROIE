@@ -1,11 +1,11 @@
 // client/src/components/bim/FloorGenerationButton.tsx
-// 🏗️ Floor-by-floor BIM generation UI component
+// Floor-by-floor BIM generation + real 3D geometry build
 
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Building2, CheckCircle, AlertCircle, Layers } from 'lucide-react';
+import { Building2, CheckCircle, AlertCircle, Layers, Box } from 'lucide-react';
 
 interface FloorGenerationButtonProps {
   projectId: string;
@@ -28,9 +28,11 @@ interface FloorAnalysis {
 
 export function FloorGenerationButton({ projectId, onSuccess, disabled }: FloorGenerationButtonProps) {
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isBuilding3D, setIsBuilding3D] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentFloor, setCurrentFloor] = useState<string>('');
   const [result, setResult] = useState<any>(null);
+  const [build3DResult, setBuild3DResult] = useState<any>(null);
   const [error, setError] = useState<string>('');
   const [floorAnalysis, setFloorAnalysis] = useState<FloorAnalysis | null>(null);
 
@@ -210,12 +212,74 @@ export function FloorGenerationButton({ projectId, onSuccess, disabled }: FloorG
         onSuccess(data.modelId);
       }
 
+      // Auto-trigger 3D geometry build after BIM generation
+      if (data && typeof data === 'object' && 'modelId' in data) {
+        await build3DModel(data.modelId);
+      }
+
     } catch (err: any) {
       setError(err?.message || 'BIM generation failed');
       setProgress(0);
       setCurrentFloor('');
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const build3DModel = async (modelId: string) => {
+    setIsBuilding3D(true);
+    setBuild3DResult(null);
+
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) return;
+
+      setCurrentFloor('Building real 3D geometry from BIM elements...');
+
+      const response = await fetch(`/api/bim/models/${modelId}/build-3d`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('3D build failed:', errorText);
+        setBuild3DResult({ error: errorText });
+        return;
+      }
+
+      const data = await response.json();
+      setBuild3DResult(data);
+      setCurrentFloor('3D model built successfully!');
+    } catch (err: any) {
+      console.error('3D build error:', err);
+      setBuild3DResult({ error: err?.message });
+    } finally {
+      setIsBuilding3D(false);
+    }
+  };
+
+  const handleManualBuild3D = async () => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      if (!token) return;
+
+      const modelsResponse = await fetch(`/api/projects/${projectId}/bim-models`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        credentials: 'include',
+      });
+      if (!modelsResponse.ok) return;
+
+      const models = await modelsResponse.json();
+      if (!models[0]?.id) return;
+
+      await build3DModel(models[0].id);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to build 3D model');
     }
   };
 
@@ -312,6 +376,43 @@ export function FloorGenerationButton({ projectId, onSuccess, disabled }: FloorG
                       <span>{floor.elements} elements</span>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Build 3D Model Button — manual trigger for existing BIM data */}
+      {!isGenerating && (
+        <Button
+          onClick={handleManualBuild3D}
+          disabled={isBuilding3D}
+          variant="outline"
+          className="w-full"
+          data-testid="button-build-3d"
+        >
+          <Box className="mr-2 h-4 w-4" />
+          {isBuilding3D
+            ? 'Building 3D Geometry...'
+            : 'Build 3D Model (Real Geometry)'}
+        </Button>
+      )}
+
+      {/* 3D Build Result */}
+      {build3DResult && !build3DResult.error && (
+        <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/30">
+          <CheckCircle className="h-4 w-4 text-blue-600" />
+          <AlertDescription className="text-blue-800 dark:text-blue-200">
+            <div className="space-y-1">
+              <div className="font-medium">3D geometry built</div>
+              <div className="text-sm">
+                {build3DResult.stats?.withGeometry || 0} elements with real mesh data.
+                {build3DResult.hasIFC && ' IFC4 export ready.'}
+              </div>
+              {build3DResult.clashSummary?.total > 0 && (
+                <div className="text-xs text-orange-600">
+                  {build3DResult.clashSummary.total} clashes detected
                 </div>
               )}
             </div>

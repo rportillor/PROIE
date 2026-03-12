@@ -1734,11 +1734,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           }
         } else {
-          // Non-PDF files (DWG, DXF, IFC) - mark as ready for CAD parsing
-          await storage.updateDocument(document.id, {
-            analysisStatus: "Ready"
-          });
-          console.log(`[*] Non-PDF file ready for CAD analysis: ${document.filename}`);
+          // Non-PDF files (DWG, DXF, IFC) - check for direct 3D import
+          const ext = path.extname(file.originalname).toLowerCase();
+
+          if (ext === '.ifc' || ext === '.dxf') {
+            try {
+              console.log(`[3D] Importing ${ext.toUpperCase()} file via geometry pipeline: ${file.originalname}`);
+              const fs = await import('fs');
+              const fileContent = fs.readFileSync(file.path);
+              const { importFile } = await import('./bim/model-builder');
+              const { exportBIMToIFC4 } = await import('./bim/ifc-export-v2');
+              const { serializeBIMSolid } = await import('./bim/parametric-elements');
+
+              const importResult = await importFile(fileContent, file.originalname);
+
+              if (importResult.elements.length > 0) {
+                // Create or get a BIM model for this project
+                const existingModels = await storage.getBimModels?.(req.params.projectId) || [];
+                let modelId: string;
+
+                if (existingModels.length > 0) {
+                  modelId = existingModels[0].id;
+                } else {
+                  modelId = `model_${Date.now()}`;
+                  await (storage as any).createBimModel?.({
+                    id: modelId,
+                    projectId: req.params.projectId,
+                    name: importResult.projectName || `Imported ${ext.toUpperCase()} Model`,
+                    modelType: 'imported',
+                    status: 'ready',
+                    elementCount: importResult.elements.length,
+                  });
+                }
+
+                // Store each element with real mesh data
+                for (const el of importResult.elements) {
+                  const serialized = serializeBIMSolid(el);
+                  await storage.createBimElement?.({
+                    modelId,
+                    elementId: el.id,
+                    elementType: el.type,
+                    name: el.name,
+                    category: el.category,
+                    material: el.material,
+                    storeyName: el.storey,
+                    elevation: String(el.elevation),
+                    geometry: JSON.stringify({
+                      dimensions: {
+                        length: el.quantities.length,
+                        width: el.quantities.width,
+                        height: el.quantities.height,
+                        depth: el.quantities.thickness,
+                        area: el.quantities.surfaceArea,
+                        volume: el.quantities.volume,
+                      },
+                      location: { realLocation: el.origin },
+                      mesh: serialized,
+                      boundingBox: el.boundingBox,
+                    }),
+                    properties: JSON.stringify({
+                      material: el.material,
+                      ifcClass: el.ifcClass,
+                      source: el.source,
+                      quantities: el.quantities,
+                    }),
+                  });
+                }
+
+                // Generate IFC export for the model
+                const ifcContent = exportBIMToIFC4(importResult.elements, {
+                  projectName: importResult.projectName || file.originalname,
+                });
+                await (storage as any).updateBimModel?.(modelId, {
+                  ifcData: ifcContent,
+                  elementCount: importResult.elements.length,
+                  status: 'ready',
+                });
+
+                console.log(`[3D] Imported ${importResult.elements.length} elements from ${file.originalname} (format: ${importResult.format})`);
+              }
+
+              await storage.updateDocument(document.id, {
+                analysisStatus: "Ready",
+              });
+            } catch (importError) {
+              console.error(`[3D] CAD import failed for ${file.originalname}:`, importError);
+              await storage.updateDocument(document.id, {
+                analysisStatus: "Ready",
+              });
+            }
+          } else {
+            // Other non-PDF files (DWG, RVT) - mark as ready
+            await storage.updateDocument(document.id, {
+              analysisStatus: "Ready"
+            });
+            console.log(`[*] Non-PDF file ready for CAD analysis: ${document.filename}`);
+          }
         }
 
         console.log(`[*] Document processed with REAL content: ${document.filename}`);
@@ -2150,6 +2241,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use('/api', authenticateToken, (await import('./routes/clash-detection-routes')).clashDetectionRouter);
   // gridDetectionRouter — ~10 endpoints: runs, axes, labels, review status
   app.use('/api/grid-detection', authenticateToken, (await import('./routes/grid-detection')).gridDetectionRouter);
+  // bim3DRouter — 3D model building, viewer data, clash checks, file import, IFC export v2
+  app.use('/api', authenticateToken, (await import('./routes/bim-3d-model')).bim3DRouter);
 
   // BoQ Items endpoints
   // BoQ endpoint alias for consistency
