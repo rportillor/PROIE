@@ -15,8 +15,7 @@ describe('balancedAssemble', () => {
   test('handles empty elements array', async () => {
     try {
       const result = await balancedAssemble({
-        modelId: 'test-model',
-        elements: [],
+        baseElements: [],
         storeys: [],
       });
       expect(result).toBeDefined();
