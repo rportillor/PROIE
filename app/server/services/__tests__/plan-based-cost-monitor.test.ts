@@ -20,32 +20,33 @@ describe('PlanBasedCostMonitor', () => {
     expect(instance1).toBe(instance2);
   });
 
-  test('has trackUsage method', () => {
-    expect(typeof planBasedCostMonitor.trackUsage).toBe('function');
+  test('has trackPlanUsage method', () => {
+    expect(typeof planBasedCostMonitor.trackPlanUsage).toBe('function');
   });
 
-  test('has getUsage method', () => {
-    expect(typeof planBasedCostMonitor.getUsage).toBe('function');
+  test('has checkPlanUsage method', () => {
+    expect(typeof planBasedCostMonitor.checkPlanUsage).toBe('function');
   });
 
-  test('has checkLimit method', () => {
-    expect(typeof planBasedCostMonitor.checkLimit).toBe('function');
+  test('has getCurrentPlan method', () => {
+    expect(typeof planBasedCostMonitor.getCurrentPlan).toBe('function');
   });
 
-  test('tracks API usage', () => {
-    planBasedCostMonitor.trackUsage('test-user', {
-      inputTokens: 1000,
-      outputTokens: 500,
-      model: 'claude-sonnet-4-20250514',
-      costUsd: 0.015,
-    });
-    const usage = planBasedCostMonitor.getUsage('test-user');
+  test('tracks plan usage', async () => {
+    const usage = await planBasedCostMonitor.trackPlanUsage(
+      1000,
+      'standard',
+      'test_operation',
+    );
     expect(usage).toBeDefined();
-    expect(usage!.totalCostUsd).toBeGreaterThan(0);
+    expect(typeof usage.tokensUsed).toBe('number');
+    expect(typeof usage.usagePercentage).toBe('number');
   });
 
-  test('checkLimit returns boolean', () => {
-    const allowed = planBasedCostMonitor.checkLimit('test-user', 'pro');
-    expect(typeof allowed).toBe('boolean');
+  test('checkPlanUsage returns allowed status', async () => {
+    const result = await planBasedCostMonitor.checkPlanUsage(100, 'standard');
+    expect(typeof result.allowed).toBe('boolean');
+    expect(result.usage).toBeDefined();
+    expect(Array.isArray(result.alerts)).toBe(true);
   });
 });
