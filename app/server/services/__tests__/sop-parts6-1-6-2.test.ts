@@ -91,6 +91,8 @@ describe('constructability-engine.ts', () => {
       predecessorTrade: 'Concrete',
       successorTrade: 'Framing',
       dependencyType: 'finish_to_start',
+      lagDays: 7,
+      constraint: 'FS',
       holdPoint: true,
       inspectionRequired: true,
       description: 'Concrete must cure before framing',

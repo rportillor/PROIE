@@ -18,7 +18,7 @@ describe('coerceStatus', () => {
 
   test('returns default for invalid status', () => {
     const result = coerceStatus('invalid_status');
-    expect(['queued', 'failed']).toContain(result);
+    expect(result).toBe('generating');
   });
 
   test('handles null input', () => {

@@ -25,8 +25,9 @@ describe('similarity-cache.ts', () => {
   test('SimilarityCachePayload type compliance', () => {
     const payload: SimilarityCachePayload = {
       projectId: 'MOOR',
-      pairs: [],
-      timestamp: new Date().toISOString(),
+      documentMetadata: {},
+      similarities: [],
+      analyzedAt: new Date().toISOString(),
     };
     expect(payload.projectId).toBe('MOOR');
   });

@@ -30,12 +30,13 @@ describe('grid-extractor.ts', () => {
     };
     const result = buildNonUniformGridsFromAnalysis(analysis);
     if (result) {
-      expect(result.xGrids || result.yGrids).toBeDefined();
+      expect(result.x || result.y).toBeDefined();
     }
   });
 
-  test('computePrimaryAngles returns null for null footprint', () => {
-    expect(computePrimaryAngles(null)).toBeNull();
+  test('computePrimaryAngles returns default angles for null footprint', () => {
+    const result = computePrimaryAngles(null);
+    expect(result).toEqual({ buildingDeg: 0, siteDeg: 0 });
   });
 
   test('computePrimaryAngles computes for rectangular footprint', () => {

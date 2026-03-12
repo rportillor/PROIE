@@ -11,8 +11,8 @@ describe('similarity-analyzer.ts', () => {
     expect(similarityAnalyzer).toBeDefined();
   });
 
-  test('has analyze method', () => {
-    expect(typeof similarityAnalyzer.analyze).toBe('function');
+  test('has start method', () => {
+    expect(typeof similarityAnalyzer.start).toBe('function');
   });
 
   test('has computeSimilarity method or equivalent', () => {

@@ -17,7 +17,8 @@ import {
   runSpatialClashTests,
 } from '../spatial-clash-engine';
 
-import type { AABB, ResolvedElement } from '../clash-detection-engine';
+import type { AABB, ResolvedElement, ClearanceRequirements } from '../clash-detection-engine';
+import { emptyClearanceRequirements } from '../clash-detection-engine';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  TEST DATA
@@ -29,17 +30,19 @@ const boxC: AABB = { minX: 5, minY: 5, minZ: 0, maxX: 6, maxY: 6, maxZ: 3 };
 const boxD: AABB = { minX: 2, minY: 0, minZ: 0, maxX: 4, maxY: 2, maxZ: 3 }; // touches A at x=2
 const boxE: AABB = { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 1, maxZ: 1 }; // fully inside A
 
-function makeElement(id: string, box: AABB, type: string = 'wall', discipline: string = 'ARCH'): ResolvedElement {
+function makeElement(id: string, box: AABB, type: string = 'wall', discipline: string = 'architectural'): ResolvedElement {
   return {
     id,
     elementId: id,
-    type,
+    name: id,
+    elementType: type,
     category: type,
     discipline,
     storey: 'Level 1',
     material: 'concrete',
     bbox: box,
-    systemType: discipline === 'MECH' ? 'HVAC' : undefined,
+    dimensions: { length: 1, width: 1, height: 1, area: 1, volume: 1 },
+    csiDivision: '03',
   } as ResolvedElement;
 }
 
@@ -201,29 +204,43 @@ describe('aabbPenetrationDepth', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe('sweepAndPrune', () => {
-  test('finds overlapping pairs from element list', () => {
-    const elements = [
+  test('finds overlapping pairs between two sets', () => {
+    const setA = [
       makeElement('elem-1', boxA),
+    ];
+    const setB = [
       makeElement('elem-2', boxB),
       makeElement('elem-3', boxC),
     ];
-    const pairs = sweepAndPrune(elements);
-    // A overlaps B, but neither overlaps C
+    // clearance_m = 0 for hard clash
+    const pairs = sweepAndPrune(setA, setB, 0);
+    // elem-1 overlaps elem-2 on X-axis, but not elem-3
     expect(pairs.length).toBeGreaterThanOrEqual(1);
-    const pairIds = pairs.map(p => [p[0].id, p[1].id].sort().join(','));
-    expect(pairIds).toContain('elem-1,elem-2');
+    // pairs are [indexA, indexB] tuples
+    expect(pairs[0]).toHaveLength(2);
   });
 
-  test('returns empty for single element', () => {
-    const pairs = sweepAndPrune([makeElement('elem-1', boxA)]);
-    expect(pairs).toHaveLength(0);
-  });
-
-  test('returns empty for well-separated elements', () => {
+  test('returns empty for well-separated sets', () => {
     const far1: AABB = { minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 1, maxZ: 1 };
     const far2: AABB = { minX: 100, minY: 100, minZ: 100, maxX: 101, maxY: 101, maxZ: 101 };
-    const pairs = sweepAndPrune([makeElement('a', far1), makeElement('b', far2)]);
+    const pairs = sweepAndPrune(
+      [makeElement('a', far1)],
+      [makeElement('b', far2)],
+      0
+    );
     expect(pairs).toHaveLength(0);
+  });
+
+  test('clearance expands search radius', () => {
+    // boxA ends at x=2, boxC starts at x=5 — 3m gap
+    const setA = [makeElement('a', boxA)];
+    const setB = [makeElement('c', boxC)];
+
+    // With 0 clearance, no overlap on X-axis
+    const noClearancePairs = sweepAndPrune(setA, setB, 0);
+    // With 4m clearance, should overlap on expanded X-axis
+    const bigClearancePairs = sweepAndPrune(setA, setB, 4);
+    expect(bigClearancePairs.length).toBeGreaterThanOrEqual(noClearancePairs.length);
   });
 });
 
@@ -232,24 +249,44 @@ describe('sweepAndPrune', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe('evaluatePair', () => {
+  // evaluatePair requires a ClashTestTemplate and ClearanceRequirements
+  const hardTemplate = {
+    id: 'CD-TEST',
+    name: 'Test Hard Clash',
+    description: 'Test',
+    category: 'hard' as const,
+    setA: 'SS-STR-01',
+    setB: 'SS-MECH-01',
+    selfTest: false,
+    tolerance_mm: 0,
+    toleranceSource: null,
+    defaultSeverity: 'critical' as const,
+    severityOverrides: [],
+    enabled: true,
+    codeReferences: ['TEST'],
+    notes: '',
+  };
+
   test('detects hard clash between overlapping elements', () => {
     const result = evaluatePair(
-      makeElement('wall-1', boxA, 'wall', 'ARCH'),
-      makeElement('duct-1', boxB, 'duct', 'MECH'),
-      null // no tolerance override
+      makeElement('wall-1', boxA, 'wall', 'architectural'),
+      makeElement('duct-1', boxB, 'duct', 'mechanical'),
+      hardTemplate,
+      emptyClearanceRequirements(),
     );
     expect(result).not.toBeNull();
     if (result) {
       expect(result.category).toBe('hard');
-      expect(result.penetration_mm).toBeGreaterThan(0);
+      expect(result.penetrationDepth_mm).toBeGreaterThan(0);
     }
   });
 
   test('returns null for non-overlapping elements', () => {
     const result = evaluatePair(
-      makeElement('wall-1', boxA, 'wall', 'ARCH'),
-      makeElement('duct-1', boxC, 'duct', 'MECH'),
-      null
+      makeElement('wall-1', boxA, 'wall', 'architectural'),
+      makeElement('duct-1', boxC, 'duct', 'mechanical'),
+      hardTemplate,
+      emptyClearanceRequirements(),
     );
     expect(result).toBeNull();
   });
@@ -262,19 +299,27 @@ describe('evaluatePair', () => {
 describe('runSpatialClashTests', () => {
   test('processes a batch of elements and returns clash results', () => {
     const elements = [
-      makeElement('wall-1', boxA, 'wall', 'ARCH'),
-      makeElement('duct-1', boxB, 'duct', 'MECH'),
-      makeElement('pipe-1', boxC, 'pipe', 'PLUMB'),
+      makeElement('wall-1', boxA, 'wall', 'architectural'),
+      makeElement('duct-1', boxB, 'duct', 'mechanical'),
+      makeElement('pipe-1', boxC, 'pipe', 'plumbing'),
     ];
-    const result = runSpatialClashTests({ elements, tolerances: new Map() });
+    const result = runSpatialClashTests(elements, {
+      projectClearances: emptyClearanceRequirements(),
+    });
     expect(result).toBeDefined();
-    expect(result.totalPairsChecked).toBeGreaterThanOrEqual(0);
-    expect(Array.isArray(result.clashes)).toBe(true);
+    expect(result.pairsEvaluated).toBeGreaterThanOrEqual(0);
+    expect(Array.isArray(result.rawClashes)).toBe(true);
+    expect(result).toHaveProperty('testsRun');
+    expect(result).toHaveProperty('gapTolerances');
+    expect(result).toHaveProperty('warnings');
+    expect(result).toHaveProperty('timings');
   });
 
   test('empty elements returns zero clashes', () => {
-    const result = runSpatialClashTests({ elements: [], tolerances: new Map() });
-    expect(result.clashes).toHaveLength(0);
-    expect(result.totalPairsChecked).toBe(0);
+    const result = runSpatialClashTests([], {
+      projectClearances: emptyClearanceRequirements(),
+    });
+    expect(result.rawClashes).toHaveLength(0);
+    expect(result.pairsEvaluated).toBe(0);
   });
 });

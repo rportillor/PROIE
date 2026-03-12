@@ -21,10 +21,12 @@ describe('similarity-summary.ts', () => {
   test('ProjectSimilaritySummary type compliance', () => {
     const summary: ProjectSimilaritySummary = {
       projectId: 'MOOR',
-      totalPairs: 10,
-      avgSimilarity: 0.75,
-      highSimilarityCount: 3,
+      documents: [],
+      pairs: [],
+      overallScore: 0.75,
+      counts: { totalPairs: 10, critical: 0, high: 3, medium: 4, low: 3 },
+      analyzedAt: new Date().toISOString(),
     };
-    expect(summary.avgSimilarity).toBeCloseTo(0.75);
+    expect(summary.overallScore).toBeCloseTo(0.75);
   });
 });

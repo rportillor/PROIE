@@ -19,35 +19,41 @@ describe('ClaudeCostMonitor', () => {
     expect(a).toBe(b);
   });
 
-  test('has recordCall method', () => {
-    expect(typeof claudeCostMonitor.recordCall).toBe('function');
+  test('has trackApiCall method', () => {
+    expect(typeof claudeCostMonitor.trackApiCall).toBe('function');
   });
 
-  test('has getSessionCost method', () => {
-    expect(typeof claudeCostMonitor.getSessionCost).toBe('function');
+  test('has getTodaysUsage method', () => {
+    expect(typeof claudeCostMonitor.getTodaysUsage).toBe('function');
   });
 
-  test('has isOverBudget method', () => {
-    expect(typeof claudeCostMonitor.isOverBudget).toBe('function');
+  test('has checkBudgetBeforeCall method', () => {
+    expect(typeof claudeCostMonitor.checkBudgetBeforeCall).toBe('function');
   });
 
-  test('records API call cost', () => {
-    claudeCostMonitor.recordCall({
-      model: 'claude-sonnet-4-20250514',
-      inputTokens: 2000,
-      outputTokens: 1000,
-      durationMs: 3500,
-    });
-    const cost = claudeCostMonitor.getSessionCost();
-    expect(cost).toBeGreaterThanOrEqual(0);
+  test('tracks API call cost', async () => {
+    const result = await claudeCostMonitor.trackApiCall(
+      'claude-sonnet-4-20250514',
+      2000,
+      1000,
+      undefined,
+      'test_operation',
+    );
+    expect(result.cost).toBeGreaterThanOrEqual(0);
+    expect(result.dailyTotal).toBeGreaterThanOrEqual(0);
   });
 
-  test('isOverBudget returns false initially', () => {
+  test('checkBudgetBeforeCall returns allowed initially', async () => {
     const monitor = new ClaudeCostMonitor();
-    expect(monitor.isOverBudget(100)).toBe(false);
+    const result = await monitor.checkBudgetBeforeCall(100);
+    expect(result.allowed).toBe(true);
+    expect(result.remainingBudget).toBeGreaterThan(0);
   });
 
-  test('getCallCount returns number', () => {
-    expect(typeof claudeCostMonitor.getCallCount()).toBe('number');
+  test('getTodaysUsage returns usage data', async () => {
+    const usage = await claudeCostMonitor.getTodaysUsage();
+    expect(usage).toBeDefined();
+    expect(typeof usage.totalCost).toBe('number');
+    expect(typeof usage.apiCalls).toBe('number');
   });
 });
