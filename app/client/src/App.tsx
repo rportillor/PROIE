@@ -41,6 +41,8 @@ const Benchmark = lazy(() => import("@/pages/benchmark"));
 const ParameterEditor = lazy(() => import("@/pages/parameter-editor"));
 // Phase 5: Sheet Viewer — 2D drawing production from 3D model
 const SheetViewer = lazy(() => import("@/pages/sheet-viewer"));
+// Structural & Energy Analysis Dashboard
+const AnalysisDashboard = lazy(() => import("@/pages/analysis-dashboard"));
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center">
@@ -111,6 +113,7 @@ function AuthenticatedRouter() {
           <Route path="/projects/:projectId/parameter-editor/:modelId" component={ParameterEditor} />
           {/* Phase 5: Sheet Viewer */}
           <Route path="/projects/:projectId/sheets/:modelId" component={SheetViewer} />
+          <Route path="/projects/:projectId/analysis/:modelId" component={AnalysisDashboard} />
           {/* QA */}
           <Route path="/qa/dashboard" component={TestDashboard} />
           <Route path="/qa/uat-signoff" component={UatSignoff} />

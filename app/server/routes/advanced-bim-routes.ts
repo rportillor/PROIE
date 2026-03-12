@@ -801,3 +801,183 @@ advancedBimRouter.delete('/bim/models/:modelId/cache', async (req: Request, res:
     res.status(500).json({ error: err.message });
   }
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  STRUCTURAL & ENERGY ANALYSIS ENDPOINTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import {
+  extractStructuralModel, runStructuralAnalysis,
+  runEnergyAnalysis, generateAnalysisReport,
+} from '../bim/structural-analysis';
+
+/**
+ * POST /api/bim/models/:modelId/analyze/structural
+ * Run structural frame analysis on the model
+ */
+advancedBimRouter.post('/bim/models/:modelId/analyze/structural', async (req: Request, res: Response) => {
+  try {
+    const { modelId } = req.params;
+    const { loadCase = 'envelope' } = req.body;
+    const elements = await loadElementsMap(modelId);
+
+    const { nodes, members } = extractStructuralModel([...elements.values()]);
+    const result = runStructuralAnalysis(nodes, members, loadCase);
+
+    res.json({
+      nodes: nodes.length,
+      members: members.length,
+      loadCombination: result.loadCombination,
+      maxUtilization: result.maxUtilization,
+      maxDisplacement: result.maxDisplacement,
+      isStable: result.isStable,
+      memberForces: result.memberForces,
+      displacements: result.displacements,
+      reactions: result.reactions,
+      warnings: result.warnings,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/bim/models/:modelId/analyze/energy
+ * Run envelope energy/thermal analysis
+ */
+advancedBimRouter.post('/bim/models/:modelId/analyze/energy', async (req: Request, res: Response) => {
+  try {
+    const { modelId } = req.params;
+    const { climateZone, heatingDegreeDays, coolingDegreeDays, designTempDiff } = req.body;
+    const elements = await loadElementsMap(modelId);
+
+    const result = runEnergyAnalysis([...elements.values()], {
+      climateZone, heatingDegreeDays, coolingDegreeDays, designTempDiff,
+    });
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/bim/models/:modelId/analyze/full
+ * Run combined structural + energy analysis
+ */
+advancedBimRouter.post('/bim/models/:modelId/analyze/full', async (req: Request, res: Response) => {
+  try {
+    const { modelId } = req.params;
+    const { climateZone, loadCase = 'envelope' } = req.body;
+    const elements = await loadElementsMap(modelId);
+    const solids = [...elements.values()];
+
+    const { nodes, members } = extractStructuralModel(solids);
+    const structural = runStructuralAnalysis(nodes, members, loadCase);
+    const energy = runEnergyAnalysis(solids, { climateZone });
+    const report = generateAnalysisReport(structural, energy);
+
+    res.json({
+      structural: {
+        nodes: nodes.length,
+        members: members.length,
+        maxUtilization: structural.maxUtilization,
+        maxDisplacement: structural.maxDisplacement,
+        isStable: structural.isStable,
+        memberForces: structural.memberForces,
+        warnings: structural.warnings,
+      },
+      energy: {
+        totalEnvelopeArea: energy.totalEnvelopeArea,
+        averageUValue: energy.averageUValue,
+        peakHeatingLoad: energy.peakHeatingLoad,
+        annualHeatingEnergy: energy.annualHeatingEnergy,
+        complianceStatus: energy.complianceStatus,
+        complianceNotes: energy.complianceNotes,
+      },
+      report,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  ROUND-TRIP ELEMENT EDITING
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * PATCH /api/bim/models/:modelId/elements/:elementId
+ * Update a single element's properties (round-trip editing from 3D viewer).
+ * Propagates constraints (wall auto-joins, hosted elements move with hosts).
+ */
+advancedBimRouter.patch('/bim/models/:modelId/elements/:elementId', async (req: Request, res: Response) => {
+  try {
+    const { modelId, elementId } = req.params;
+    const updates = req.body; // { property, value } or { edits: [{property, value}] }
+    const elements = await loadElementsMap(modelId);
+    const element = elements.get(elementId);
+
+    if (!element) {
+      return res.status(404).json({ error: `Element ${elementId} not found` });
+    }
+
+    // Record transaction for undo
+    let stack = modelTransactionStacks.get(modelId);
+    if (!stack) {
+      stack = createTransactionStack();
+      modelTransactionStacks.set(modelId, stack);
+    }
+
+    const constraints = modelConstraints.get(modelId) || [];
+
+    // Apply edits - support single or batch
+    const edits: Array<{ property: string; value: any }> = updates.edits
+      || [{ property: updates.property || 'material', value: updates.value }];
+
+    let lastResult: any = null;
+    for (const edit of edits) {
+      lastResult = applyEdit(
+        edit.property === 'material' ? elementId : elementId,
+        edit.property,
+        edit.value,
+        elements,
+        stack,
+        constraints,
+      );
+    }
+
+    // Return updated element
+    const updatedElement = elements.get(elementId);
+
+    res.json({
+      element: updatedElement,
+      success: lastResult?.success ?? true,
+      affectedElementIds: lastResult?.affectedElementIds || [],
+      canUndo: canUndo(stack),
+      canRedo: canRedo(stack),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/bim/models/:modelId/elements/:elementId
+ * Get a single element's full data (for property panel)
+ */
+advancedBimRouter.get('/bim/models/:modelId/elements/:elementId', async (req: Request, res: Response) => {
+  try {
+    const { modelId, elementId } = req.params;
+    const elements = await loadElementsMap(modelId);
+    const element = elements.get(elementId);
+
+    if (!element) {
+      return res.status(404).json({ error: `Element ${elementId} not found` });
+    }
+
+    res.json({ element });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
