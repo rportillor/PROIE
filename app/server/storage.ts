@@ -554,8 +554,8 @@ export class MemStorage implements Partial<IStorage> {
       pageText: insertDocument.pageText ?? null,
       rasterPreviews: insertDocument.rasterPreviews ?? null,
       vectorHints: insertDocument.vectorHints ?? null,
-      // ✅ FIX: Ensure storageKey is string|null, not undefined
-      storageKey: insertDocument.storageKey || null,
+      // ✅ FIX: Ensure storageKey is string, not undefined
+      storageKey: insertDocument.storageKey || "",
       analysisStatus: insertDocument.analysisStatus || "Pending",
       analysisResult: insertDocument.analysisResult || null,
       // ✅ FIX: Add missing required timestamp fields

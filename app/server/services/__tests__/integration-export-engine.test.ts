@@ -86,29 +86,7 @@ const SOV = generateScheduleOfValues(PROJECT_ID, PROJECT_NAME, BOQ_REPORT, null)
 //  TEST RUNNER
 // ══════════════════════════════════════════════════════════════════════════════
 
-interface TestResult { name: string; passed: boolean; error?: string; }
-const results: TestResult[] = [];
-let currentGroup = '';
-
-function describe(group: string, fn: () => void) { currentGroup = group; fn(); }
-function it(name: string, fn: () => void) {
-  try { fn(); results.push({ name: `${currentGroup} > ${name}`, passed: true }); }
-  catch (e: any) { results.push({ name: `${currentGroup} > ${name}`, passed: false, error: e.message }); }
-}
-function expect(val: any) {
-  return {
-    toBe(expected: any) { if (val !== expected) throw new Error(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(val)}`); },
-    toBeGreaterThan(n: number) { if (!(val > n)) throw new Error(`Expected ${val} > ${n}`); },
-    toBeGreaterThanOrEqual(n: number) { if (!(val >= n)) throw new Error(`Expected ${val} >= ${n}`); },
-    toBeLessThan(n: number) { if (!(val < n)) throw new Error(`Expected ${val} < ${n}`); },
-    toBeTruthy() { if (!val) throw new Error(`Expected truthy, got ${val}`); },
-    toContain(str: string) {
-      if (typeof val === 'string' && !val.includes(str)) throw new Error(`Expected to contain "${str}"`);
-      if (Array.isArray(val) && !val.includes(str)) throw new Error(`Array expected to contain "${str}"`);
-    },
-    not: { toContain(str: string) { if (typeof val === 'string' && val.includes(str)) throw new Error(`Expected NOT to contain "${str}"`); } },
-  };
-}
+// Uses Jest's built-in describe/it/expect
 
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -598,30 +576,3 @@ describe('Edge Cases', () => {
     expect(parsed.data.custom).toBe('data');
   });
 });
-
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  RUN ALL TESTS
-// ══════════════════════════════════════════════════════════════════════════════
-
-const passed = results.filter(r => r.passed).length;
-const failed = results.filter(r => !r.passed).length;
-const total = results.length;
-
-console.log('');
-console.log('═'.repeat(80));
-console.log(`  SOP Part 8 — Integration & Export Engine Regression Tests`);
-console.log('═'.repeat(80));
-
-if (failed > 0) {
-  console.log(`\n  FAILURES:\n`);
-  for (const r of results.filter(r => !r.passed)) {
-    console.log(`  ✗ ${r.name}`);
-    console.log(`    ${r.error}`);
-  }
-}
-
-console.log(`\n  RESULTS: ${passed}/${total} passed, ${failed} failed`);
-console.log('═'.repeat(80));
-
-if (failed > 0) process.exit(1);

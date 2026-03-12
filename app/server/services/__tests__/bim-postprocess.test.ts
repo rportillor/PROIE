@@ -5,6 +5,9 @@
  * ══════════════════════════════════════════════════════════════════════════════
  */
 
+jest.mock('../../db', () => ({ db: {} }));
+jest.mock('../../storage', () => ({ storage: {} }));
+
 import { postprocessAndSave, postprocessAndSaveBIM, postprocessAndSaveBIM_LEGACY } from '../bim-postprocess';
 
 describe('bim-postprocess.ts', () => {

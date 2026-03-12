@@ -4,6 +4,9 @@
  * ══════════════════════════════════════════════════════════════════════════════
  */
 
+jest.mock('../../db', () => ({ db: {} }));
+jest.mock('../../storage', () => ({ storage: {} }));
+
 import { ensureFootprintForModel } from '../footprint-extractor';
 
 describe('footprint-extractor.ts', () => {

@@ -17,13 +17,13 @@ import {
 
 describe('bcf-export.ts', () => {
   const sampleIssues = [
-    { id: 'iss-001', name: 'MOOR-STR-001', discipline: 'STRUCT', severity: 'critical', status: 'OPEN', description: 'Beam-duct clash', elements: ['beam-001', 'duct-001'], storey: 'Level 1' },
-    { id: 'iss-002', name: 'MOOR-MECH-001', discipline: 'MECH', severity: 'medium', status: 'IN_PROGRESS', description: 'Pipe clearance', elements: ['pipe-001'], storey: 'Level 2' },
+    { id: 'iss-001', issueNumber: 'ISS-0001', name: 'MOOR-STR-001', testId: 'CD-001', type: 'hard_clash', zone: 'Level1_ZoneA', gridRef: 'B-3', priority: 'P1', owner: 'Structural Lead', assignedTo: 'John Doe', originDiscipline: 'structural', status: 'OPEN', createdDate: '2025-01-15', targetDate: '2025-02-15', resolvedDate: null, description: 'Beam-duct clash', recommendation: 'Reroute duct', resolution: null, clashGroupId: null, rfiNumber: null, elementIds: ['beam-001', 'duct-001'], codeReferences: ['NBC 3.2.1'], statusHistory: [{ from: 'OPEN', to: 'OPEN', date: '2025-01-15', changedBy: 'system' }], attachments: [], tags: ['structural', 'critical'], discipline: 'STRUCT', severity: 'critical', elements: ['beam-001', 'duct-001'], storey: 'Level 1' },
+    { id: 'iss-002', issueNumber: 'ISS-0002', name: 'MOOR-MECH-001', testId: 'SC-01', type: 'soft_clash', zone: 'Level2_ZoneB', gridRef: 'C-4', priority: 'P3', owner: 'Mechanical Lead', assignedTo: 'Jane Smith', originDiscipline: 'mechanical', status: 'IN_PROGRESS', createdDate: '2025-01-20', targetDate: '2025-03-01', resolvedDate: null, description: 'Pipe clearance', recommendation: 'Adjust pipe routing', resolution: null, clashGroupId: null, rfiNumber: null, elementIds: ['pipe-001'], codeReferences: [], statusHistory: [{ from: 'OPEN', to: 'IN_PROGRESS', date: '2025-01-22', changedBy: 'system' }], attachments: [], tags: ['mechanical'], discipline: 'MECH', severity: 'medium', elements: ['pipe-001'], storey: 'Level 2' },
   ];
 
   const sampleClashes = [
-    { id: 'c1', elementA: 'beam-001', elementB: 'duct-001', category: 'hard', severity: 'critical', penetration_mm: 50, location: { x: 5, y: 3, z: 2.5 } },
-    { id: 'c2', elementA: 'pipe-001', elementB: 'wall-001', category: 'soft', severity: 'medium', penetration_mm: 0, location: { x: 10, y: 8, z: 1 } },
+    { id: 'c1000000', testId: 'CD-001', category: 'HARD_CLASH', severity: 'CRITICAL', elementA: { id: 'beam-001', name: 'Beam B1', elementType: 'beam', discipline: 'structural', storey: 'Level 1' }, elementB: { id: 'duct-001', name: 'Supply Duct', elementType: 'duct', discipline: 'mechanical', storey: 'Level 1' }, overlapVolume_m3: 0.05, clearanceRequired_mm: 50, clearanceActual_mm: 0, penetrationDepth_mm: 50, location: { x: 5, y: 3, z: 2.5 }, description: 'Beam-duct hard clash', codeReferences: ['NBC 3.2.1'] },
+    { id: 'c2000000', testId: 'SC-01', category: 'CLEARANCE', severity: 'MEDIUM', elementA: { id: 'pipe-001', name: 'Cold Water Pipe', elementType: 'pipe', discipline: 'plumbing', storey: 'Level 1' }, elementB: { id: 'wall-001', name: 'Interior Wall', elementType: 'wall', discipline: 'architectural', storey: 'Level 1' }, overlapVolume_m3: 0.0, clearanceRequired_mm: 25, clearanceActual_mm: 10, penetrationDepth_mm: 0, location: { x: 10, y: 8, z: 1 }, description: 'Pipe clearance issue', codeReferences: [] },
   ];
 
   test('generateBCFTopics produces topics from issues', () => {

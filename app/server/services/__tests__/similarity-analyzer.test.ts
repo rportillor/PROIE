@@ -4,6 +4,13 @@
  * ══════════════════════════════════════════════════════════════════════════════
  */
 
+jest.mock('../../db', () => ({ db: {} }));
+jest.mock('../../storage', () => ({ storage: {} }));
+jest.mock('@anthropic-ai/sdk', () => {
+  return jest.fn().mockImplementation(() => ({ messages: { create: jest.fn() } }));
+});
+jest.mock('../../regulatory-cache', () => ({ RegulatoryAnalysisService: class {} }));
+
 import { similarityAnalyzer } from '../similarity-analyzer';
 
 describe('similarity-analyzer.ts', () => {

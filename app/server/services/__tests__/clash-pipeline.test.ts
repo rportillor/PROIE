@@ -53,6 +53,9 @@ describe('clash-test-templates.ts', () => {
       { id: 'w1', discipline: 'structural', type: 'wall' },
       { id: 'd1', discipline: 'mechanical', type: 'duct' },
       { id: 'w2', discipline: 'structural', type: 'beam' },
+      { id: 'c1', discipline: 'structural', type: 'column' },
+      { id: 's1', discipline: 'structural', type: 'slab' },
+      { id: 'f1', discipline: 'structural', type: 'foundation' },
     ];
     const set = SELECTION_SETS.find(s => s.primaryRules?.some(r => r.value === 'structural'));
     if (set) {

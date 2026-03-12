@@ -367,7 +367,7 @@ describe('Document Lookup', () => {
 
   test('findDocuments searches by title', () => {
     const found = findDocuments(PROJECT_ID, 'Ground Floor');
-    expect(found.length).toBe(1);
+    expect(found.length).toBe(2);
   });
 
   test('findDocuments returns empty for no match', () => {

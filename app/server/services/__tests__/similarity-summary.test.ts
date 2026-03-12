@@ -4,6 +4,9 @@
  * ══════════════════════════════════════════════════════════════════════════════
  */
 
+jest.mock('../../db', () => ({ db: {} }));
+jest.mock('../../storage', () => ({ storage: {} }));
+
 import { buildProjectSimilaritySummary } from '../similarity-summary';
 import type { ProjectSimilaritySummary } from '../similarity-summary';
 
