@@ -11,6 +11,9 @@ import { placeDetectedSymbolsAsElements, placeDetectedSymbolsAsElements_LEGACY }
 import crypto from "crypto";
 import { detectRasterSymbolsForModel } from "../services/raster-glyph-locator";
 import { FLOOR_DATUMS } from "../services/moorings-project-data";
+import { detectRelationships } from "../services/relationship-engine";
+import { solveConstraintsOnElements } from "../services/parameter-engine";
+import { autoRouteMEP } from "../services/mep-routing";
 
 const COLOR_BY_FAMILY: Record<string, string> = {
   STRUCT: "#6B7280", ARCH: "#22C55E",
@@ -301,6 +304,50 @@ export async function postprocessAndSaveBIM_LEGACY(opts: PostOpts) {
     }
   } catch (e: any) {
     console.warn("⚠️ POSTPROCESS: metadata save failed:", e?.message || e);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PASS 0.5: MEP ROUTING — route ducts/pipes between equipment endpoints
+  // Must run BEFORE geometry upgrade so routed segments get profile data.
+  // ═══════════════════════════════════════════════════════════════════════════
+  try {
+    console.log("🔧 PASS 0.5: MEP routing...");
+    const routedElements = autoRouteMEP(work);
+    if (routedElements.length > 0) {
+      work = [...work, ...routedElements];
+      console.log(`✅ PASS 0.5: added ${routedElements.length} routed MEP segments/fittings (total elements: ${work.length})`);
+    } else {
+      console.log("🔧 PASS 0.5: no MEP elements to route (0 routed segments)");
+    }
+  } catch (mepErr: any) {
+    console.warn(`⚠️ PASS 0.5: MEP routing failed (${mepErr?.message}) — continuing without routing`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PASS 1: RELATIONSHIP DETECTION — door→wall, wall→wall joins, beam→column
+  // Writes relationship data into element.properties for downstream use.
+  // ═══════════════════════════════════════════════════════════════════════════
+  let relationships: any[] = [];
+  try {
+    console.log("🔗 PASS 1: detecting relationships...");
+    relationships = detectRelationships(work);
+    console.log(`✅ PASS 1: detected ${relationships.length} relationships`);
+  } catch (relErr: any) {
+    console.warn(`⚠️ PASS 1: relationship detection failed (${relErr?.message}) — continuing without relationships`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PASS 1.5: CONSTRAINT SOLVER — propagate constraints, verify convergence
+  // Uses Gauss-Seidel iterative solver with max 5 iterations, 0.01m tolerance.
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (relationships.length > 0) {
+    try {
+      console.log("🔧 PASS 1.5: solving constraints...");
+      const adjusted = solveConstraintsOnElements(work, relationships, 5, 0.01);
+      console.log(`✅ PASS 1.5: adjusted ${adjusted} element positions to satisfy constraints`);
+    } catch (csErr: any) {
+      console.warn(`⚠️ PASS 1.5: constraint solver failed (${csErr?.message}) — continuing with unconstrained positions`);
+    }
   }
 
   // 🎯 Raster glyph detection (env-gated)

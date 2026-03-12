@@ -2153,6 +2153,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use('/api/qs5', authenticateToken, (await import('./routes/qs-level5-routes')).qsLevel5Router);
   // bimCoordinationRouter — ~20 endpoints: clash detection, issues, BCF export, trends, governance
   app.use('/api/bim-coordination', authenticateToken, (await import('./services/bim-coordination-router')).bimCoordinationRouter);
+
+  // bimElementMoveRouter — POST /api/bim/models/:modelId/elements/:elementId/move (constraint-propagating moves)
+  app.use(authenticateToken, (await import('./routes/bim-element-move')).bimElementMoveRouter);
   // clashDetectionRouter — 4 endpoints: run, results, discipline breakdown, resolve
   app.use('/api', authenticateToken, (await import('./routes/clash-detection-routes')).clashDetectionRouter);
   // gridDetectionRouter — ~10 endpoints: runs, axes, labels, review status
