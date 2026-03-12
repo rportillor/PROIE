@@ -2243,6 +2243,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use('/api/grid-detection', authenticateToken, (await import('./routes/grid-detection')).gridDetectionRouter);
   // bim3DRouter — 3D model building, viewer data, clash checks, file import, IFC export v2
   app.use('/api', authenticateToken, (await import('./routes/bim-3d-model')).bim3DRouter);
+  // advancedBimRouter — Phase 1-6: BREP ops, parameter editing, clash resolution, sheets, refinement
+  app.use('/api', authenticateToken, (await import('./routes/advanced-bim-routes')).advancedBimRouter);
 
   // BoQ Items endpoints
   // BoQ endpoint alias for consistency

@@ -37,6 +37,10 @@ const AIConfiguration = lazy(() => import("@/pages/ai-configuration"));
 const Estimator = lazy(() => import("@/pages/estimator"));
 // M-4: Benchmark Comparison page — server-side modules were complete, page was missing
 const Benchmark = lazy(() => import("@/pages/benchmark"));
+// Phase 2: Parameter Editor — live BIM element editing with undo/redo
+const ParameterEditor = lazy(() => import("@/pages/parameter-editor"));
+// Phase 5: Sheet Viewer — 2D drawing production from 3D model
+const SheetViewer = lazy(() => import("@/pages/sheet-viewer"));
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center">
@@ -103,6 +107,10 @@ function AuthenticatedRouter() {
           <Route path="/benchmark" component={Benchmark} />
           <Route path="/projects/:projectId/benchmark" component={Benchmark} />
           <Route path="/projects/:projectId/benchmark/:modelId" component={Benchmark} />
+          {/* Phase 2: Parameter Editor */}
+          <Route path="/projects/:projectId/parameter-editor/:modelId" component={ParameterEditor} />
+          {/* Phase 5: Sheet Viewer */}
+          <Route path="/projects/:projectId/sheets/:modelId" component={SheetViewer} />
           {/* QA */}
           <Route path="/qa/dashboard" component={TestDashboard} />
           <Route path="/qa/uat-signoff" component={UatSignoff} />
