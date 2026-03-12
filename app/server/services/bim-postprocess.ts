@@ -318,6 +318,172 @@ export async function postprocessAndSaveBIM_LEGACY(opts: PostOpts) {
   //  elements: upgrade geometry to real profiles, then establish connections.
   // ══════════════════════════════════════════════════════════════════════════
 
+  // PASS 0.5: MEP Routing — A human modeler routes ducts/pipes between
+  // equipment, not just places them at extracted points. This uses the
+  // autoRouteMEP A* pathfinder to create proper orthogonal runs with elbows,
+  // avoiding structural obstacles. Runs before geometry upgrade so routed
+  // segments also get profile data.
+  try {
+    const { autoRouteMEP, routeMEPRun } = await import("../bim/mep-routing");
+    const { vec3: v3 } = await import("../bim/geometry-kernel");
+
+    // Classify elements into MEP equipment/terminals and structural obstacles
+    const mepElements: any[] = [];
+    const structuralObstacles: Array<{ min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }> = [];
+
+    for (const el of work) {
+      const type = String(el.elementType || el.type || '').toUpperCase();
+      const g = typeof el?.geometry === 'string' ? JSON.parse(el.geometry) : (el?.geometry || {});
+      const loc = g?.location?.realLocation || { x: 0, y: 0, z: 0 };
+      const dims = g?.dimensions || {};
+
+      if (/DUCT|PIPE|CONDUIT|CABLE_TRAY|DIFFUSER|VAV|AHU|SPRINKLER_PIPE/i.test(type)) {
+        mepElements.push({ ...el, _loc: loc, _dims: dims, _type: type });
+      }
+
+      // Build obstacle list from structural/architectural elements
+      if (/COLUMN|WALL|BEAM|SLAB|FOUNDATION|FOOTING/i.test(type) && dims.width && dims.height) {
+        const hw = (Number(dims.width) || 0.3) / 2;
+        const hd = (Number(dims.depth) || Number(dims.width) || 0.3) / 2;
+        const h = Number(dims.height) || 3;
+        structuralObstacles.push({
+          min: v3(Number(loc.x) - hw, Number(loc.y) - hd, Number(loc.z)),
+          max: v3(Number(loc.x) + hw, Number(loc.y) + hd, Number(loc.z) + h),
+        });
+      }
+    }
+
+    if (mepElements.length >= 2 && structuralObstacles.length > 0) {
+      // Group MEP elements by system type and storey for routing
+      type MEPSystem = 'supply_air' | 'return_air' | 'exhaust_air' | 'outside_air' |
+        'domestic_hot' | 'domestic_cold' | 'sanitary' | 'storm' | 'fire_protection' |
+        'hydronic_supply' | 'hydronic_return' | 'power' | 'lighting' | 'data' | 'fire_alarm';
+
+      const systemGroups = new Map<string, { system: MEPSystem; storey: string; elevation: number; elements: any[] }>();
+
+      for (const mel of mepElements) {
+        const sys = inferMEPSystem(mel._type, mel.properties);
+        const storey = mel.storey?.name || mel.storeyName || 'Level 1';
+        const elev = mel.storey?.elevation || 0;
+        const key = `${sys}_${storey}`;
+        if (!systemGroups.has(key)) {
+          systemGroups.set(key, { system: sys, storey, elevation: elev, elements: [] });
+        }
+        systemGroups.get(key)!.elements.push(mel);
+      }
+
+      let totalRouted = 0;
+      let totalRuns = 0;
+
+      for (const [groupKey, group] of systemGroups) {
+        if (group.elements.length < 2) continue;
+
+        // Use the first element as source, rest as targets
+        const source = v3(
+          Number(group.elements[0]._loc.x),
+          Number(group.elements[0]._loc.y),
+          Number(group.elements[0]._loc.z),
+        );
+        const targets = group.elements.slice(1).map((el: any) => v3(
+          Number(el._loc.x),
+          Number(el._loc.y),
+          Number(el._loc.z),
+        ));
+
+        // Infer duct/pipe size from existing elements
+        const sampleEl = group.elements[0];
+        const size = Number(sampleEl._dims.width) || Number(sampleEl._dims.depth) || 0.3;
+        const shape = /DUCT|DIFFUSER|VAV|AHU/i.test(sampleEl._type)
+          ? (sampleEl.properties?.shape === 'round' ? 'circular' as const : 'rectangular' as const)
+          : 'circular' as const;
+
+        try {
+          const result = autoRouteMEP({
+            id: `route_${groupKey}`,
+            name: `${group.system} route (${group.storey})`,
+            system: group.system,
+            source,
+            targets,
+            size,
+            shape,
+            storey: group.storey,
+            elevation: group.elevation,
+            obstacles: structuralObstacles,
+            gridResolution: 0.5,
+            clearance: 0.15,
+          });
+
+          // Convert routed BIMSolid segments to raw element format for the work array
+          for (const run of result.runs) {
+            for (const seg of run.segments) {
+              const routedEl: any = {
+                id: seg.id,
+                name: seg.name,
+                elementType: seg.type,
+                type: seg.type,
+                category: 'MEP',
+                material: seg.material,
+                geometry: {
+                  location: { realLocation: { x: seg.origin.x, y: seg.origin.y, z: seg.origin.z } },
+                  dimensions: {
+                    width: seg.quantities.width || size,
+                    height: seg.quantities.height || size,
+                    depth: seg.quantities.length || 1,
+                  },
+                  orientation: { yawRad: seg.rotation || 0 },
+                  mesh: seg.serialized || seg.mesh,
+                  boundingBox: seg.boundingBox,
+                  profile: seg.profile,
+                },
+                properties: {
+                  system: group.system,
+                  mepRouted: true,
+                  routeGroup: groupKey,
+                  totalRunLength: run.totalLength,
+                  fittingCount: run.turnsCount,
+                  length: seg.quantities.length,
+                  width: seg.quantities.width,
+                  height: seg.quantities.height,
+                },
+                storey: { name: group.storey, elevation: group.elevation },
+                storeyName: group.storey,
+                quantities: seg.quantities,
+              };
+              work.push(routedEl);
+              totalRouted++;
+            }
+          }
+          totalRuns += result.runs.length;
+
+          if (result.unreachableTargets.length > 0) {
+            console.warn(
+              `⚠️ MEP-ROUTE: ${result.unreachableTargets.length} unreachable targets in ${groupKey} — ` +
+              `these elements remain at extracted positions`
+            );
+          }
+        } catch (routeErr: any) {
+          console.warn(`⚠️ MEP-ROUTE: routing failed for ${groupKey}: ${routeErr?.message || routeErr}`);
+        }
+      }
+
+      if (totalRouted > 0) {
+        console.log(
+          `🔧 POSTPROCESS: MEP routing complete — ${totalRuns} runs, ${totalRouted} routed segments ` +
+          `created, ${structuralObstacles.length} obstacles avoided`
+        );
+      } else {
+        console.log(`🔧 POSTPROCESS: MEP routing — no runs generated (${mepElements.length} MEP elements found)`);
+      }
+    } else {
+      console.log(
+        `🔧 POSTPROCESS: MEP routing skipped (${mepElements.length} MEP elements, ` +
+        `${structuralObstacles.length} structural obstacles — need ≥2 MEP and ≥1 obstacle)`
+      );
+    }
+  } catch (e: any) {
+    console.warn("⚠️ POSTPROCESS: MEP routing failed (non-blocking):", e?.message || e);
+  }
+
   // PASS 1: Upgrade bounding boxes → parametric profiles
   // (A human modeler selects the correct family/type, never places raw boxes)
   try {
@@ -636,4 +802,47 @@ export async function postprocessAndSaveBIM_LEGACY(opts: PostOpts) {
 
   console.log(`💾 POSTPROCESS: saved ${saveCount} elements (model ${modelId})`);
   return { saved: saveCount, summary: processingSummary, siteUsed: !!site };
+}
+
+// ─── MEP System Inference Helper ───────────────────────────────────────────
+// Maps element types and properties to the MEPSystem enum used by mep-routing.ts
+
+function inferMEPSystem(
+  type: string,
+  props?: Record<string, any>,
+): 'supply_air' | 'return_air' | 'exhaust_air' | 'outside_air' |
+   'domestic_hot' | 'domestic_cold' | 'sanitary' | 'storm' | 'fire_protection' |
+   'hydronic_supply' | 'hydronic_return' | 'power' | 'lighting' | 'data' | 'fire_alarm' {
+  const t = (type || '').toUpperCase();
+  const sys = String(props?.system || props?.mepSystem || '').toLowerCase();
+
+  // Explicit system property
+  if (sys.includes('supply') && sys.includes('air')) return 'supply_air';
+  if (sys.includes('return') && sys.includes('air')) return 'return_air';
+  if (sys.includes('exhaust')) return 'exhaust_air';
+  if (sys.includes('hot') || sys.includes('hw')) return 'domestic_hot';
+  if (sys.includes('cold') || sys.includes('cw') || sys.includes('dcw')) return 'domestic_cold';
+  if (sys.includes('sanitary') || sys.includes('waste') || sys.includes('dwv')) return 'sanitary';
+  if (sys.includes('storm') || sys.includes('rain')) return 'storm';
+  if (sys.includes('fire') || sys.includes('sprinkler')) return 'fire_protection';
+  if (sys.includes('hydronic') && sys.includes('supply')) return 'hydronic_supply';
+  if (sys.includes('hydronic') && sys.includes('return')) return 'hydronic_return';
+
+  // Infer from element type
+  if (/SUPPLY.*DUCT|SA.*DUCT|DUCT.*SUPPLY/i.test(t)) return 'supply_air';
+  if (/RETURN.*DUCT|RA.*DUCT|DUCT.*RETURN/i.test(t)) return 'return_air';
+  if (/EXHAUST/i.test(t)) return 'exhaust_air';
+  if (/DUCT|DIFFUSER|VAV|AHU|HVAC/i.test(t)) return 'supply_air'; // default duct = supply
+  if (/SPRINKLER/i.test(t)) return 'fire_protection';
+  if (/HOT.*WATER|HW.*PIPE/i.test(t)) return 'domestic_hot';
+  if (/COLD.*WATER|CW.*PIPE|DOMESTIC/i.test(t)) return 'domestic_cold';
+  if (/SANITARY|WASTE|DRAIN/i.test(t)) return 'sanitary';
+  if (/STORM|RAIN/i.test(t)) return 'storm';
+  if (/PIPE|PLUMB/i.test(t)) return 'domestic_cold'; // default pipe
+  if (/CABLE.*TRAY|CONDUIT|POWER/i.test(t)) return 'power';
+  if (/LIGHT/i.test(t)) return 'lighting';
+  if (/DATA|NETWORK/i.test(t)) return 'data';
+  if (/FIRE.*ALARM/i.test(t)) return 'fire_alarm';
+
+  return 'supply_air'; // fallback
 }
