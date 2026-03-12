@@ -2156,6 +2156,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // bimElementMoveRouter — POST /api/bim/models/:modelId/elements/:elementId/move (constraint-propagating moves)
   app.use(authenticateToken, (await import('./routes/bim-element-move')).bimElementMoveRouter);
+
+  // bimAuditRouter — GET /audit + POST /audit/refine (iterative model refinement)
+  app.use(authenticateToken, (await import('./routes/bim-audit')).bimAuditRouter);
   // clashDetectionRouter — 4 endpoints: run, results, discipline breakdown, resolve
   app.use('/api', authenticateToken, (await import('./routes/clash-detection-routes')).clashDetectionRouter);
   // gridDetectionRouter — ~10 endpoints: runs, axes, labels, review status

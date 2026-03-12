@@ -14,6 +14,7 @@ import { FLOOR_DATUMS } from "../services/moorings-project-data";
 import { detectRelationships } from "../services/relationship-engine";
 import { solveConstraintsOnElements } from "../services/parameter-engine";
 import { autoRouteMEP } from "../services/mep-routing";
+import { runIterativeRefinement } from "../services/iterative-refinement";
 
 const COLOR_BY_FAMILY: Record<string, string> = {
   STRUCT: "#6B7280", ARCH: "#22C55E",
@@ -348,6 +349,29 @@ export async function postprocessAndSaveBIM_LEGACY(opts: PostOpts) {
     } catch (csErr: any) {
       console.warn(`⚠️ PASS 1.5: constraint solver failed (${csErr?.message}) — continuing with unconstrained positions`);
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PASS 2: ITERATIVE REFINEMENT — audit + auto-fix loop (like a human modeler)
+  // Runs up to 5 passes checking wall closure, beam spanning, MEP clearance,
+  // column alignment, slab coverage, opening placement, storey consistency.
+  // Auto-fixes: snap endpoints, align columns, clear MEP penetrations, add slabs.
+  // ═══════════════════════════════════════════════════════════════════════════
+  try {
+    console.log("🔄 PASS 2: iterative refinement...");
+    const refinement = runIterativeRefinement(work, modelId, {
+      maxPasses: 5,
+      targetScore: 85,
+      minImprovement: 2,
+      maxFixesPerPass: 50,
+    });
+    console.log(
+      `✅ PASS 2: refinement complete — ${refinement.passes.length} passes, ` +
+      `${refinement.totalFixesApplied} fixes, score ${refinement.passes[0]?.summary.score ?? '?'} → ${refinement.finalScore}` +
+      (refinement.converged ? ` (${refinement.convergenceReason})` : '')
+    );
+  } catch (refErr: any) {
+    console.warn(`⚠️ PASS 2: iterative refinement failed (${refErr?.message}) — continuing with un-refined model`);
   }
 
   // 🎯 Raster glyph detection (env-gated)
