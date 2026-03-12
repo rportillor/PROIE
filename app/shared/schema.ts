@@ -504,13 +504,24 @@ export const bimElements = pgTable("bim_elements", {
   quantityImperial: decimal("quantity_imperial", { precision: 10, scale: 2 }), // Always in imperial
   ifcGuid: varchar("ifc_guid", { length: 36 }), // IFC Global Unique Identifier
   // ─── RFI / Attention flags ─────────────────────────────────────────────────
-  // Set when element geometry or properties cannot be fully resolved from drawings.
-  // The element is included in the model as a visible placeholder so the QS can
-  // see the gap and resolve it — it is never silently excluded.
   rfiFlag: boolean("rfi_flag").notNull().default(false),
-  rfiId: varchar("rfi_id", { length: 36 }), // FK to rfis.id once RFI is created
+  rfiId: varchar("rfi_id", { length: 36 }),
   needsAttention: boolean("needs_attention").notNull().default(false),
-  attentionReason: text("attention_reason"), // Human-readable: what data is missing
+  attentionReason: text("attention_reason"),
+  // ─── Phase 2: LOD, Phase, Workset, Revision ───────────────────────────────
+  lod: integer("lod"), // LOD level: 100, 200, 300, 350, 400, 500 (BIM Forum spec)
+  phaseId: varchar("phase_id", { length: 20 }), // WBS code e.g. "1.3.2"
+  phaseName: varchar("phase_name", { length: 100 }), // e.g. "Foundations & Substructure"
+  createdPhase: varchar("created_phase", { length: 100 }), // phase when element is built
+  demolishedPhase: varchar("demolished_phase", { length: 100 }), // phase when removed (reno)
+  worksetId: varchar("workset_id", { length: 20 }), // e.g. "WS_STRUCT"
+  worksetName: varchar("workset_name", { length: 100 }), // e.g. "Structural"
+  discipline: varchar("discipline", { length: 50 }), // Architectural, Structural, Mechanical, etc.
+  revisionNumber: integer("revision_number"), // model revision number
+  revisionAction: varchar("revision_action", { length: 20 }), // added, modified, deleted, unchanged
+  // ─── Rebar / Connection data (JSON) ───────────────────────────────────────
+  rebarData: jsonb("rebar_data"), // RebarInfo JSON (total weight, bars, cover)
+  connectionData: jsonb("connection_data"), // ConnectionDetail[] JSON
   // ───────────────────────────────────────────────────────────────────────────
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -518,6 +529,9 @@ export const bimElements = pgTable("bim_elements", {
   modelIdIdx: index("bim_elements_model_id_idx").on(table.modelId),
   elementTypeIdx: index("bim_elements_element_type_idx").on(table.elementType),
   createdAtIdx: index("bim_elements_created_at_idx").on(table.createdAt),
+  lodIdx: index("bim_elements_lod_idx").on(table.lod),
+  phaseIdIdx: index("bim_elements_phase_id_idx").on(table.phaseId),
+  worksetIdIdx: index("bim_elements_workset_id_idx").on(table.worksetId),
 }));
 
 // Analysis Results Storage - for revision comparison

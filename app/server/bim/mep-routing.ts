@@ -340,3 +340,211 @@ export function layoutLights(params: LightLayoutParams): BIMSolid[] {
 
   return lights;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  AUTO-ROUTING ENGINE — A* pathfinding with obstacle avoidance
+//  Routes MEP runs around structural elements (columns, walls, beams)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import type { AABB } from './geometry-kernel';
+import { aabbOverlap } from './geometry-kernel';
+
+export interface AutoRoutingParams {
+  id: string;
+  name: string;
+  system: MEPSystem;
+  source: Vec3;                    // equipment/riser origin
+  targets: Vec3[];                 // terminal endpoints (diffusers, fixtures, etc.)
+  size: number;                    // duct/pipe size in metres
+  sizeHeight?: number;
+  shape: 'circular' | 'rectangular';
+  material?: string;
+  storey: string;
+  elevation: number;
+  obstacles: AABB[];               // structural elements to avoid
+  gridResolution?: number;         // routing grid cell size (metres, default 0.3)
+  clearance?: number;              // minimum clearance from obstacles (metres, default 0.15)
+}
+
+export interface AutoRoutingResult {
+  runs: RoutingResult[];
+  totalLength: number;
+  totalTurns: number;
+  unreachableTargets: Vec3[];
+}
+
+/**
+ * Auto-route MEP runs from a source to multiple targets, avoiding obstacles.
+ * Uses grid-based A* pathfinding with orthogonal movement.
+ */
+export function autoRouteMEP(params: AutoRoutingParams): AutoRoutingResult {
+  const defaults = SYSTEM_DEFAULTS[params.system];
+  const routingZ = params.elevation + defaults.defaultHeight;
+  const gridRes = params.gridResolution || 0.3;
+  const clearance = params.clearance || 0.15;
+
+  // Expand obstacles by clearance + half duct size
+  const expandedObstacles = params.obstacles.map(obs => ({
+    min: vec3(obs.min.x - clearance - params.size / 2, obs.min.y - clearance - params.size / 2, obs.min.z - clearance),
+    max: vec3(obs.max.x + clearance + params.size / 2, obs.max.y + clearance + params.size / 2, obs.max.z + clearance),
+  }));
+
+  // Compute bounding region for the routing grid
+  const allPoints = [params.source, ...params.targets];
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of allPoints) {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  }
+  minX -= 2; minY -= 2; maxX += 2; maxY += 2;
+
+  const runs: RoutingResult[] = [];
+  const unreachableTargets: Vec3[] = [];
+  let totalLength = 0;
+  let totalTurns = 0;
+
+  // Route to each target independently from source
+  for (let ti = 0; ti < params.targets.length; ti++) {
+    const target = params.targets[ti];
+    const path = aStarRoute(
+      vec3(params.source.x, params.source.y, routingZ),
+      vec3(target.x, target.y, routingZ),
+      expandedObstacles,
+      gridRes,
+      minX, minY, maxX, maxY,
+    );
+
+    if (!path) {
+      unreachableTargets.push(target);
+      continue;
+    }
+
+    // Create the run from the found path
+    const fullPath = [params.source, ...path, target];
+    const run = routeMEPRun({
+      id: `${params.id}_run_${ti}`,
+      name: `${params.name} Run ${ti + 1}`,
+      system: params.system,
+      endpoints: fullPath,
+      size: params.size,
+      sizeHeight: params.sizeHeight,
+      shape: params.shape,
+      material: params.material || defaults.material,
+      storey: params.storey,
+      elevation: params.elevation,
+      insulated: defaults.insulated,
+      insulationThickness: defaults.insulationThickness,
+    });
+
+    runs.push(run);
+    totalLength += run.totalLength;
+    totalTurns += run.turnsCount;
+  }
+
+  return { runs, totalLength, totalTurns, unreachableTargets };
+}
+
+/**
+ * A* pathfinding on a 2D grid at a fixed Z height.
+ * Returns a series of waypoints (at grid intersections) from start to goal,
+ * or null if no path exists.
+ */
+function aStarRoute(
+  start: Vec3,
+  goal: Vec3,
+  obstacles: AABB[],
+  gridRes: number,
+  minX: number, minY: number, maxX: number, maxY: number,
+): Vec3[] | null {
+  const cols = Math.ceil((maxX - minX) / gridRes);
+  const rows = Math.ceil((maxY - minY) / gridRes);
+  const z = start.z;
+
+  function toGrid(x: number, y: number): [number, number] {
+    return [Math.round((x - minX) / gridRes), Math.round((y - minY) / gridRes)];
+  }
+  function toWorld(col: number, row: number): Vec3 {
+    return vec3(minX + col * gridRes, minY + row * gridRes, z);
+  }
+  function key(col: number, row: number): number {
+    return col * 100000 + row;
+  }
+
+  // Check if a grid cell is blocked
+  function isBlocked(col: number, row: number): boolean {
+    if (col < 0 || col >= cols || row < 0 || row >= rows) return true;
+    const wp = toWorld(col, row);
+    const cellBB: AABB = {
+      min: vec3(wp.x - gridRes / 2, wp.y - gridRes / 2, z - 0.5),
+      max: vec3(wp.x + gridRes / 2, wp.y + gridRes / 2, z + 0.5),
+    };
+    for (const obs of obstacles) {
+      if (aabbOverlap(cellBB, obs)) return true;
+    }
+    return false;
+  }
+
+  const [startC, startR] = toGrid(start.x, start.y);
+  const [goalC, goalR] = toGrid(goal.x, goal.y);
+
+  // A* with Manhattan heuristic (orthogonal movement only)
+  const openSet = new Map<number, { col: number; row: number; g: number; f: number }>();
+  const closedSet = new Set<number>();
+  const cameFrom = new Map<number, number>();
+
+  const startKey = key(startC, startR);
+  openSet.set(startKey, { col: startC, row: startR, g: 0, f: Math.abs(goalC - startC) + Math.abs(goalR - startR) });
+
+  const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]]; // orthogonal only
+  const maxIterations = Math.min(cols * rows, 50000); // safety limit
+  let iterations = 0;
+
+  while (openSet.size > 0 && iterations++ < maxIterations) {
+    // Find lowest f-score in open set
+    let best: { col: number; row: number; g: number; f: number } | null = null;
+    let bestKey = -1;
+    for (const [k, node] of openSet) {
+      if (!best || node.f < best.f) { best = node; bestKey = k; }
+    }
+    if (!best) break;
+
+    if (best.col === goalC && best.row === goalR) {
+      // Reconstruct path
+      const path: Vec3[] = [];
+      let current = key(goalC, goalR);
+      while (cameFrom.has(current)) {
+        const c = Math.floor(current / 100000);
+        const r = current % 100000;
+        path.unshift(toWorld(c, r));
+        current = cameFrom.get(current)!;
+      }
+      return path;
+    }
+
+    openSet.delete(bestKey);
+    closedSet.add(bestKey);
+
+    for (const [dc, dr] of dirs) {
+      const nc = best.col + dc;
+      const nr = best.row + dr;
+      const nk = key(nc, nr);
+
+      if (closedSet.has(nk)) continue;
+      if (isBlocked(nc, nr)) continue;
+
+      const g = best.g + 1;
+      const h = Math.abs(goalC - nc) + Math.abs(goalR - nr);
+      const f = g + h;
+
+      const existing = openSet.get(nk);
+      if (existing && existing.g <= g) continue;
+
+      openSet.set(nk, { col: nc, row: nr, g, f });
+      cameFrom.set(nk, bestKey);
+    }
+  }
+
+  return null; // no path found
+}

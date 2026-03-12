@@ -28,10 +28,19 @@ import {
   type BIMSolid, type WallParams, type WallOpeningDef, type WallAssembly, type MaterialLayer,
   createWall, createColumn, createBeam, createSlab, createFooting, createStair,
   createDuct, createPipe, createCableTray, createFixture,
+  createPile, createGradeBeam, createRamp, createCurtainWall, createRailing,
+  generateRebarGeometry, createSteelConnection,
   inferWallAssembly, WALL_ASSEMBLIES, serializeBIMSolid,
+  type LODLevel, type PhaseAssignment, type WorksetInfo, type RevisionInfo,
+  type PileParams, type GradeBeamParams, type RampParams, type CurtainWallParams, type RailingParams,
+  type RebarLayoutParams, type ConnectionParams,
 } from './parametric-elements';
 
 import { lookupSteelSection, parseSectionFromText, type SteelSectionData } from './steel-sections-db';
+
+import {
+  runConstraintsPipeline, type ConstraintResults,
+} from './bim-constraints';
 
 import { importIFC, type IFCImportResult } from './ifc-import-engine';
 import { parseDXF, convertDXFToBIM, isDXFContent, type DXFImportResult } from './dwg-dxf-import';
@@ -98,6 +107,7 @@ export interface BuildResult {
   elements: BIMSolid[];
   clashes: ClashResult[];
   clashSummary: ClashSummary;
+  constraints: ConstraintResults;
   stats: {
     totalElements: number;
     byType: Record<string, number>;
@@ -106,6 +116,9 @@ export interface BuildResult {
     totalVolume: number;
     totalArea: number;
     withGeometry: number;
+    lodDistribution: Record<number, number>;
+    worksetDistribution: Record<string, number>;
+    phaseDistribution: Record<string, number>;
   };
   ifcContent?: string;
   warnings: string[];
@@ -123,6 +136,12 @@ export interface BuildingContext {
   gridY?: number[];           // structural grid Y positions
   defaultWallHeight?: number;
   defaultSlabThickness?: number;
+  // Phase 2 options
+  generateRebar?: boolean;       // generate rebar geometry for concrete elements
+  generateConnections?: boolean; // generate steel connection details
+  revisionNumber?: number;       // current revision number
+  revisionId?: string;           // current revision identifier
+  previousElements?: BIMSolid[]; // previous model for revision diffing
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -139,32 +158,72 @@ export function buildModel(
 
   // Group raw elements by type for proper ordering (walls before doors)
   const walls: RawBIMInput[] = [];
+  const curtainWalls: RawBIMInput[] = [];
   const openings: RawBIMInput[] = [];
   const columns: RawBIMInput[] = [];
   const beams: RawBIMInput[] = [];
   const slabs: RawBIMInput[] = [];
   const foundations: RawBIMInput[] = [];
+  const piles: RawBIMInput[] = [];
+  const gradeBeams: RawBIMInput[] = [];
   const stairs: RawBIMInput[] = [];
+  const ramps: RawBIMInput[] = [];
+  const railings: RawBIMInput[] = [];
   const mep: RawBIMInput[] = [];
   const fixtures: RawBIMInput[] = [];
   const other: RawBIMInput[] = [];
 
   for (const raw of rawElements) {
     const t = (raw.type || '').toUpperCase();
-    if (/WALL|PARTITION|CURTAIN/.test(t)) walls.push(raw);
+    if (/CURTAIN.?WALL|STOREFRONT|FACADE/.test(t)) curtainWalls.push(raw);
+    else if (/WALL|PARTITION/.test(t)) walls.push(raw);
     else if (/DOOR/.test(t)) openings.push(raw);
     else if (/WINDOW|GLAZING/.test(t)) openings.push(raw);
     else if (/COLUMN|PILLAR/.test(t)) columns.push(raw);
+    else if (/GRADE.?BEAM/.test(t)) gradeBeams.push(raw);
     else if (/BEAM|GIRDER|JOIST/.test(t)) beams.push(raw);
     else if (/SLAB|FLOOR|DECK|ROOF/.test(t)) slabs.push(raw);
-    else if (/FOOTING|FOUNDATION|PILE/.test(t)) foundations.push(raw);
+    else if (/PILE/.test(t)) piles.push(raw);
+    else if (/FOOTING|FOUNDATION/.test(t)) foundations.push(raw);
+    else if (/RAMP/.test(t)) ramps.push(raw);
+    else if (/RAILING|GUARDRAIL|HANDRAIL/.test(t)) railings.push(raw);
     else if (/STAIR/.test(t)) stairs.push(raw);
     else if (/DUCT|PIPE|CABLE|CONDUIT/.test(t)) mep.push(raw);
     else if (/LIGHT|SPRINKLER|PANEL|RECEPTACLE|SWITCH|SMOKE/.test(t)) fixtures.push(raw);
     else other.push(raw);
   }
 
-  // ── BUILD WALLS ───────────────────────────────────────────────────────
+  // ── COLLECT OPENINGS PER WALL (for void cut) ─────────────────────────
+  // Group openings by their hostId so we can pass them to createWall()
+  // for proper boolean subtraction from the wall profile.
+  const openingsByWallId = new Map<string, WallOpeningDef[]>();
+  const orphanOpenings: RawBIMInput[] = []; // openings with no host wall
+
+  for (const raw of openings) {
+    const isDoor = /DOOR/i.test(raw.type || '');
+    const width = raw.width || (isDoor ? 0.9 : 1.0);
+    const height = raw.height || (isDoor ? 2.1 : 1.2);
+    const sillHeight = raw.sillHeight || (isDoor ? 0 : 0.9);
+
+    if (raw.hostId) {
+      const wallOpenings = openingsByWallId.get(raw.hostId) || [];
+      wallOpenings.push({
+        type: isDoor ? 'door' : 'window',
+        id: raw.id,
+        name: raw.name || `${isDoor ? 'Door' : 'Window'} ${raw.id}`,
+        position: raw.positionAlongWall || 1.0, // default 1m from wall start
+        width,
+        height,
+        sillHeight,
+        material: raw.material || (isDoor ? 'Wood' : 'Glass'),
+      });
+      openingsByWallId.set(raw.hostId, wallOpenings);
+    } else {
+      orphanOpenings.push(raw);
+    }
+  }
+
+  // ── BUILD WALLS (with openings cut into them) ──────────────────────
   const wallMap = new Map<string, BIMSolid>();
 
   for (const raw of walls) {
@@ -172,14 +231,13 @@ export function buildModel(
     const storeyInfo = context.storeys.find(s => s.name === storey) || context.storeys[0];
     const elevation = raw.elevation ?? storeyInfo?.elevation ?? 0;
     const height = raw.height || storeyInfo?.floorToFloorHeight || context.defaultWallHeight || 3.0;
-    const isExterior = /EXT|EXTERIOR|FACADE|CURTAIN/i.test(raw.type || '') || /EXT/i.test(raw.material || '');
+    const isExterior = /EXT|EXTERIOR|FACADE/i.test(raw.type || '') || /EXT/i.test(raw.material || '');
 
     let start: Vec2, end: Vec2;
     if (raw.startX != null && raw.startY != null && raw.endX != null && raw.endY != null) {
       start = vec2(raw.startX, raw.startY);
       end = vec2(raw.endX, raw.endY);
     } else if (raw.x != null && raw.y != null && raw.length) {
-      // Infer start/end from position + length (horizontal by default)
       start = vec2(raw.x, raw.y);
       end = vec2(raw.x + raw.length, raw.y);
     } else {
@@ -191,7 +249,6 @@ export function buildModel(
     // Prefer extracted thickness from AI over assembly defaults
     let assembly = inferWallAssembly(raw.material, isExterior);
     if (raw.thickness && raw.thickness > 0) {
-      // Build a custom single-layer assembly from the extracted thickness
       const extractedThickness = raw.thickness;
       const materialName = raw.material || (isExterior ? 'Exterior Assembly' : 'Interior Assembly');
       const customAssembly: WallAssembly = {
@@ -213,6 +270,9 @@ export function buildModel(
       assembly = customAssembly;
     }
 
+    // Pass hosted openings so createWall() cuts voids in the wall profile
+    const wallOpenings = openingsByWallId.get(raw.id) || [];
+
     const result = createWall({
       id: raw.id,
       name: raw.name || `Wall ${raw.id}`,
@@ -222,15 +282,21 @@ export function buildModel(
       storey,
       elevation,
       isExterior,
+      openings: wallOpenings,
       source: (raw.source as BIMSolid['source']) || 'ai_modeled',
     });
 
     wallMap.set(raw.id, result.wall);
     elements.push(result.wall);
+
+    // Push the opening elements created by createWall() (with proper geometry)
+    for (const openingEl of result.openings) {
+      elements.push(openingEl);
+    }
   }
 
-  // ── BUILD OPENINGS (doors/windows) ────────────────────────────────────
-  for (const raw of openings) {
+  // ── BUILD ORPHAN OPENINGS (doors/windows with no host wall) ────────
+  for (const raw of orphanOpenings) {
     const storey = raw.storey || context.storeys[0]?.name || 'Level 1';
     const storeyInfo = context.storeys.find(s => s.name === storey) || context.storeys[0];
     const elevation = raw.elevation ?? storeyInfo?.elevation ?? 0;
@@ -250,17 +316,23 @@ export function buildModel(
       source: (raw.source as BIMSolid['source']) || 'ai_modeled',
     });
 
-    // Override type
     fixture.type = isDoor ? 'Door' : 'Window';
     fixture.ifcClass = isDoor ? 'IFCDOOR' : 'IFCWINDOW';
     fixture.material = raw.material || (isDoor ? 'Wood' : 'Glass');
     fixture.quantities.width = width;
     fixture.quantities.height = height;
 
-    // Link to host wall if specified
-    if (raw.hostId && wallMap.has(raw.hostId)) {
-      fixture.hostId = raw.hostId;
-      wallMap.get(raw.hostId)!.hostedIds.push(fixture.id);
+    // Try to auto-detect host wall by proximity
+    let bestWall: BIMSolid | undefined;
+    let bestDist = Infinity;
+    for (const [, wall] of wallMap) {
+      if (wall.storey !== storey) continue;
+      const d = v3len(v3sub(pos, wall.origin));
+      if (d < bestDist) { bestDist = d; bestWall = wall; }
+    }
+    if (bestWall && bestDist < 5) {
+      fixture.hostId = bestWall.id;
+      bestWall.hostedIds.push(fixture.id);
     }
 
     elements.push(fixture);
@@ -425,7 +497,7 @@ export function buildModel(
     }));
   }
 
-  // ── BUILD FOUNDATIONS ─────────────────────────────────────────────────
+  // ── BUILD FOUNDATIONS (spread/strip footings) ────────────────────────
   for (const raw of foundations) {
     elements.push(createFooting({
       id: raw.id,
@@ -436,10 +508,90 @@ export function buildModel(
       height: raw.height || raw.thickness || 0.6,
       storey: raw.storey || 'Foundation',
       elevation: raw.elevation || -0.6,
-      type: /STRIP/i.test(raw.type || '') ? 'strip' : 'spread',
+      type: /STRIP/i.test(raw.type || '') ? 'strip'
+        : /PILE.?CAP/i.test(raw.type || '') ? 'pile_cap'
+        : 'spread',
       material: raw.material || 'Concrete',
       source: (raw.source as BIMSolid['source']) || 'ai_modeled',
     }));
+  }
+
+  // ── BUILD PILES (deep foundations) ──────────────────────────────────
+  for (const raw of piles) {
+    elements.push(createPile({
+      id: raw.id,
+      name: raw.name || `Pile ${raw.id}`,
+      center: vec2(raw.x || 0, raw.y || 0),
+      diameter: raw.diameter || raw.width || 0.45,
+      length: raw.length || raw.depth || 15,
+      storey: raw.storey || 'Foundation',
+      elevation: raw.elevation || 0,
+      type: /HELICAL/i.test(raw.type || '') ? 'helical'
+        : /BORED|DRILLED/i.test(raw.type || '') ? 'bored'
+        : /MICRO/i.test(raw.type || '') ? 'micropile'
+        : 'driven',
+      material: raw.material || 'Concrete',
+      capacity: raw.properties?.capacity,
+      source: (raw.source as BIMSolid['source']) || 'ai_modeled',
+    }));
+  }
+
+  // ── BUILD GRADE BEAMS ───────────────────────────────────────────────
+  for (const raw of gradeBeams) {
+    const start = vec2(raw.startX || raw.x || 0, raw.startY || raw.y || 0);
+    const end = vec2(raw.endX || (raw.x || 0) + (raw.length || 5), raw.endY || raw.y || 0);
+
+    elements.push(createGradeBeam({
+      id: raw.id,
+      name: raw.name || `Grade Beam ${raw.id}`,
+      start, end,
+      width: raw.width || 0.4,
+      depth: raw.depth || raw.height || 0.6,
+      storey: raw.storey || 'Foundation',
+      elevation: raw.elevation || 0,
+      material: raw.material || 'Concrete',
+      source: (raw.source as BIMSolid['source']) || 'ai_modeled',
+    }));
+  }
+
+  // ── BUILD CURTAIN WALLS ─────────────────────────────────────────────
+  for (const raw of curtainWalls) {
+    const storey = raw.storey || context.storeys[0]?.name || 'Level 1';
+    const storeyInfo = context.storeys.find(s => s.name === storey) || context.storeys[0];
+    const elevation = raw.elevation ?? storeyInfo?.elevation ?? 0;
+    const height = raw.height || storeyInfo?.floorToFloorHeight || 3.6;
+
+    let start: Vec2, end: Vec2;
+    if (raw.startX != null && raw.startY != null && raw.endX != null && raw.endY != null) {
+      start = vec2(raw.startX, raw.startY);
+      end = vec2(raw.endX, raw.endY);
+    } else if (raw.x != null && raw.y != null && raw.length) {
+      start = vec2(raw.x, raw.y);
+      end = vec2(raw.x + raw.length, raw.y);
+    } else {
+      start = vec2(0, 0);
+      end = vec2(raw.length || 10, 0);
+    }
+
+    const cwResult = createCurtainWall({
+      id: raw.id,
+      name: raw.name || `Curtain Wall ${raw.id}`,
+      start, end,
+      height,
+      storey, elevation,
+      panelWidth: raw.properties?.panelWidth || 1.5,
+      panelHeight: raw.properties?.panelHeight || 1.8,
+      mullionWidth: raw.properties?.mullionWidth || 0.065,
+      mullionDepth: raw.properties?.mullionDepth || 0.15,
+      panelThickness: raw.properties?.panelThickness || 0.025,
+      panelMaterial: raw.material || 'Glass',
+      mullionMaterial: raw.properties?.mullionMaterial || 'Aluminum',
+      source: (raw.source as BIMSolid['source']) || 'ai_modeled',
+    });
+
+    elements.push(cwResult.wall);
+    elements.push(...cwResult.panels);
+    elements.push(...cwResult.mullions);
   }
 
   // ── BUILD STAIRS ──────────────────────────────────────────────────────
@@ -448,7 +600,7 @@ export function buildModel(
     const storeyInfo = context.storeys.find(s => s.name === storey) || context.storeys[0];
     const elevation = raw.elevation ?? storeyInfo?.elevation ?? 0;
     const totalHeight = raw.height || storeyInfo?.floorToFloorHeight || 3.0;
-    const numRisers = Math.round(totalHeight / 0.178); // 178mm risers
+    const numRisers = Math.round(totalHeight / 0.178); // 178mm risers (OBC max)
 
     elements.push(createStair({
       id: raw.id,
@@ -461,6 +613,52 @@ export function buildModel(
       rotation: 0,
       storey, elevation,
       material: raw.material || 'Concrete',
+      source: (raw.source as BIMSolid['source']) || 'ai_modeled',
+    }));
+  }
+
+  // ── BUILD RAMPS ────────────────────────────────────────────────────
+  for (const raw of ramps) {
+    const storey = raw.storey || context.storeys[0]?.name || 'Level 1';
+    const storeyInfo = context.storeys.find(s => s.name === storey) || context.storeys[0];
+    const elevation = raw.elevation ?? storeyInfo?.elevation ?? 0;
+    const riseHeight = raw.height || 1.0;
+    const runLength = raw.length || riseHeight / Math.tan(Math.atan(1 / 12)); // 1:12 slope per OBC
+
+    elements.push(createRamp({
+      id: raw.id,
+      name: raw.name || `Ramp ${raw.id}`,
+      origin: vec3(raw.x || 0, raw.y || 0, elevation),
+      width: raw.width || 1.5,
+      length: runLength,
+      riseHeight,
+      thickness: raw.thickness || 0.2,
+      rotation: 0,
+      storey, elevation,
+      material: raw.material || 'Concrete',
+      source: (raw.source as BIMSolid['source']) || 'ai_modeled',
+    }));
+  }
+
+  // ── BUILD RAILINGS ──────────────────────────────────────────────────
+  for (const raw of railings) {
+    const storey = raw.storey || context.storeys[0]?.name || 'Level 1';
+    const storeyInfo = context.storeys.find(s => s.name === storey) || context.storeys[0];
+    const elevation = raw.elevation ?? storeyInfo?.elevation ?? 0;
+
+    const path = raw.path?.map(p => vec3(p.x, p.y, p.z))
+      || [vec3(raw.x || 0, raw.y || 0, elevation), vec3((raw.x || 0) + (raw.length || 3), raw.y || 0, elevation)];
+
+    elements.push(createRailing({
+      id: raw.id,
+      name: raw.name || `Railing ${raw.id}`,
+      path,
+      height: raw.height || 1.07, // 1070mm per OBC
+      postSpacing: 1.2,
+      postSize: 0.05,
+      railDiameter: 0.042,
+      storey, elevation,
+      material: raw.material || 'Steel',
       source: (raw.source as BIMSolid['source']) || 'ai_modeled',
     }));
   }
@@ -554,6 +752,73 @@ export function buildModel(
     }));
   }
 
+  // ── REBAR GENERATION (for concrete elements) ────────────────────────
+  if (context.generateRebar) {
+    const concreteElements = elements.filter(e =>
+      /concrete/i.test(e.material) && /slab|beam|column|footing|wall|grade.beam/i.test(e.type)
+    );
+    for (const el of concreteElements) {
+      const elementType = /slab|floor/i.test(el.type) ? 'slab'
+        : /beam/i.test(el.type) ? 'beam'
+        : /column/i.test(el.type) ? 'column'
+        : /wall/i.test(el.type) ? 'wall'
+        : 'footing';
+
+      const { bars, rebarInfo } = generateRebarGeometry({
+        hostElement: el,
+        elementType,
+        cover: elementType === 'footing' ? 75 : 40,
+        topBarDesignation: elementType === 'slab' ? '15M' : '20M',
+        topBarSpacing: elementType === 'slab' ? 300 : 200,
+        bottomBarDesignation: elementType === 'slab' ? '15M' : '20M',
+        bottomBarSpacing: elementType === 'slab' ? 300 : 200,
+        stirrupDesignation: (elementType === 'beam' || elementType === 'column') ? '10M' : undefined,
+        stirrupSpacing: (elementType === 'beam' || elementType === 'column') ? 200 : undefined,
+      });
+
+      el.rebar = rebarInfo;
+      elements.push(...bars);
+    }
+  }
+
+  // ── STEEL CONNECTION GENERATION ────────────────────────────────────
+  if (context.generateConnections) {
+    const steelBeams = elements.filter(e => /beam/i.test(e.type) && /steel/i.test(e.material));
+    const steelColumns = elements.filter(e => /column/i.test(e.type) && /steel/i.test(e.material));
+
+    for (const beam of steelBeams) {
+      // Find closest column to beam start
+      let closestCol: BIMSolid | undefined;
+      let closestDist = Infinity;
+      for (const col of steelColumns) {
+        if (col.storey !== beam.storey) continue;
+        const d = v3len(v3sub(beam.origin, col.origin));
+        if (d < closestDist && d < 1.0) { closestDist = d; closestCol = col; }
+      }
+
+      if (closestCol) {
+        const { elements: connElements, detail } = createSteelConnection({
+          id: `conn_${beam.id}_${closestCol.id}`,
+          type: 'shear_tab',
+          beamElement: beam,
+          supportElement: closestCol,
+        });
+        beam.connections = beam.connections || [];
+        beam.connections.push(detail);
+        elements.push(...connElements);
+      }
+    }
+  }
+
+  // ── PARAMETRIC CONSTRAINTS PIPELINE ─────────────────────────────────
+  // Runs: wall auto-joins, beam-column snapping, trim/extend,
+  //       phase assignment, LOD classification, workset assignment, revision tracking
+  const constraintResults = runConstraintsPipeline(elements, {
+    revisionNumber: context.revisionNumber,
+    revisionId: context.revisionId,
+    previousElements: context.previousElements,
+  });
+
   // ── CLASH DETECTION ───────────────────────────────────────────────────
   let clashes: ClashResult[] = [];
   let clashSummary: ClashSummary = { total: 0, bySeverity: { critical: 0, major: 0, minor: 0, info: 0 }, byType: { hard: 0, soft: 0, clearance: 0 }, byDiscipline: {}, topClashes: [] };
@@ -561,7 +826,11 @@ export function buildModel(
   if (options?.runClashCheck !== false && elements.length > 1) {
     clashes = runClashDetection(elements, {
       ignoreSameHost: true,
-      excludePairs: [['Floor Slab', 'Wall'], ['Floor Slab', 'Column']],
+      excludePairs: [
+        ['Floor Slab', 'Wall'], ['Floor Slab', 'Column'],
+        ['Rebar', 'Rebar'], ['Bolt', 'Connection Plate'],
+        ['Mullion', 'Curtain Wall Panel'],
+      ],
     });
     clashSummary = summarizeClashes(clashes);
   }
@@ -593,11 +862,15 @@ export function buildModel(
     elements,
     clashes,
     clashSummary,
+    constraints: constraintResults,
     stats: {
       totalElements: elements.length,
       byType, byStorey, byCategory,
       totalVolume, totalArea,
       withGeometry: elements.filter(e => e.mesh.triangles.length > 0).length,
+      lodDistribution: constraintResults.lodDistribution,
+      worksetDistribution: constraintResults.worksetDistribution,
+      phaseDistribution: constraintResults.phaseDistribution,
     },
     ifcContent,
     warnings,
