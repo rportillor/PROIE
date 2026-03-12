@@ -28,6 +28,7 @@ import {
   generateClashReport,
   generateGapRegister,
   generateScheduleOfValues,
+  type ScheduleOfValues,
 } from "../report-generator";
 
 
