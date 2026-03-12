@@ -797,6 +797,312 @@ export default function Viewer3D({ modelId, onElementSelect }: ViewerProps){
         }
 
         // ═══════════════════════════════════════════════════════════════
+        // PRIORITY 2: Parametric profile rendering
+        // When geometry-upgrade.ts has resolved real profiles (steel
+        // sections, wall assemblies, column shapes, MEP shapes), render
+        // them as proper Three.js geometry instead of bounding boxes.
+        // This is what makes a BIM viewer look like Revit/Navisworks.
+        // ═══════════════════════════════════════════════════════════════
+        const profile = e?.geometry?.profile;
+        const assembly = e?.geometry?.assembly;
+        if (profile || assembly) {
+          const dims2 = getDims(e);
+          if (dims2) {
+            let parsedLoc2 = null;
+            if (typeof e?.location === 'string' && e.location !== '{}') {
+              try { parsedLoc2 = JSON.parse(e.location); } catch {}
+            }
+            const rawLoc2 = e?.geometry?.location?.realLocation
+              || e?.properties?.realLocation
+              || e?.geometry?.location?.coordinates
+              || parsedLoc2 || e?.location || {x:0,y:0,z:0};
+            const cc3 = coerceCoordToMetres(
+              Number(rawLoc2.x || 0), Number(rawLoc2.y || 0), Number(rawLoc2.z || 0)
+            );
+            const pp = { x: cc3.x, y: cc3.z, z: cc3.y }; // BIM Z-up → Three.js Y-up
+            const elType2 = (e.elementType || e.type || e.category || '').toLowerCase();
+            const yaw = e?.geometry?.orientation?.yawRad || 0;
+
+            let profileGeo: THREE.BufferGeometry | null = null;
+            let profileColor = 0xCCCCCC;
+            let profileMatProps: any = { metalness: 0.1, roughness: 0.85, flatShading: true };
+
+            // ── I-BEAM / W-SECTION PROFILES ──────────────────────────────
+            if (profile?.shape === 'w-section' || profile?.shape === 'i_beam') {
+              const d = profile.depth || dims2.height || 0.3;    // total depth
+              const bf = profile.flangeWidth || dims2.width || 0.15; // flange width
+              const tw = profile.webThickness || d * 0.04;       // web thickness
+              const tf = profile.flangeThickness || d * 0.06;    // flange thickness
+              const beamLength = dims2.depth || dims2.width || 3; // span length
+
+              // Build I-beam cross-section as a THREE.Shape
+              const shape = new THREE.Shape();
+              const hw = bf / 2;   // half flange width
+              const hd = d / 2;    // half depth
+              const htw = tw / 2;  // half web thickness
+
+              // Outer I shape: start at bottom-left of bottom flange
+              shape.moveTo(-hw, -hd);
+              shape.lineTo(hw, -hd);
+              shape.lineTo(hw, -hd + tf);
+              shape.lineTo(htw, -hd + tf);
+              shape.lineTo(htw, hd - tf);
+              shape.lineTo(hw, hd - tf);
+              shape.lineTo(hw, hd);
+              shape.lineTo(-hw, hd);
+              shape.lineTo(-hw, hd - tf);
+              shape.lineTo(-htw, hd - tf);
+              shape.lineTo(-htw, -hd + tf);
+              shape.lineTo(-hw, -hd + tf);
+              shape.closePath();
+
+              const extrudeSettings = { steps: 1, depth: beamLength, bevelEnabled: false };
+              profileGeo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+              // Extrude goes along Z; rotate so beam runs along X
+              profileGeo.rotateY(Math.PI / 2);
+              profileGeo.translate(0, hd, 0); // bottom of beam at origin
+              profileColor = 0x708090; // steel gray
+              profileMatProps = { metalness: 0.65, roughness: 0.35, flatShading: true };
+            }
+
+            // ── HSS RECTANGULAR SECTIONS ─────────────────────────────────
+            else if (profile?.shape === 'hss-rect' || profile?.shape === 'hollow_rectangular') {
+              const d = profile.depth || dims2.height || 0.2;
+              const w = profile.outerWidth || profile.flangeWidth || dims2.width || 0.2;
+              const wt = profile.wallThickness || 0.008;
+              const beamLength = dims2.depth || dims2.width || 3;
+
+              const outer = new THREE.Shape();
+              outer.moveTo(-w/2, -d/2);
+              outer.lineTo(w/2, -d/2);
+              outer.lineTo(w/2, d/2);
+              outer.lineTo(-w/2, d/2);
+              outer.closePath();
+
+              const hole = new THREE.Path();
+              const iw = w/2 - wt, id = d/2 - wt;
+              hole.moveTo(-iw, -id);
+              hole.lineTo(iw, -id);
+              hole.lineTo(iw, id);
+              hole.lineTo(-iw, id);
+              hole.closePath();
+              outer.holes.push(hole);
+
+              profileGeo = new THREE.ExtrudeGeometry(outer, { steps: 1, depth: beamLength, bevelEnabled: false });
+              profileGeo.rotateY(Math.PI / 2);
+              profileGeo.translate(0, d/2, 0);
+              profileColor = 0x708090;
+              profileMatProps = { metalness: 0.65, roughness: 0.35, flatShading: true };
+            }
+
+            // ── HSS ROUND / PIPE SECTIONS ────────────────────────────────
+            else if (profile?.shape === 'hss-round' || profile?.shape === 'pipe') {
+              const outerR = (profile.depth || profile.diameter || dims2.width || 0.1) / 2;
+              const wt = profile.wallThickness || outerR * 0.1;
+              const innerR = Math.max(outerR - wt, outerR * 0.5);
+              const pipeLen = Math.max(dims2.depth, dims2.height, dims2.width, 0.5);
+
+              // Outer cylinder minus inner = hollow pipe
+              profileGeo = new THREE.CylinderGeometry(outerR, outerR, pipeLen, 16);
+              profileColor = /plumb|water|copper/i.test(elType2) ? 0xB87333 : 0x808080;
+              profileMatProps = { metalness: 0.7, roughness: 0.3, flatShading: false };
+            }
+
+            // ── CYLINDRICAL COLUMNS ──────────────────────────────────────
+            else if (profile?.shape === 'circular' && /column|pillar|pier/i.test(elType2)) {
+              const diameter = profile.diameter || dims2.width || 0.4;
+              const h = dims2.height || 3;
+              profileGeo = new THREE.CylinderGeometry(diameter/2, diameter/2, h, 16);
+              profileGeo.translate(0, h/2, 0);
+              profileColor = 0x808080;
+              profileMatProps = { metalness: 0.5, roughness: 0.5, flatShading: false };
+            }
+
+            // ── CIRCULAR PIPES / CONDUITS ──────────────────────────────────
+            else if (profile?.type === 'pipe' || (profile?.shape === 'circular' && /pipe|conduit|sprinkler/i.test(elType2))) {
+              const diam = profile.diameter || dims2.width || 0.05;
+              const pipeLen = Math.max(dims2.depth, dims2.height, dims2.width, 0.5);
+              profileGeo = new THREE.CylinderGeometry(diam/2, diam/2, pipeLen, 12);
+              profileGeo.rotateZ(Math.PI / 2); // horizontal
+              profileColor = /plumb|water|copper|hot|cold/i.test(elType2) ? 0xB87333 : 0x808080;
+              profileMatProps = { metalness: 0.7, roughness: 0.3, flatShading: false };
+            }
+
+            // ── CIRCULAR DUCTS ───────────────────────────────────────────
+            else if (profile?.shape === 'circular' && /duct/i.test(elType2)) {
+              const diam = profile.diameter || dims2.width || 0.3;
+              const ductLen = Math.max(dims2.depth, dims2.height, 1);
+              profileGeo = new THREE.CylinderGeometry(diam/2, diam/2, ductLen, 12);
+              profileGeo.rotateZ(Math.PI / 2); // horizontal orientation
+              profileColor = 0xA9A9A9;
+              profileMatProps = { metalness: 0.7, roughness: 0.4, flatShading: false };
+            }
+
+            // ── RECTANGULAR DUCTS (with visible thickness) ───────────────
+            else if (profile?.shape === 'rectangular' && /duct/i.test(elType2)) {
+              const dw = profile.width || dims2.width || 0.6;
+              const dh = profile.height || dims2.depth || 0.3;
+              const wt2 = 0.002; // sheet metal thickness
+              const ductLen = Math.max(dims2.depth, dims2.height, 1);
+
+              const outer = new THREE.Shape();
+              outer.moveTo(-dw/2, -dh/2);
+              outer.lineTo(dw/2, -dh/2);
+              outer.lineTo(dw/2, dh/2);
+              outer.lineTo(-dw/2, dh/2);
+              outer.closePath();
+
+              const inner = new THREE.Path();
+              inner.moveTo(-dw/2 + wt2, -dh/2 + wt2);
+              inner.lineTo(dw/2 - wt2, -dh/2 + wt2);
+              inner.lineTo(dw/2 - wt2, dh/2 - wt2);
+              inner.lineTo(-dw/2 + wt2, dh/2 - wt2);
+              inner.closePath();
+              outer.holes.push(inner);
+
+              profileGeo = new THREE.ExtrudeGeometry(outer, { steps: 1, depth: ductLen, bevelEnabled: false });
+              profileGeo.rotateY(Math.PI / 2);
+              profileColor = 0xA9A9A9;
+              profileMatProps = { metalness: 0.7, roughness: 0.4, flatShading: true };
+            }
+
+            // ── CABLE TRAY (U-channel) ───────────────────────────────────
+            else if (profile?.shape === 'u_channel') {
+              const tw2 = profile.width || dims2.width || 0.3;
+              const td = profile.depth || dims2.depth || 0.1;
+              const wt3 = 0.003;
+              const trayLen = Math.max(dims2.height, dims2.depth, 1);
+
+              const shape = new THREE.Shape();
+              // U-channel: bottom + two sides (open top)
+              shape.moveTo(-tw2/2, 0);
+              shape.lineTo(tw2/2, 0);
+              shape.lineTo(tw2/2, td);
+              shape.lineTo(tw2/2 - wt3, td);
+              shape.lineTo(tw2/2 - wt3, wt3);
+              shape.lineTo(-tw2/2 + wt3, wt3);
+              shape.lineTo(-tw2/2 + wt3, td);
+              shape.lineTo(-tw2/2, td);
+              shape.closePath();
+
+              profileGeo = new THREE.ExtrudeGeometry(shape, { steps: 1, depth: trayLen, bevelEnabled: false });
+              profileGeo.rotateY(Math.PI / 2);
+              profileColor = 0xFF9800;
+              profileMatProps = { metalness: 0.5, roughness: 0.5, flatShading: true };
+            }
+
+            // ── MULTI-LAYER WALL ASSEMBLIES ──────────────────────────────
+            else if (assembly && assembly.layers && /wall|partition/i.test(elType2)) {
+              const wallLen = Math.max(dims2.width, dims2.depth, 1);
+              const wallH = dims2.height || 3;
+              const layers: { name: string; thickness: number; material: string; isStructural: boolean }[] = assembly.layers;
+
+              // Build each layer as a separate colored box
+              const wallGroup = new THREE.Group();
+              let currentOffset = 0;
+              const totalThk = assembly.totalThickness || layers.reduce((s: number, l: any) => s + l.thickness, 0);
+
+              for (const layer of layers) {
+                const layerThk = layer.thickness;
+                const layerGeo = new THREE.BoxGeometry(wallLen, wallH, layerThk);
+                const layerZ = -totalThk / 2 + currentOffset + layerThk / 2;
+                layerGeo.translate(0, wallH / 2, layerZ);
+
+                // Color by material type
+                let layerColor = 0xE8DCC8; // default beige
+                const mat = (layer.material || '').toLowerCase();
+                if (/brick/.test(mat)) layerColor = 0xB22222;
+                else if (/steel|metal|aluminum/.test(mat)) layerColor = 0x708090;
+                else if (/gypsum|drywall/.test(mat)) layerColor = 0xFAF0E6;
+                else if (/insulation|batt|mineral|xps/.test(mat)) layerColor = 0xFFFF99;
+                else if (/concrete|cmu|masonry/.test(mat)) layerColor = 0x808080;
+                else if (/osb|sheathing|plywood/.test(mat)) layerColor = 0xDEB887;
+                else if (/air/.test(mat)) { currentOffset += layerThk; continue; } // skip air cavities
+                else if (/polyethylene|vapor|barrier/.test(mat)) layerColor = 0x4169E1;
+
+                const layerMat = new THREE.MeshStandardMaterial({
+                  color: layerColor,
+                  metalness: layer.isStructural ? 0.4 : 0.1,
+                  roughness: 0.7,
+                  flatShading: true,
+                });
+                const layerMesh = new THREE.Mesh(layerGeo, layerMat);
+
+                // Add thin edges between layers for visual separation
+                const edgesGeo = new THREE.EdgesGeometry(layerGeo, 30);
+                const edgeMat2 = new THREE.LineBasicMaterial({ color: 0x000000, opacity: 0.1, transparent: true });
+                layerMesh.add(new THREE.LineSegments(edgesGeo, edgeMat2));
+
+                wallGroup.add(layerMesh);
+                currentOffset += layerThk;
+              }
+
+              // Position and rotate the wall group
+              wallGroup.position.set(pp.x, pp.y, pp.z);
+              wallGroup.rotation.y = -yaw; // yaw in BIM → Y rotation in Three.js
+              wallGroup.userData = { element: e };
+              root.add(wallGroup);
+
+              // Expand bounding box
+              const tmpBox = new THREE.Box3().setFromObject(wallGroup);
+              box.expandByPoint(tmpBox.min);
+              box.expandByPoint(tmpBox.max);
+              meshRenderedCount++;
+              continue; // skip box fallback
+            }
+
+            // ── SQUARE/RECTANGULAR COLUMN PROFILES ───────────────────────
+            else if (profile?.shape === 'square' && /column|pillar/i.test(elType2)) {
+              const side = profile.side || dims2.width || 0.4;
+              const h = dims2.height || 3;
+              profileGeo = new THREE.BoxGeometry(side, h, side);
+              profileGeo.translate(0, h/2, 0);
+              profileColor = 0x808080;
+              profileMatProps = { metalness: 0.4, roughness: 0.6, flatShading: true };
+            }
+
+            else if (profile?.shape === 'rectangular' && /column|pillar/i.test(elType2)) {
+              const cw = profile.width || dims2.width || 0.4;
+              const cd = profile.depth || dims2.depth || 0.3;
+              const h = dims2.height || 3;
+              profileGeo = new THREE.BoxGeometry(cw, h, cd);
+              profileGeo.translate(0, h/2, 0);
+              profileColor = 0x808080;
+              profileMatProps = { metalness: 0.4, roughness: 0.6, flatShading: true };
+            }
+
+            // ── RENDER THE PROFILE GEOMETRY ──────────────────────────────
+            if (profileGeo) {
+              const mat = new THREE.MeshStandardMaterial({ color: profileColor, ...profileMatProps });
+              const mesh = new THREE.Mesh(profileGeo, mat);
+              mesh.position.set(pp.x, pp.y, pp.z);
+              mesh.rotation.y = -yaw;
+
+              // Add subtle edges for visual definition
+              if (!profileMatProps.transparent) {
+                const edges = new THREE.EdgesGeometry(profileGeo, 25);
+                const edgeMat = new THREE.LineBasicMaterial({ color: 0x000000, opacity: 0.12, transparent: true });
+                mesh.add(new THREE.LineSegments(edges, edgeMat));
+              }
+
+              mesh.userData = { element: e };
+              root.add(mesh);
+              meshRenderedCount++;
+
+              // Expand bounding box
+              profileGeo.computeBoundingBox();
+              if (profileGeo.boundingBox) {
+                const worldMin = profileGeo.boundingBox.min.clone().add(new THREE.Vector3(pp.x, pp.y, pp.z));
+                const worldMax = profileGeo.boundingBox.max.clone().add(new THREE.Vector3(pp.x, pp.y, pp.z));
+                box.expandByPoint(worldMin);
+                box.expandByPoint(worldMax);
+              }
+              continue; // Skip legacy box fallback
+            }
+          }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
         // FALLBACK: Legacy box-based rendering (pre-geometry-kernel data)
         // ═══════════════════════════════════════════════════════════════
         boxFallbackCount++;
