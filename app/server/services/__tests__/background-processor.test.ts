@@ -1,7 +1,7 @@
 /**
  * ══════════════════════════════════════════════════════════════════════════════
  *  BACKGROUND PROCESSOR — Test Suite
- *  Tests: singleton, auto-resume, queue management
+ *  Tests: singleton, auto-resume, method existence
  * ══════════════════════════════════════════════════════════════════════════════
  */
 
@@ -12,20 +12,20 @@ describe('backgroundProcessor', () => {
     expect(backgroundProcessor).toBeDefined();
   });
 
-  test('has enqueue method', () => {
-    expect(typeof backgroundProcessor.enqueue).toBe('function');
+  test('has startProcessing method', () => {
+    expect(typeof backgroundProcessor.startProcessing).toBe('function');
   });
 
   test('has getStatus method', () => {
     expect(typeof backgroundProcessor.getStatus).toBe('function');
   });
 
-  test('has getQueueLength method', () => {
-    expect(typeof backgroundProcessor.getQueueLength).toBe('function');
+  test('has isProcessing method', () => {
+    expect(typeof backgroundProcessor.isProcessing).toBe('function');
   });
 
-  test('initial queue is empty', () => {
-    expect(backgroundProcessor.getQueueLength()).toBeGreaterThanOrEqual(0);
+  test('initial state is not processing', () => {
+    expect(backgroundProcessor.isProcessing()).toBe(false);
   });
 });
 

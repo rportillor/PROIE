@@ -546,7 +546,7 @@ export class MemStorage implements Partial<IStorage> {
     const document: Document = {
       ...insertDocument,
       id,
-      projectId: insertDocument.projectId || null,
+      projectId: insertDocument.projectId,
       // ✅ FIX: Ensure fileSize is number|null, not undefined
       fileSize: insertDocument.fileSize ?? null,
       pageCount: insertDocument.pageCount ?? null,
@@ -647,7 +647,7 @@ export class MemStorage implements Partial<IStorage> {
     const boqItem: BoqItem = {
       ...insertBoqItem,
       id,
-      projectId: insertBoqItem.projectId || null,
+      projectId: insertBoqItem.projectId,
       description: insertBoqItem.description || '',
       itemCode: insertBoqItem.itemCode || '',
       unit: insertBoqItem.unit || '',
@@ -780,7 +780,7 @@ export class MemStorage implements Partial<IStorage> {
     const complianceCheck: ComplianceCheck = {
       ...insertComplianceCheck,
       id,
-      projectId: insertComplianceCheck.projectId || null,
+      projectId: insertComplianceCheck.projectId,
       standard: insertComplianceCheck.standard || '',
       requirement: insertComplianceCheck.requirement || '',
       status: insertComplianceCheck.status || "Not Applicable",
@@ -802,7 +802,7 @@ export class MemStorage implements Partial<IStorage> {
     const report: Report = {
       ...insertReport,
       id,
-      projectId: insertReport.projectId || null,
+      projectId: insertReport.projectId,
       filename: insertReport.filename || '',
       fileSize: insertReport.fileSize || 0,
       reportType: insertReport.reportType || '',

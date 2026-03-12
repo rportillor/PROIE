@@ -13,8 +13,8 @@ describe('BIM facade', () => {
     expect(BIM).toBeDefined();
   });
 
-  test('BIM has generate method', () => {
-    expect(typeof BIM.generate).toBe('function');
+  test('BIM has assemble method', () => {
+    expect(typeof BIM.assemble).toBe('function');
   });
 
   test('GenerateOpts type compliance', () => {
