@@ -977,9 +977,46 @@ export default function Viewer3D({ modelId }: ViewerProps){
           materialProps.metalness = 0.9;
           materialProps.roughness = 0.2;
         } else if(isHVAC){
-          // HVAC: Galvanized steel appearance
+          // HVAC: Galvanized steel ductwork
+          // v15.30: If routing waypoints exist, create segmented duct run
+          const routing = e.properties?.duct_routing || e.properties?.routing;
+          if (Array.isArray(routing) && routing.length >= 2) {
+            // Build duct run from waypoints as a group of segments
+            const ductGroup = new THREE.Group();
+            const ductMat = new THREE.MeshStandardMaterial({
+              color: e.properties?.system === 'return' ? 0x4682B4 : // steel blue for return
+                     e.properties?.system === 'exhaust' ? 0x696969 : // dim gray for exhaust
+                     0xA9A9A9, // dark gray for supply
+              metalness: 0.7, roughness: 0.4
+            });
+            for (let ri = 0; ri < routing.length - 1; ri++) {
+              const wp1 = routing[ri];
+              const wp2 = routing[ri + 1];
+              const dx = (wp2.x || 0) - (wp1.x || 0);
+              const dy = (wp2.y || 0) - (wp1.y || 0);
+              const dz = (wp2.z || 0) - (wp1.z || 0);
+              const segLen = Math.sqrt(dx*dx + dy*dy + dz*dz);
+              if (segLen < 0.01) continue;
+              const segW = dims.width || 0.3;
+              const segD = dims.depth || 0.3;
+              const segGeo = new THREE.BoxGeometry(segW, segD, segLen);
+              const segMesh = new THREE.Mesh(segGeo, ductMat);
+              segMesh.position.set(
+                ((wp1.x||0) + (wp2.x||0)) / 2,
+                ((wp1.z||0) + (wp2.z||0)) / 2, // z→y in viewer
+                ((wp1.y||0) + (wp2.y||0)) / 2
+              );
+              segMesh.lookAt(new THREE.Vector3(wp2.x||0, wp2.z||0, wp2.y||0));
+              ductGroup.add(segMesh);
+            }
+            root.add(ductGroup);
+            continue; // skip normal mesh creation for routed ducts
+          }
+          // Fallback: single box for unrouted ducts
           geo = new THREE.BoxGeometry(dims.width, dims.height, dims.depth);
-          color = 0xA9A9A9; // Dark gray for HVAC
+          color = e.properties?.system === 'return' ? 0x4682B4 :
+                  e.properties?.system === 'exhaust' ? 0x696969 :
+                  0xA9A9A9; // Dark gray for supply ducts
           materialProps.metalness = 0.7;
         } else if(isPlumbing){
           // Plumbing: Copper/PVC pipes

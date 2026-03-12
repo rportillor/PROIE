@@ -1,7 +1,9 @@
 // server/helpers/layout-calibration.ts
 // Hardened layout calibration: footprint fallback, unit scaling, de-dup positioning, and global transform.
+// v15.30: Uses extracted drawing scale when available instead of heuristic guessing.
 
 import { convexHull } from "./geom-utils";
+import type { DrawingScaleResult } from "../bim/drawing-scale-extractor";
 
 // Dynamic import helper for footprint-extractor service
 async function tryFootprintService() {
@@ -49,8 +51,26 @@ function safeJSON(s:string){
   } 
 }
 
-function detectScale(elements:any[]):number{
-  // Heuristic: use wall thickness / column size medians to infer units.
+/**
+ * Detect coordinate scale factor.
+ * Priority: 1) extracted drawing scale, 2) element-size heuristic fallback.
+ */
+function detectScale(elements:any[], extractedScale?: DrawingScaleResult | null):number{
+  // ── 1) Use extracted drawing scale if available and reliable ──────────
+  if (extractedScale?.primary_scale && extractedScale.primary_scale.factor > 0) {
+    const conf = extractedScale.confidence;
+    const factor = extractedScale.primary_scale.factor;
+    console.log(`📐 SCALE: Using extracted scale ${extractedScale.primary_scale.ratio} (factor=${factor}, confidence=${conf}) from sheet ${extractedScale.sheet_id}`);
+    if (conf === 'high' || conf === 'medium') {
+      return factor;
+    }
+    // Low confidence: still prefer it over heuristic but log warning
+    console.warn(`⚠️ SCALE: Low confidence extraction — using factor=${factor} but results may be inaccurate`);
+    return factor;
+  }
+
+  // ── 2) Fallback: heuristic from element dimensions ───────────────────
+  console.warn('⚠️ SCALE: No extracted drawing scale — falling back to element-size heuristic');
   const arr:number[]=[];
   for(const e of elements){
     const k = String(e?.elementType||e?.type||e?.category||"");
@@ -284,13 +304,15 @@ export async function calibrateAndPositionElements(
     clampOutliersMeters?: number;
     spacingFromAnalysis?: {light?: number; sprinkler?: number};
     minDiagFromAnalysis?: number;
+    /** v15.30: Extracted drawing scale — used instead of heuristic when provided */
+    extractedScale?: DrawingScaleResult | null;
   } = {}
 ){
   // "preferClaude" uses the same footprint-priority chain as "auto"
   const _mode = opts.mode === "preferClaude" ? "auto" : (opts.mode ?? "auto");
 
-  // 0) Unit scale & sanitize positions
-  const scale = detectScale(elements);
+  // 0) Unit scale & sanitize positions — prefer extracted scale over heuristic
+  const scale = detectScale(elements, opts.extractedScale);
   console.log(`🧭 CALIBRATION: detected unit scale=${scale.toFixed(4)} for ${elements.length} elements`);
   // Use analysis yaw/translate if available later; for now yaw=0 and translate set after rect chosen.
   let yaw = 0;
