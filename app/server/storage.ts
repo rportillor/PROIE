@@ -39,10 +39,6 @@ import {
   type InsertCostEstimate,
   type CostEstimateItem,
   type InsertCostEstimateItem,
-  type Subscription,
-  type InsertSubscription,
-  type PlanLimit,
-  type InsertPlanLimit,
   type AnalysisResult,
   type InsertAnalysisResult,
   type DocumentHash,
@@ -67,17 +63,8 @@ import {
   bimElements,
   bimStoreys,
   bimElementClassifications,
-  materials,
-  labourRates,
-  equipmentRates,
-  costFactors,
-  suppliers,
-  costEstimates,
   analysisResults,
   documentHashes,
-  costEstimateItems,
-  subscriptions,
-  planLimits,
   productCatalog,
   elementProductSelections,
   boqVersions,
@@ -106,7 +93,6 @@ import {
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { PRNG } from "./helpers/prng";
-import bcrypt from "bcryptjs";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { eq, desc, and, isNull, inArray, sql } from "drizzle-orm";
 import postgres from "postgres";
@@ -546,7 +532,7 @@ export class MemStorage implements Partial<IStorage> {
     const document: Document = {
       ...insertDocument,
       id,
-      projectId: insertDocument.projectId || null,
+      projectId: insertDocument.projectId ?? '',
       // ✅ FIX: Ensure fileSize is number|null, not undefined
       fileSize: insertDocument.fileSize ?? null,
       pageCount: insertDocument.pageCount ?? null,
@@ -555,7 +541,7 @@ export class MemStorage implements Partial<IStorage> {
       rasterPreviews: insertDocument.rasterPreviews ?? null,
       vectorHints: insertDocument.vectorHints ?? null,
       // ✅ FIX: Ensure storageKey is string|null, not undefined
-      storageKey: insertDocument.storageKey || null,
+      storageKey: insertDocument.storageKey ?? '',
       analysisStatus: insertDocument.analysisStatus || "Pending",
       analysisResult: insertDocument.analysisResult || null,
       // ✅ FIX: Add missing required timestamp fields
@@ -580,7 +566,7 @@ export class MemStorage implements Partial<IStorage> {
   }
 
   // Document Images methods (not implemented in MemStorage)
-  async getDocumentSheets(documentId: string): Promise<DocumentImage[]> {
+  async getDocumentSheets(_documentId: string): Promise<DocumentImage[]> {
     return [];
   }
 
@@ -617,15 +603,15 @@ export class MemStorage implements Partial<IStorage> {
     return this.createDocument(newRevisionData);
   }
 
-  async approveDocument(documentId: string, userId: string): Promise<Document | undefined> {
+  async approveDocument(documentId: string, _userId: string): Promise<Document | undefined> {
     return this.updateDocument(documentId, { analysisStatus: 'Approved' });
   }
 
-  async rejectDocument(documentId: string, userId: string, reason: string): Promise<Document | undefined> {
+  async rejectDocument(documentId: string, _userId: string, _reason: string): Promise<Document | undefined> {
     return this.updateDocument(documentId, { analysisStatus: 'Rejected' });
   }
 
-  async updateDocumentReviewStatus(documentId: string, status: string, userId: string): Promise<Document | undefined> {
+  async updateDocumentReviewStatus(documentId: string, status: string, _userId: string): Promise<Document | undefined> {
     return this.updateDocument(documentId, { analysisStatus: status });
   }
 
@@ -647,7 +633,7 @@ export class MemStorage implements Partial<IStorage> {
     const boqItem: BoqItem = {
       ...insertBoqItem,
       id,
-      projectId: insertBoqItem.projectId || null,
+      projectId: insertBoqItem.projectId ?? '',
       description: insertBoqItem.description || '',
       itemCode: insertBoqItem.itemCode || '',
       unit: insertBoqItem.unit || '',
@@ -760,12 +746,12 @@ export class MemStorage implements Partial<IStorage> {
     return boqBimMapping;
   }
 
-  async getValidationResults(projectId: string): Promise<any[]> {
+  async getValidationResults(_projectId: string): Promise<any[]> {
     // Return empty array for now - would fetch from database
     return [];
   }
 
-  async getBoqBimMappings(projectId: string): Promise<any[]> {
+  async getBoqBimMappings(_projectId: string): Promise<any[]> {
     // Return empty array for now - would fetch from database
     return [];
   }
@@ -780,7 +766,7 @@ export class MemStorage implements Partial<IStorage> {
     const complianceCheck: ComplianceCheck = {
       ...insertComplianceCheck,
       id,
-      projectId: insertComplianceCheck.projectId || null,
+      projectId: insertComplianceCheck.projectId ?? '',
       standard: insertComplianceCheck.standard || '',
       requirement: insertComplianceCheck.requirement || '',
       status: insertComplianceCheck.status || "Not Applicable",
@@ -802,7 +788,7 @@ export class MemStorage implements Partial<IStorage> {
     const report: Report = {
       ...insertReport,
       id,
-      projectId: insertReport.projectId || null,
+      projectId: insertReport.projectId ?? '',
       filename: insertReport.filename || '',
       fileSize: insertReport.fileSize || 0,
       reportType: insertReport.reportType || '',
@@ -814,7 +800,7 @@ export class MemStorage implements Partial<IStorage> {
   }
 
   // Building Code Section methods (in-memory storage)
-  async getBuildingCodeSections(jurisdiction?: string): Promise<any[]> {
+  async getBuildingCodeSections(_jurisdiction?: string): Promise<any[]> {
     // Return empty array for in-memory storage - would need database for real data
     return [];
   }
@@ -1751,15 +1737,15 @@ export class DBStorage implements Partial<IStorage> {
     return await db.select().from(documents).where(eq(documents.projectId, documentSetId));
   }
 
-  async approveDocument(documentId: string, userId: string): Promise<Document | undefined> {
+  async approveDocument(documentId: string, _userId: string): Promise<Document | undefined> {
     return await this.updateDocument(documentId, { analysisStatus: 'Approved' });
   }
 
-  async rejectDocument(documentId: string, userId: string, reason: string): Promise<Document | undefined> {
+  async rejectDocument(documentId: string, _userId: string, _reason: string): Promise<Document | undefined> {
     return await this.updateDocument(documentId, { analysisStatus: 'Rejected' });
   }
 
-  async updateDocumentReviewStatus(documentId: string, status: string, userId: string): Promise<Document | undefined> {
+  async updateDocumentReviewStatus(documentId: string, status: string, _userId: string): Promise<Document | undefined> {
     return await this.updateDocument(documentId, { analysisStatus: status });
   }
 

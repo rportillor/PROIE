@@ -4,8 +4,8 @@
  */
 
 import { db } from './db';
-import { rfis, rfiAttachments, projects } from '@shared/schema';
-import { eq, desc, and, count } from 'drizzle-orm';
+import { rfis } from '@shared/schema';
+import { eq, desc, count } from 'drizzle-orm';
 
 export interface ConflictDetectionResult {
   type: 'code_violation' | 'specification_conflict' | 'cross_document_conflict' | 'missing_information' | 'dimensional_discrepancy';

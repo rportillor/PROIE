@@ -4,16 +4,7 @@ import { insertUserSchema, type User } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import crypto from "crypto";
-
-// JWT secret key (CRITICAL SECURITY)
-const JWT_SECRET = process.env.JWT_SECRET || (() => {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('JWT_SECRET environment variable is required in production');
-  }
-  // Generate a random secret for development
-  return crypto.randomBytes(64).toString('hex');
-})();
+import { JWT_SECRET } from "./config/jwt-secret";
 
 // Auth schemas
 export const loginSchema = z.object({
@@ -79,7 +70,7 @@ export function generateToken(user: User): string {
 export function verifyToken(token: string): JWTPayload | null {
   try {
     return jwt.verify(token, JWT_SECRET) as JWTPayload;
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }
@@ -192,7 +183,7 @@ export async function register(req: Request, res: Response) {
     const token = generateToken(newUser);
 
     // Return user data (without password) and token
-    const { password: _, ...userWithoutPassword } = newUser;
+    const { password: _password, ...userWithoutPassword } = newUser;
     
     res.status(201).json({
       message: "User registered successfully",
@@ -228,7 +219,7 @@ export async function login(req: Request, res: Response) {
     const token = generateToken(user);
 
     // Return user data (without password) and token
-    const { password: _, ...userWithoutPassword } = user;
+    const { password: _password, ...userWithoutPassword } = user;
     
     res.json({
       message: "Login successful",
@@ -245,7 +236,7 @@ export async function login(req: Request, res: Response) {
 }
 
 export async function getProfile(req: Request, res: Response) {
-  const { password: _, ...userWithoutPassword } = req.user!;
+  const { password: _password, ...userWithoutPassword } = req.user!;
   res.json({ user: userWithoutPassword });
 }
 
@@ -264,7 +255,7 @@ export async function authenticateSocketToken(token: string): Promise<User | nul
     
     const user = await storage.getUser(payload.userId);
     return user || null;
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }

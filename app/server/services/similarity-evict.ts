@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { and, asc, inArray, lt, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import { documentSimilarityCache } from "@shared/schema";
 import { storage } from "../storage";

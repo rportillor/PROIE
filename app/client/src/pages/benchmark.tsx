@@ -34,7 +34,6 @@ import {
   RefreshCw,
   TrendingUp,
   TrendingDown,
-  Minus,
   BookOpen,
 } from "lucide-react";
 
@@ -294,7 +293,7 @@ export default function BenchmarkPage() {
               <Button
                 variant="outline"
                 onClick={() => runCompleteness.mutate()}
-                disabled={!Boolean(projectId && runModelId && selectedBuildingType) || runCompleteness.isPending}
+                disabled={!(projectId && runModelId && selectedBuildingType) || runCompleteness.isPending}
                 className="flex-1"
               >
                 {runCompleteness.isPending

@@ -350,7 +350,7 @@ Return comprehensive JSON structure with complete CSA standards coverage.`
 /**
  * 📋 Parse NBC knowledge from Claude response
  */
-function parseNBCKnowledge(content: string): BuildingCodeKnowledge {
+function parseNBCKnowledge(_content: string): BuildingCodeKnowledge {
   // Implementation would parse Claude's JSON response
   // For now, return structured placeholder
   return {
@@ -372,7 +372,7 @@ function parseNBCKnowledge(content: string): BuildingCodeKnowledge {
 /**
  * 📋 Parse OBC knowledge from Claude response
  */
-function parseOBCKnowledge(content: string): BuildingCodeKnowledge {
+function parseOBCKnowledge(_content: string): BuildingCodeKnowledge {
   return {
     id: 'OBC-2012',
     name: 'Ontario Building Code',
@@ -392,7 +392,7 @@ function parseOBCKnowledge(content: string): BuildingCodeKnowledge {
 /**
  * 📋 Parse CSA knowledge from Claude response
  */
-function parseCSAKnowledge(content: string): BuildingCodeKnowledge {
+function parseCSAKnowledge(_content: string): BuildingCodeKnowledge {
   return {
     id: 'CSA-CURRENT',
     name: 'CSA Standards for Construction',
@@ -421,9 +421,9 @@ async function storeKnowledgeBase(type: string, knowledge: BuildingCodeKnowledge
  * 🔍 Get applicable code sections for a specific project
  */
 export async function getApplicableCodeSections(
-  buildingType: string,
-  occupancyClass: string,
-  jurisdiction: string
+  _buildingType: string,
+  _occupancyClass: string,
+  _jurisdiction: string
 ): Promise<CodeSection[]> {
   // Implementation would query the stored knowledge bases
   // and return only applicable sections for the specific project

@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { eq, and, desc, isNull } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { db } from './db';
 import { 
   regulatoryAnalysisCache, 
@@ -227,7 +227,7 @@ Identify any conflicts between regulatory levels and provide resolution guidance
       
       try {
         return JSON.parse(analysisText);
-      } catch (parseError) {
+      } catch (_parseError) {
         // Fallback if JSON parsing fails
         return {
           fullAnalysis: analysisText,

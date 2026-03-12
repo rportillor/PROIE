@@ -22,7 +22,7 @@ type Hit = {
 function trySharp() {
   try {
     // Use require in try-catch to safely handle optional dependency
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+     
     const sharp = require("sharp");
     return sharp as typeof import("sharp");
   } catch {

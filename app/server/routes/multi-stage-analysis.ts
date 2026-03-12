@@ -16,7 +16,7 @@ import { Router } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import { storage } from '../storage';
 import { logger } from '../utils/enterprise-logger';
-import { claudeCostMonitor } from '../services/claude-cost-monitor';
+import { claudeCostMonitor as _claudeCostMonitor } from '../services/claude-cost-monitor';
 import {
   runClashDetectionForProject,
   emptyClearanceRequirements,
@@ -346,7 +346,7 @@ function parseElementsFromResponse(response: string): any[] {
     if (jsonMatch) {
       return JSON.parse(jsonMatch[0]);
     }
-  } catch (e) {
+  } catch (_e) {
     logger.warn('Failed to parse elements from response');
   }
   return [];

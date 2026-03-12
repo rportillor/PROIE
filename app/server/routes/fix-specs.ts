@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { storage } from '../storage';
 import { logger } from '../utils/enterprise-logger';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
-import fs from 'fs/promises';
+import _fs from 'fs/promises';
 
 const router = Router();
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * POST /api/fix-specs
@@ -29,8 +29,8 @@ router.post('/', async (req, res) => {
     
     logger.info(`Current document status: pageCount=${document.pageCount}, textLength=${document.textContent?.length || 0}`);
     
-    // Run the Python extraction directly and capture output
-    const command = `cd /home/runner/workspace && python3 -c "
+    // Run the Python extraction directly via execFile (avoids shell injection)
+    const pythonCode = `
 import pdfplumber
 import json
 
@@ -41,27 +41,25 @@ try:
             text = page.extract_text()
             if text and text.strip():
                 all_text.append(text.strip())
-        
         full_text = '\\n\\n'.join(all_text)
-        
         result = {
             'success': True,
             'pageCount': len(pdf.pages),
             'textLength': len(full_text),
-            'textContent': full_text[:500000]  # First 500k chars to avoid memory issues
+            'textContent': full_text[:500000]
         }
         print(json.dumps(result))
-        
 except Exception as e:
     result = {'success': False, 'error': str(e)}
     print(json.dumps(result))
-"`;
-    
+`;
+
     logger.info(`Running Python extraction...`);
-    
-    const { stdout, stderr } = await execAsync(command, { 
+
+    const { stdout, stderr } = await execFileAsync('python3', ['-c', pythonCode], {
       timeout: 120000, // 2 minutes
-      maxBuffer: 1024 * 1024 * 20 // 20MB buffer
+      maxBuffer: 1024 * 1024 * 20, // 20MB buffer
+      cwd: '/home/runner/workspace'
     });
     
     if (stderr) {

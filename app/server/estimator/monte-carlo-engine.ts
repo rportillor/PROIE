@@ -15,7 +15,7 @@
 // Consumed by: budget-structure.ts (contingency derivation), qs-level5-routes.ts
 // =============================================================================
 
-import type { EstimateSummary, EstimateLineItem } from './estimate-engine';
+import type { EstimateSummary } from './estimate-engine';
 
 
 // ─── TYPES ──────────────────────────────────────────────────────────────────

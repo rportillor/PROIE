@@ -17,7 +17,7 @@
  * ══════════════════════════════════════════════════════════════════════════════
  */
 
-import type { ScheduleActivity, PathClassification, ActivityIssueLink, ScheduleLinkageResult } from './schedule-linkage';
+import type { ScheduleLinkageResult } from './schedule-linkage';
 import type { IssueRecord, IssuePriority } from './issue-log';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -75,7 +75,7 @@ export interface MilestoneProtectionReport {
 // 1. DECISION DATE CALCULATION
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const WORKING_DAYS_PER_WEEK = 5;
+const _WORKING_DAYS_PER_WEEK = 5;
 
 function addWorkingDays(date: Date, days: number): Date {
   const result = new Date(date);

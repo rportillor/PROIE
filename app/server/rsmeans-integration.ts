@@ -3,7 +3,7 @@
  * Professional construction cost database integration
  */
 
-import axios, { AxiosResponse } from 'axios';
+import axios from 'axios';
 
 export type SubscriptionTier = 'basic' | 'professional' | 'enterprise';
 
@@ -175,7 +175,7 @@ Original error: ${error}
     };
 
     // Use metric system for Canadian projects, imperial for US
-    const measurementSystem = this.isCanadianLocation(request.projectLocation) ? 'met' : 'imp';
+    const _measurementSystem = this.isCanadianLocation(request.projectLocation) ? 'met' : 'imp';
     
     // Get cost factors for location
     const costFactorsResponse = await axios.get(`${this.baseUrl}/costdata/assembly/costfactors`, {

@@ -12,7 +12,7 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-import { ProcessingProgress, processingProgress as currentProgress, getProcessingProgress } from './utils/processing-progress';
+import { ProcessingProgress, processingProgress as currentProgress } from './utils/processing-progress';
 
 // Module-scoped state (not global pollution)
 let batchProcessorAlertCount = 0;
@@ -27,7 +27,7 @@ export async function initializeBackgroundProcessor(): Promise<void> {
   
   try {
     // 🛡️ COST PROTECTION: Use smart change detection before any processing
-    const { smartAnalysisService } = await import('./smart-analysis-service');
+    const { smartAnalysisService: _smartAnalysisService } = await import('./smart-analysis-service');
     
     // Check all projects for pending documents (system-wide for background processing)
     const allProjects: any[] = [];
@@ -201,7 +201,7 @@ async function extractDocumentContent(document: any): Promise<{
     logger.info(`📄 Processing PDF with OCR: ${document.originalName}`);
     
     let textContent = '';
-    let extractionMethod = 'Unknown';
+    let _extractionMethod = 'Unknown';
     
     // First try real PDF text extraction using pdf-parse library
     try {
@@ -211,7 +211,7 @@ async function extractDocumentContent(document: any): Promise<{
 
       if (extracted.textContent && extracted.textContent.length > 0) {
         textContent = extracted.textContent;
-        extractionMethod = 'pdf-parse';
+        _extractionMethod = 'pdf-parse';
         logger.info(`✅ Real PDF text extracted: ${textContent.length} characters from ${document.originalName}`);
       } else {
         logger.info(`📊 pdf-parse returned empty text for ${document.originalName} — may be scanned/image-only`);
@@ -326,7 +326,7 @@ async function extractTextWithClaudeVision(pdfPath: string, documentName: string
         // Cleanup on error
         try {
           fs.unlinkSync(result.path);
-        } catch (cleanupError) {
+        } catch (_cleanupError) {
           // Silent cleanup failure
         }
         throw analysisError;
@@ -841,7 +841,7 @@ async function runProjectRegulatoryAnalysis(projectId: string): Promise<void> {
     logger.info(`📋 Identified ${applicableCodes.length} applicable building codes`);
     
     // Run detailed compliance analysis using cached regulatory analysis
-    const documents = await storage.getDocuments(projectId);
+    const _documents = await storage.getDocuments(projectId);
     const regulatoryContext = {
       federalCode: isCanadian ? 'NBC-2020' : 'IBC-2021',
       jurisdiction,
@@ -882,7 +882,7 @@ async function generateRegulatoryReport(projectId: string): Promise<void> {
       Math.round((passedChecks / complianceChecks.length) * 100) : 0;
     
     // Create regulatory report
-    const report = await storage.createReport({
+    const _report = await storage.createReport({
       projectId,
       reportType: 'regulatory_compliance',
       filename: `${project.name}_regulatory_compliance_${Date.now()}.pdf`,

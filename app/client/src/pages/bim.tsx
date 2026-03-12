@@ -174,7 +174,7 @@ export default function BIM() {
                           alert('Regenerating using construction methodology: specs→products→assemblies→elements');
                           window.location.reload();
                         }
-                      } catch (e) {
+                      } catch {
                         alert('Regeneration must use construction methodology. Use the Generate button to create elements properly.');
                       }
                     }
@@ -247,7 +247,7 @@ export default function BIM() {
                   } else {
                     alert('Export failed. Please try again.');
                   }
-                } catch (e) {
+                } catch {
                   alert('Export failed. Please try again.');
                 }
               }}

@@ -16,7 +16,7 @@
 //   4. Scope gap analysis: items in engineer's estimate but missing from bid
 //   5. Recommendation report
 
-import type { EstimateSummary, FloorSummary } from './estimate-engine';
+import type { EstimateSummary } from './estimate-engine';
 import type { BudgetStructure } from './budget-structure';
 
 // ─── Bid Package Input ──────────────────────────────────────────────────────

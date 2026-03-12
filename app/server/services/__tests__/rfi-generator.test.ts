@@ -16,9 +16,6 @@ import {
 import type {
   MissingDataItem,
   MissingDataCategory,
-  ImpactLevel,
-  RFIPriority,
-  RFI,
 } from '../../estimator/rfi-generator';
 
 // ─── Test Helpers ───────────────────────────────────────────────────────────

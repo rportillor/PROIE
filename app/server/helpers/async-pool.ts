@@ -4,7 +4,7 @@
 export async function asyncPool<T, R>(
   concurrency: number,
   items: T[],
-  processor: (item: T, index: number) => Promise<R>
+  processor: (_item: T, _index: number) => Promise<R>
 ): Promise<R[]> {
   const results: R[] = [];
   const executing: Promise<void>[] = [];

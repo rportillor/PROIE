@@ -1,5 +1,4 @@
 // server/helpers/grid-detect.ts
-import { Pt } from "./geom-utils";
 
 function cluster1D(values: number[], eps: number): number[] {
   const s = [...values].sort((a,b)=>a-b);

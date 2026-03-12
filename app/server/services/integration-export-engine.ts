@@ -20,16 +20,10 @@
 
 import type {
   BOQReport,
-  BOQReportLine,
   BidLevelingSheet,
   ClashReport,
-  ConstructabilityReport,
-  ExecutiveSummary,
   GapRegister,
   ScheduleOfValues,
-  StoreySubtotal,
-  DivisionSubtotal,
-  TradePackageSubtotal,
 } from './report-generator';
 
 
@@ -48,7 +42,7 @@ function isoNow(): string {
   return new Date().toISOString();
 }
 
-function fmtMoney(amount: number): string {
+function _fmtMoney(amount: number): string {
   return Math.round(amount).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
@@ -190,7 +184,7 @@ export function generateIFC4File(
   const personOrgId = eid++;
   const appId = eid++;
   const contextId = eid++;
-  const dimExId = eid++;
+  const _dimExId = eid++;
   const siUnitLenId = eid++;
   const siUnitAreaId = eid++;
   const siUnitVolId = eid++;
@@ -272,7 +266,7 @@ export function generateIFC4File(
   for (const el of elements) {
     const elGuid = uuid().toUpperCase().replace(/-/g, '').substring(0, 22);
     const storey = el.storey || 'Unknown';
-    const storeyId = storeyIds.get(storey) || storeyIds.get('Unknown')!;
+    const _storeyId = storeyIds.get(storey) || storeyIds.get('Unknown')!;
     const g = el.geometry;
 
     // Element placement

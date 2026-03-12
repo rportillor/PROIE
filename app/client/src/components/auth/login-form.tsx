@@ -18,7 +18,7 @@ const loginSchema = z.object({
 type LoginFormData = z.infer<typeof loginSchema>;
 
 interface LoginFormProps {
-  onSuccess: (user: any, token: string) => void;
+  onSuccess: (_user: any, _token: string) => void;
   onSwitchToRegister: () => void;
 }
 

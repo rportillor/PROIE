@@ -155,6 +155,91 @@ bimGenerateRouter.post("/bim/models/:modelId/generate", async (req: Request, res
 
     logger.info(`Generation complete`, { modelId: bimModel.id, elementCount: elements.length });
 
+    // Auto-trigger 3D geometry build to create real mesh data from generated elements
+    let build3DStats: any = null;
+    try {
+      const { buildModel } = await import('../bim/model-builder');
+      const { exportBIMToIFC4 } = await import('../bim/ifc-export-v2');
+      const { serializeBIMSolid } = await import('../bim/parametric-elements');
+
+      const rawElements: any[] = elements.map((e: any) => {
+        const geometry = typeof e.geometry === 'string' ? JSON.parse(e.geometry) : e.geometry || {};
+        const properties = typeof e.properties === 'string' ? JSON.parse(e.properties) : e.properties || {};
+        const dims = geometry.dimensions || properties.dimensions || {};
+        const loc = geometry.location?.realLocation || properties.realLocation || {};
+        return {
+          id: e.id || e.elementId,
+          type: e.elementType || 'Generic',
+          name: e.name || e.elementType,
+          category: e.category,
+          storey: e.storeyName || e.level || 'Level 1',
+          elevation: Number(e.elevation) || 0,
+          length: Number(dims.length || dims.width) || undefined,
+          width: Number(dims.width || dims.thickness) || undefined,
+          height: Number(dims.height) || undefined,
+          thickness: Number(dims.thickness || dims.depth) || undefined,
+          depth: Number(dims.depth) || undefined,
+          x: Number(loc.x) || 0,
+          y: Number(loc.y) || 0,
+          z: Number(loc.z) || 0,
+          startX: properties.start?.x,
+          startY: properties.start?.y,
+          endX: properties.end?.x,
+          endY: properties.end?.y,
+          material: e.material || properties.material,
+          sectionDesignation: properties.sectionDesignation || properties.profileName || properties.steelSection || properties.memberSize,
+          source: 'ai_modeled',
+          properties,
+        };
+      });
+
+      const storeys = await storage.getBimStoreys?.(bimModel.id) || [];
+      const context: any = {
+        name: project.name || 'Project',
+        storeys: storeys.length > 0
+          ? storeys.map((s: any) => ({ name: s.name, elevation: Number(s.elevation) || 0, floorToFloorHeight: Number(s.floorToFloorHeight) || 3.0 }))
+          : [{ name: 'Level 1', elevation: 0, floorToFloorHeight: 3.0 }],
+      };
+
+      const buildResult = buildModel(rawElements, context, { runClashCheck: true, generateIFC: true, ifcOptions: { projectName: project.name } });
+
+      // Store IFC data on model
+      if (buildResult.ifcContent) {
+        await storage.updateBimModel(bimModel.id, {
+          ifcData: buildResult.ifcContent,
+          geometryData: JSON.stringify({ version: '2.0', engine: 'proie-geometry-kernel', elementCount: buildResult.elements.length }),
+        });
+      }
+
+      // Update elements with real mesh geometry
+      for (const el of buildResult.elements) {
+        const serialized = serializeBIMSolid(el);
+        try {
+          await storage.updateBimElement?.(el.id, {
+            geometry: JSON.stringify({
+              dimensions: { length: el.quantities.length, width: el.quantities.width, height: el.quantities.height, depth: el.quantities.thickness, area: el.quantities.surfaceArea, volume: el.quantities.volume },
+              location: { realLocation: el.origin },
+              mesh: serialized,
+              boundingBox: el.boundingBox,
+            }),
+            properties: JSON.stringify({
+              material: el.material,
+              assembly: el.assembly?.name,
+              ifcClass: el.ifcClass,
+              source: el.source,
+              hostId: el.hostId,
+              quantities: el.quantities,
+            }),
+          });
+        } catch { /* non-fatal */ }
+      }
+
+      build3DStats = buildResult.stats;
+      logger.info(`3D geometry built`, { modelId: bimModel.id, withGeometry: buildResult.stats.withGeometry, clashes: buildResult.clashSummary.total });
+    } catch (build3DError: any) {
+      logger.error('Auto 3D build failed (non-fatal)', { message: build3DError?.message });
+    }
+
     return res.json({
       ok: true,
       modelId: bimModel.id,
@@ -163,6 +248,7 @@ bimGenerateRouter.post("/bim/models/:modelId/generate", async (req: Request, res
       status: bimModel.status,
       message: `BIM model generated: ${elements.length} elements saved to database.`,
       lod: lodResolved,
+      build3D: build3DStats,
     });
 
   } catch (err: any) {

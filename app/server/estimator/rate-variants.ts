@@ -19,7 +19,7 @@
 // Standards: AACE RP 18R-97, CIQS estimating practices
 // =============================================================================
 
-import type { EstimateSummary, EstimateLineItem } from './estimate-engine';
+import type { EstimateSummary } from './estimate-engine';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -178,7 +178,12 @@ export function generateRateVariants(
   }
 
   const pertTotal = (lowTotal + 4 * midTotal + highTotal) / 6;
-  const projectStdDev = (highTotal - lowTotal) / 6;
+
+  // Correct project σ: root-sum-of-squares of independent line item σ's
+  // (not (H-L)/6 which overstates risk by ignoring diversification)
+  const projectStdDev = Math.sqrt(
+    lineItems.reduce((sum, li) => sum + li.standardDeviation * li.standardDeviation, 0)
+  );
 
   const divisionSummary = Array.from(divAgg.entries())
     .map(([div, agg]) => ({

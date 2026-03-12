@@ -14,12 +14,9 @@
 import { storage } from "./storage";
 import {
   insertBuildingCodeSectionSchema,
-  insertCodeLicenseSchema,
-  insertProjectCodeAccessSchema,
   type CodeLicense,
   type ProjectCodeAccess,
 } from "@shared/schema";
-import { randomUUID } from "crypto";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 

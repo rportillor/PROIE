@@ -51,7 +51,8 @@ export default [
       }
     },
     rules: {
-      '@typescript-eslint/no-unused-vars': 'error',
+      'no-unused-vars': 'off', // Use @typescript-eslint version instead
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'off',
       'no-console': 'off',
       'no-undef': 'off', // TypeScript handles this

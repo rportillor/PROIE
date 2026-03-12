@@ -21,7 +21,7 @@
 // Standards: CCDC 2 / CIQS / AACE RP 56R-08
 // =============================================================================
 
-import type { EstimateSummary, EstimateLineItem, FloorSummary as FloorEstimate } from './estimate-engine';
+import type { EstimateSummary } from './estimate-engine';
 import type { BudgetStructure } from './budget-structure';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────

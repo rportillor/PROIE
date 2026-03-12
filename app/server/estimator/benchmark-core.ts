@@ -97,7 +97,7 @@ export interface BenchmarkPack {
   benchmarks: BenchmarkRange[];   // Cost ranges per type
   expectedDivisions: ExpectedDivisions[];  // Required divisions per type
   divisionProportions: DivisionProportion[]; // Typical division splits
-  getProjectTypeName(type: string): string;  // Lookup display name
+  getProjectTypeName(_type: string): string;  // Lookup display name
 }
 
 // ─── Pack Registry ───────────────────────────────────────────────────────────
@@ -301,14 +301,16 @@ export function runBenchmark(
     }
   }
 
-  // ── 3. COMPLETENESS CHECK ──
+  // ── 3. COMPLETENESS CHECK + SCOPE GAP TRACKING ──
 
   const expectedEntry = pack.expectedDivisions.find(e => e.projectType === config.projectType);
   const expectedDivs = expectedEntry ? expectedEntry.divisions : [];
   const presentDivs = new Set(divTotals.keys());
 
+  const missingDivisions: string[] = [];
   for (const div of expectedDivs) {
     if (!presentDivs.has(div)) {
+      missingDivisions.push(div);
       findings.push({
         id: 'BM-' + (findingId++), severity: 'warning', category: 'completeness',
         title: 'Expected division missing: Div ' + div,
@@ -318,6 +320,32 @@ export function runBenchmark(
         recommendation: 'Confirm intentionally excluded or add missing scope.',
       });
     }
+  }
+
+  // Scope gap tracking: divisions present with zero cost that benchmark expects to have cost
+  for (const div of expectedDivs) {
+    const divCost = divTotals.get(div) || 0;
+    if (presentDivs.has(div) && divCost === 0) {
+      findings.push({
+        id: 'BM-' + (findingId++), severity: 'warning', category: 'completeness',
+        title: 'Scope gap: Div ' + div + ' has $0 cost',
+        detail: 'Division ' + div + ' has line items but zero total cost. ' +
+          'This is typically expected to have cost for ' +
+          (pack.getProjectTypeName(config.projectType) || config.projectType) + ' projects.',
+        recommendation: 'Verify quantities and rates. May indicate missing pricing or zero-quantity items.',
+      });
+    }
+  }
+
+  // Scope gap summary: report if multiple expected divisions are missing
+  if (missingDivisions.length >= 3) {
+    findings.push({
+      id: 'BM-' + (findingId++), severity: 'critical', category: 'completeness',
+      title: 'Significant scope gaps detected: ' + missingDivisions.length + ' expected divisions missing',
+      detail: 'Missing divisions: ' + missingDivisions.join(', ') + '. ' +
+        'This suggests substantial scope may not be captured in the estimate.',
+      recommendation: 'Perform a full scope reconciliation against the design documents before finalizing.',
+    });
   }
 
   for (const [div] of divTotals) {

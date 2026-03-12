@@ -1,5 +1,4 @@
 // server/helpers/claude-placement.ts
-import { isTrustworthyCoordSet } from "./positioning-guard";
 
 export type PlacementSample = { x:number; y:number; z?:number; anchor?: string };
 export type PlacementByFamily = Record<string, PlacementSample[]>;
@@ -35,8 +34,8 @@ export function selectSampleForIndex(
   fam: string,
   samples: PlacementByFamily,
   index: number,
-  totalNeeded: number,
-  footprint?: Array<{x:number;y:number}>
+  _totalNeeded: number,
+  _footprint?: Array<{x:number;y:number}>
 ) {
   const arr = samples[fam] || [];
   if (arr.length === 0) return null;

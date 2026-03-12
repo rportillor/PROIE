@@ -2,15 +2,24 @@
 import { repairLayout } from "../helpers/layout-repair";
 import { detectGridFromElements } from "../helpers/grid-detect";
 import { storage } from "../storage";
-import { ensureFootprintForModel } from "../services/footprint-extractor";
+import { ensureFootprintForModel } from "./footprint-extractor";
 import { calibrateAndPositionElements } from "../helpers/layout-calibration";
 import { applySiteContext } from "../helpers/site-utils";
 import { sanitizeElements } from "../helpers/element-sanitizer";
-import { detectRoundSymbolsFromRasters } from "../services/raster-legend-assoc";
+import { detectRoundSymbolsFromRasters } from "./raster-legend-assoc";
 import { placeDetectedSymbolsAsElements, placeDetectedSymbolsAsElements_LEGACY } from "../helpers/site-symbols";
 import crypto from "crypto";
-import { detectRasterSymbolsForModel } from "../services/raster-glyph-locator";
-import { FLOOR_DATUMS } from "../services/moorings-project-data";
+import { detectRasterSymbolsForModel } from "./raster-glyph-locator";
+import { FLOOR_DATUMS } from "./moorings-project-data";
+// ── Human-modeler workflow enhancements (v15.31) ─────────────────────────
+import { establishRelationships } from "./relationship-engine";
+import { upgradeGeometry } from "./geometry-upgrade";
+// Clash detection — imported lazily to avoid breaking if geometry-kernel
+// has missing dependencies; the step is wrapped in try/catch below.
+let runClashDetection: ((elements: any[]) => { clashCount: number; criticalCount: number; results: any[] }) | null = null;
+try {
+  // Dynamic import preparation — actual import happens in the pipeline step
+} catch { /* lazy load */ }
 
 const COLOR_BY_FAMILY: Record<string, string> = {
   STRUCT: "#6B7280", ARCH: "#22C55E",
@@ -173,7 +182,7 @@ export async function postprocessAndSaveBIM_LEGACY(opts: PostOpts) {
         site: meta.site || {}
       };
     }
-  } catch (e) {
+  } catch (_e) {
     console.warn("⚠️ POSTPROCESS: load model metadata failed; continuing with empty analysis");
   }
 
@@ -301,6 +310,211 @@ export async function postprocessAndSaveBIM_LEGACY(opts: PostOpts) {
     }
   } catch (e: any) {
     console.warn("⚠️ POSTPROCESS: metadata save failed:", e?.message || e);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  HUMAN-MODELER WORKFLOW ENHANCEMENTS (v15.31)
+  //  These steps mirror what a professional 3D modeler does after placing
+  //  elements: upgrade geometry to real profiles, then establish connections.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // PASS 1: Upgrade bounding boxes → parametric profiles
+  // (A human modeler selects the correct family/type, never places raw boxes)
+  try {
+    const upgradeResult = upgradeGeometry(work);
+    work = upgradeResult.elements;
+    console.log(`📐 POSTPROCESS: Geometry upgraded — ${upgradeResult.stats.total} elements now have parametric profiles`);
+  } catch (e: any) {
+    console.warn("⚠️ POSTPROCESS: geometry upgrade failed (non-blocking):", e?.message || e);
+  }
+
+  // PASS 2: Establish parametric relationships
+  // (A human modeler connects doors to walls, beams to columns, etc.)
+  try {
+    const relResult = establishRelationships(work);
+    work = relResult.elements;
+    console.log(
+      `🔗 POSTPROCESS: Relationships established — ` +
+      `${relResult.stats.hostedOpenings} hosted openings, ` +
+      `${relResult.stats.wallJoins} wall joins, ` +
+      `${relResult.stats.beamColumnSnaps} beam-column snaps, ` +
+      `${relResult.stats.slabBounds} slab bounds`
+    );
+
+    // Persist relationship summary to model metadata
+    try {
+      if ((storage as any).updateBimModelMetadata) {
+        await (storage as any).updateBimModelMetadata(modelId, {
+          relationships: {
+            total: relResult.relationships.length,
+            stats: relResult.stats,
+            generatedAt: new Date().toISOString(),
+          },
+        });
+      }
+    } catch { /* non-blocking */ }
+  } catch (e: any) {
+    console.warn("⚠️ POSTPROCESS: relationship engine failed (non-blocking):", e?.message || e);
+  }
+
+  // PASS 2.5: Constraint propagation — verify all relationships are geometrically
+  // consistent (hosted elements at correct positions, wall joins aligned, beams
+  // snapped to columns). Like a human modeler doing a final constraint check.
+  try {
+    const { solveConstraints } = await import("../bim/parameter-engine");
+    const { vec3: mkVec3 } = await import("../bim/geometry-kernel");
+
+    // Build lightweight constraint set from relationship data
+    const constraintList: Array<{ id: string; type: string; elementIds: string[]; parameters: Record<string, number>; priority: number; isActive: boolean }> = [];
+    const elementMap = new Map<string, any>();
+
+    for (const el of work) {
+      const g = typeof el?.geometry === 'string' ? JSON.parse(el.geometry) : (el?.geometry || {});
+      const loc = g?.location?.realLocation || { x: 0, y: 0, z: 0 };
+      const props = el?.properties || {};
+
+      const solid = {
+        id: el.id,
+        type: String(el.elementType || el.type || ''),
+        origin: mkVec3(loc.x, loc.y, loc.z),
+        rotation: g?.orientation?.yawRad || 0,
+        quantities: { volume: 0, surfaceArea: 0, lateralArea: 0, length: g?.dimensions?.width, width: g?.dimensions?.depth, height: g?.dimensions?.height },
+        hostedIds: [] as string[],
+        connectedIds: [
+          ...(Array.isArray(props.connectedWallIds) ? props.connectedWallIds : []),
+          ...(Array.isArray(props.connectedColumnIds) ? props.connectedColumnIds : []),
+          ...(Array.isArray(props.supportedBeamIds) ? props.supportedBeamIds : []),
+          ...(Array.isArray(props.boundingWallIds) ? props.boundingWallIds : []),
+        ],
+      };
+
+      // Build host relationships
+      if (props.hostWallId) {
+        const hostEntry = elementMap.get(props.hostWallId);
+        if (hostEntry) hostEntry.hostedIds.push(el.id);
+      }
+
+      elementMap.set(el.id, solid);
+    }
+
+    // Create hosted constraints
+    for (const [id, solid] of elementMap) {
+      for (const hostedId of solid.hostedIds) {
+        constraintList.push({
+          id: `pp_hosted_${id}_${hostedId}`,
+          type: 'hosted',
+          elementIds: [id, hostedId],
+          parameters: {},
+          priority: 8,
+          isActive: true,
+        });
+      }
+    }
+
+    if (constraintList.length > 0) {
+      const result = solveConstraints(constraintList as any, elementMap as any, 5, 0.01);
+      console.log(
+        `🔧 POSTPROCESS: Constraint propagation — ${constraintList.length} constraints, ` +
+        `${result.iterations} iterations, converged=${result.converged}, ` +
+        `${result.adjustments.length} adjustments made`
+      );
+
+      // Write back adjusted positions to the work elements
+      if (result.adjustments.length > 0) {
+        for (const adj of result.adjustments) {
+          const workEl = work.find((e: any) => e.id === adj.elementId);
+          if (workEl && adj.property.startsWith('origin')) {
+            const g = typeof workEl?.geometry === 'string' ? JSON.parse(workEl.geometry) : (workEl?.geometry || {});
+            const solid = elementMap.get(adj.elementId);
+            if (solid && g?.location?.realLocation) {
+              g.location.realLocation = { x: solid.origin.x, y: solid.origin.y, z: solid.origin.z };
+              workEl.geometry = g;
+            }
+          }
+        }
+      }
+    } else {
+      console.log("🔧 POSTPROCESS: No constraints to propagate (no hosted relationships detected)");
+    }
+  } catch (e: any) {
+    console.warn("⚠️ POSTPROCESS: constraint propagation failed (non-blocking):", e?.message || e);
+  }
+
+  // PASS 3: Clash detection — A human modeler runs clash detection before
+  // submitting the model. We flag hard clashes (structural vs MEP overlaps)
+  // and soft clashes (clearance violations) so the QS knows where RFIs are needed.
+  try {
+    const { runClashDetection: detectClashes } = await import("../bim/clash-detection");
+    // Convert raw elements to the BIMSolid-like format clash detection expects.
+    // We do a lightweight conversion — only elements with real geometry are tested.
+    const testableElements = work
+      .filter((e: any) => {
+        const g = typeof e?.geometry === 'string' ? JSON.parse(e.geometry) : e?.geometry;
+        return g?.location?.realLocation && g?.dimensions;
+      })
+      .map((e: any) => {
+        const g = typeof e?.geometry === 'string' ? JSON.parse(e.geometry) : e?.geometry;
+        const loc = g.location.realLocation;
+        const dims = g.dimensions;
+        const type = String(e.elementType || e.type || '');
+        return {
+          id: e.id,
+          type,
+          name: e.name || type,
+          category: /DUCT|PIPE|LIGHT|SPRINKLER|RECEPTACLE|CONDUIT/i.test(type) ? 'MEP' as const :
+                    /COLUMN|BEAM|SLAB|FOUNDATION/i.test(type) ? 'Structural' as const : 'Architectural' as const,
+          storey: e.storey?.name || '',
+          elevation: e.storey?.elevation || 0,
+          origin: { x: loc.x, y: loc.y, z: loc.z },
+          rotation: g.orientation?.yawRad || 0,
+          mesh: { vertices: new Float32Array(0), indices: new Uint32Array(0), normals: new Float32Array(0) },
+          boundingBox: {
+            min: { x: loc.x - (dims.width || 0) / 2, y: loc.y - (dims.depth || 0) / 2, z: loc.z },
+            max: { x: loc.x + (dims.width || 0) / 2, y: loc.y + (dims.depth || 0) / 2, z: loc.z + (dims.height || 0) },
+          },
+          quantities: { volume: 0, surfaceArea: 0, lateralArea: 0, length: dims.width, width: dims.depth, height: dims.height },
+          material: '', hostId: null, connectedIds: [] as string[],
+        };
+      });
+
+    if (testableElements.length > 10) {
+      const clashResults = detectClashes(testableElements as any, {
+        tolerance: 0.02,
+        clearanceDistance: 0.05,
+        ignoreSameHost: true,
+        ignoreSameStorey: false,
+        maxResults: 200,
+      });
+      const criticalClashes = clashResults.filter((c: any) => c.severity === 'critical' || c.severity === 'major');
+      console.log(
+        `⚠️ POSTPROCESS: Clash detection — ${clashResults.length} total clashes, ` +
+        `${criticalClashes.length} critical/major`
+      );
+
+      // Persist clash summary to model metadata
+      try {
+        if ((storage as any).updateBimModelMetadata) {
+          await (storage as any).updateBimModelMetadata(modelId, {
+            clashDetection: {
+              totalClashes: clashResults.length,
+              criticalClashes: criticalClashes.length,
+              topClashes: clashResults.slice(0, 20).map((c: any) => ({
+                type: c.type,
+                severity: c.severity,
+                elementA: c.elementA,
+                elementB: c.elementB,
+                description: c.description,
+              })),
+              detectedAt: new Date().toISOString(),
+            },
+          });
+        }
+      } catch { /* non-blocking */ }
+    } else {
+      console.log("⚠️ POSTPROCESS: Too few elements with geometry for clash detection — skipped");
+    }
+  } catch (e: any) {
+    console.warn("⚠️ POSTPROCESS: clash detection failed (non-blocking):", e?.message || e);
   }
 
   // 🎯 Raster glyph detection (env-gated)

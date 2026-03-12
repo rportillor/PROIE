@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { storage } from '../storage';
 import { logger } from '../utils/enterprise-logger';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs/promises';
 
 const router = Router();
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * POST /api/reprocess-pdf/:documentId
@@ -53,7 +53,14 @@ router.post('/:documentId', async (req, res) => {
     }
     
     // Build path to the PDF file (storageKey already includes uploads/ prefix)
-    const uploadPath = path.join(process.cwd(), document.storageKey);
+    const uploadPath = path.resolve(process.cwd(), document.storageKey);
+    // Prevent directory traversal — resolved path must stay under cwd
+    if (!uploadPath.startsWith(process.cwd())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid storage key'
+      });
+    }
     
     logger.info(`Checking for PDF file at: ${uploadPath}`);
     logger.info(`Storage key: ${document.storageKey}`);
@@ -78,12 +85,13 @@ router.post('/:documentId', async (req, res) => {
     logger.info(`Input: ${uploadPath}`);
     logger.info(`Output: ${outputDir}`);
     
-    // Run the robust Python PDF parser
+    // Run the robust Python PDF parser (execFile to avoid shell injection)
     const pythonScript = path.join(process.cwd(), 'parser', 'pdf_parser.py');
-    const command = `python3 ${pythonScript} --input "${uploadPath}" --output "${outputDir}" --mode construction`;
-    
+
     try {
-      const { stdout, stderr } = await execAsync(command, { 
+      const { stdout, stderr } = await execFileAsync('python3', [
+        pythonScript, '--input', uploadPath, '--output', outputDir, '--mode', 'construction'
+      ], {
         timeout: 300000, // 5 minutes timeout for large PDFs
         maxBuffer: 1024 * 1024 * 10 // 10MB buffer
       });
@@ -104,7 +112,7 @@ router.post('/:documentId', async (req, res) => {
       try {
         extractedText = await fs.readFile(textFile, 'utf8');
         logger.info(`Extracted text length: ${extractedText.length} characters`);
-      } catch (e) {
+      } catch (_e) {
         logger.warn('No extracted text file found');
       }
       
@@ -112,7 +120,7 @@ router.post('/:documentId', async (req, res) => {
         const metadataStr = await fs.readFile(metadataFile, 'utf8');
         metadata = JSON.parse(metadataStr);
         logger.info(`Metadata extracted: ${JSON.stringify(metadata)}`);
-      } catch (e) {
+      } catch (_e) {
         logger.warn('No metadata file found');
       }
       

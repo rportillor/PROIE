@@ -98,7 +98,7 @@ export class AICoach {
     try {
       const cachedResults = await storage.getLatestAnalysisResult(projectId, 'proactive_coach');
       return cachedResults;
-    } catch (error) {
+    } catch (_error) {
       console.log('No cached analysis found, will generate new');
       return null;
     }
@@ -211,7 +211,7 @@ export class AICoach {
       });
     }
     
-    uniqueCompliance.forEach((check, index) => {
+    uniqueCompliance.forEach((check, _index) => {
       // 🚨 FOCUS: Construction execution and quality control
       const analysisResult = this.performConstructionManagementAnalysis(check, documents);
       
@@ -246,7 +246,7 @@ export class AICoach {
     // ✅ FIX: Deduplicate BOQ items before processing to prevent repetitive findings
     // 🔧 FIXED: Preserve all distinct construction elements - minimal deduplication for BOQ
     const deduplicatedItems = boqItems.reduce((unique: any[], item: any, index: number) => {
-      const key = `${item.description?.toLowerCase().trim()}-${item.quantity}-${item.amount}-${index}`;
+      const _key = `${item.description?.toLowerCase().trim()}-${item.quantity}-${item.amount}-${index}`;
       const exists = unique.find(existing => 
         existing.description?.toLowerCase().trim() === item.description?.toLowerCase().trim() &&
         existing.quantity === item.quantity &&
@@ -262,7 +262,7 @@ export class AICoach {
 
     // 🔧 FIXED: Use ALL BOQ items for coach analysis as per established flow
     // Coach should analyze ALL construction elements from specifications/drawings, not just high-value ones
-    const allBoqItems = deduplicatedItems; // Use ALL items for comprehensive coach analysis
+    const _allBoqItems = deduplicatedItems; // Use ALL items for comprehensive coach analysis
     const highValueItems = deduplicatedItems
       .filter(item => item.amount && item.amount > 50000) // $50,000 threshold for high-value construction items
       .sort((a, b) => (b.amount || 0) - (a.amount || 0));
@@ -412,7 +412,7 @@ export class AICoach {
                               description.includes('wall') ? 'Wall' : '';
 
         const costFinding = {
-          id: `cost-floor-${floor.replace(/[\s\/]+/g, '')}-${findingCount}`,
+          id: `cost-floor-${floor.replace(/[\s/]+/g, '')}-${findingCount}`,
           category: 'Cost Risk' as const,
           severity: floorAmount > 50000 ? 'High' : 'Medium' as const,
           title: `${cleanDescription}${elementContext ? ' (' + elementContext + ')' : ''} - ${floor}`,
@@ -679,7 +679,7 @@ BOTTOM LINE: Proper management difference between 8% and 15% profit margin`,
   }
 
   // 🤝 CLAUDE + COACH COLLABORATION METHODS
-  private extractStructuralInformation(check: any, documents: any[]): {
+  private extractStructuralInformation(check: any, _documents: any[]): {
     foundation: string;
     gridPattern: string;
     typicalSizes: string;
@@ -709,7 +709,7 @@ BOTTOM LINE: Proper management difference between 8% and 15% profit margin`,
     return { foundation, gridPattern, typicalSizes };
   }
 
-  private extractFireSafetyInformation(check: any, documents: any[]): {
+  private extractFireSafetyInformation(check: any, _documents: any[]): {
     unitCount: string;
     ratingRequired: string;
     corridorType: string;
@@ -738,7 +738,7 @@ BOTTOM LINE: Proper management difference between 8% and 15% profit margin`,
   }
 
   // Helper methods for mapping (updated for actual database fields)
-  private extractDetailedFloorInfo(check: any, boqItems: any[]): {
+  private extractDetailedFloorInfo(check: any, _boqItems: any[]): {
     primaryFloor: string;
     location: string;
     gridlines: string;
@@ -746,7 +746,7 @@ BOTTOM LINE: Proper management difference between 8% and 15% profit margin`,
     affectedAreas: string;
   } {
     const requirement = (check.requirement || '').toLowerCase();
-    const details = (check.details || '').toLowerCase();
+    const _details = (check.details || '').toLowerCase();
     const standard = (check.standard || '').toLowerCase();
     
     // Enhanced floor/area analysis with gridlines and specific locations
@@ -816,7 +816,7 @@ BOTTOM LINE: Proper management difference between 8% and 15% profit margin`,
   }
 
   // 🚀 NEW: Proactive project analysis with RFI integration and caching
-  async generateProjectAnalysis(projectId: string, userId: string): Promise<{
+  async generateProjectAnalysis(projectId: string, _userId: string): Promise<{
     findings: Array<{
       id: string;
       category: 'Code Compliance' | 'Structural' | 'Fire Safety' | 'Accessibility' | 'Quality Control' | 'Cost Risk';
@@ -887,276 +887,6 @@ BOTTOM LINE: Proper management difference between 8% and 15% profit margin`,
         findings: [],
         summary: "Project documents are uploaded but haven't been analyzed by Claude yet. Analysis can be triggered from the project analysis page."
       };
-
-      // 🎯 CONSTRUCTION-GRADE ANALYSIS: Comprehensive review for accurate estimation
-      const totalDocs = documents.length;
-      const pendingDocs = documents.filter(doc => !doc.textContent || doc.textContent.length < 100);
-      
-      console.log(`🏗️ Construction Analysis: ${analyzedDocs.length} analyzed docs, ${pendingDocs.length} pending`);
-      
-      // 🎯 ACCURACY-FIRST APPROACH: Analyze ALL documents for maximum precision
-      let documentContent = "**PROJECT DOCUMENTS ANALYZED:**\n\n";
-      let analysisStrategy = '';
-      
-      // Calculate total content size to manage Claude token limits intelligently
-      const totalContentSize = analyzedDocs.reduce((sum, doc) => sum + (doc.textContent?.length || 0), 0);
-      const avgDocSize = totalContentSize / analyzedDocs.length;
-      
-      if (analyzedDocs.length <= 50 || totalContentSize < 80000) {
-        // Comprehensive analysis: ALL documents at full detail + critical issue extraction
-        analysisStrategy = 'COMPREHENSIVE (All Documents + Critical Analysis)';
-        console.log(`📋 Comprehensive analysis: ALL ${analyzedDocs.length} documents with critical issue extraction`);
-        
-        // 🚨 CRITICAL FIX: Add critical issue extraction to ALL project types
-        const criticalIssues = await this.extractCriticalFindings(analyzedDocs);
-        
-        analyzedDocs.forEach((doc, index) => {
-          const name = doc.filename || `Document ${index + 1}`;
-          const content = doc.textContent?.substring(0, 1500); // Increased detail
-          documentContent += `**${name}:**\n${content}\n\n`;
-        });
-        
-        // Include ALL critical findings, not arbitrary limits
-        if (criticalIssues.length > 0) {
-          documentContent += `\n\n🚨 **ALL CRITICAL ISSUES DETECTED:**\n`;
-          criticalIssues.forEach((issue, index) => {
-            documentContent += `${index + 1}. ${issue}\n`;
-          });
-          documentContent += `\n`;
-        }
-        
-      } else if (analyzedDocs.length <= 150 || totalContentSize < 200000) {
-        // Smart comprehensive: ALL documents with critical analysis
-        analysisStrategy = 'SMART COMPREHENSIVE (All Documents + Full Critical Analysis)';
-        console.log(`🎯 Smart comprehensive: ALL ${analyzedDocs.length} documents with complete critical analysis`);
-        
-        // 🚨 CRITICAL FIX: Extract ALL critical issues for medium projects too
-        const criticalIssues = await this.extractCriticalFindings(analyzedDocs);
-        
-        // Dynamic content sizing based on document importance and size
-        analyzedDocs.forEach((doc, index) => {
-          const name = doc.filename || `Document ${index + 1}`;
-          
-          // Allocate more content space to critical documents
-          const isCritical = /specification|fire|structural|code|safety|mechanical|electrical/i.test(name);
-          const maxContent = isCritical ? 1200 : 800;
-          
-          const content = doc.textContent?.substring(0, maxContent);
-          documentContent += `**${name}:**${isCritical ? ' [CRITICAL]' : ''}\n${content}\n\n`;
-        });
-        
-        // Include ALL critical issues and findings - no arbitrary limits
-        if (criticalIssues.length > 0) {
-          documentContent += `\n\n🚨 **ALL CRITICAL ISSUES DETECTED (${criticalIssues.length} total):**\n`;
-          criticalIssues.forEach((issue, index) => {
-            documentContent += `${index + 1}. ${issue}\n`;
-          });
-          documentContent += `\n`;
-        }
-        
-        documentContent += `\n📊 **Analysis Strategy:** ALL ${analyzedDocs.length} documents analyzed with complete critical issue extraction.\n`;
-        
-      } else {
-        // MEGA PROJECTS: Enterprise-scale hierarchical analysis 
-        analysisStrategy = 'MEGA PROJECT (Hierarchical Multi-Pass)';
-        console.log(`🏢 MEGA PROJECT: Hierarchical analysis for ${analyzedDocs.length} documents`);
-        
-        // 🎯 ENTERPRISE APPROACH: Hierarchical document organization
-        const documentHierarchy = this.organizeDocumentsByHierarchy(analyzedDocs);
-        
-        documentContent += `**MEGA PROJECT ANALYSIS (${analyzedDocs.length} documents):**\n\n`;
-        
-        // 🚨 MEGA PROJECT: Extract ALL critical issues (no limits!)
-        const criticalIssues = await this.extractCriticalFindings(analyzedDocs);
-        
-        // Phase 1: ALL Critical Systems (Complete Analysis)
-        const criticalSystems = documentHierarchy.critical || [];
-        documentContent += `**PHASE 1: ALL CRITICAL SYSTEMS (${criticalSystems.length} docs)**\n`;
-        
-        // 🚨 FIX: Analyze ALL critical systems, not just 20
-        criticalSystems.forEach(doc => {
-          const content = doc.textContent?.substring(0, 600);
-          documentContent += `• **${doc.filename}** [CRITICAL]\n${content}\n\n`;
-        });
-        
-        // Include ALL critical issues found (no arbitrary 10-limit)
-        if (criticalIssues.length > 0) {
-          documentContent += `\n\n🚨 **ALL CRITICAL ISSUES DETECTED (${criticalIssues.length} total):**\n`;
-          criticalIssues.forEach((issue, index) => {
-            documentContent += `${index + 1}. ${issue}\n`;
-          });
-          documentContent += `\n`;
-        }
-        
-        // Phase 2: Comprehensive Discipline Analysis 
-        const disciplines = ['architectural', 'structural', 'mechanical', 'electrical', 'fire'];
-        documentContent += `**PHASE 2: COMPLETE DISCIPLINE ANALYSIS**\n`;
-        
-        for (const discipline of disciplines) {
-          const disciplineDocs = documentHierarchy[discipline] || [];
-          if (disciplineDocs.length > 0) {
-            documentContent += `\n• **${discipline.toUpperCase()} (${disciplineDocs.length} docs):**\n`;
-            
-            // 🚨 FIX: Generate comprehensive summary, not just first document
-            const disciplineSummary = await this.generateCompleteDisciplineSummary(discipline, disciplineDocs);
-            documentContent += `  ${disciplineSummary}\n`;
-          }
-        }
-        
-        // Mega project status - COMPLETE coverage approach
-        documentContent += `\n**MEGA PROJECT COMPREHENSIVE STATUS:**\n`;
-        documentContent += `✅ Critical Analysis: ALL ${criticalSystems.length} critical documents analyzed\n`;
-        documentContent += `✅ Discipline Analysis: ALL ${disciplines.length} disciplines covered\n`;
-        documentContent += `✅ Total Coverage: ${analyzedDocs.length} documents in comprehensive analysis\n`;
-        documentContent += `🎯 Method: Hierarchical multi-pass with 100% document coverage\n`;
-      }
-      
-      // Add project status information
-      if (pendingDocs.length > 0) {
-        documentContent += `\n\n⚠️ **PROJECT STATUS:**\n`;
-        documentContent += `- Strategy: ${analysisStrategy}\n`;
-        documentContent += `- Analyzed: ${analyzedDocs.length}/${totalDocs} documents\n`;
-        documentContent += `- Pending: ${pendingDocs.length} documents still processing\n`;
-        documentContent += `- Analysis Scope: ${analysisStrategy}\n\n`;
-      } else {
-        documentContent += `\n\n✅ **COMPLETE PROJECT ANALYSIS:**\n`;
-        documentContent += `- Strategy: ${analysisStrategy}\n`;
-        documentContent += `- All ${totalDocs} documents processed and analyzed\n`;
-        documentContent += `- Analysis Quality: ${analysisStrategy}\n\n`;
-      }
-
-      const response = await anthropic.messages.create({
-        model: DEFAULT_MODEL_STR,
-        max_tokens: analyzedDocs.length > 150 ? 12000 : analyzedDocs.length > 50 ? 8000 : 6000, // 🎯 Generous token limits for accuracy
-        system: `You are an expert Construction AI Coach conducting a comprehensive proactive analysis of construction documents. Your role is to identify ALL potential issues, compliance concerns, and risks BEFORE they become problems.
-
-**ANALYSIS APPROACH**: Thoroughly examine ALL documents provided. Look for both explicit issues and potential problems that could arise based on standard construction practices. Be comprehensive and proactive - construction professionals rely on you to catch everything.
-
-**FIND ALL POSSIBLE ISSUES** - NO LIMITS on the number of findings. Discover every potential problem across these categories:
-
-🏗️ **Code Compliance**:
-- Building code violations, permit requirements, zoning issues
-- Fire ratings, occupancy classifications, accessibility standards
-- Structural code requirements, seismic considerations
-
-🔧 **Structural Engineering**:
-- Load path analysis, foundation adequacy, beam sizing
-- Connection details, lateral system, deflection concerns
-- Material specifications and structural coordination
-
-🔥 **Fire & Life Safety**:
-- Egress widths/distances, fire separation, sprinkler coverage
-- Smoke management, fire alarm placement, exit signage
-- Compartmentalization and fire-rated assemblies
-
-♿ **Accessibility & Universal Design**:
-- ADA/AODA compliance, ramp slopes, door clearances
-- Accessible routes, restroom facilities, parking requirements
-- Counter heights, reach ranges, maneuvering spaces
-
-🎯 **Quality Control & Coordination**:
-- Conflicting specifications, missing details, unclear dimensions
-- MEP/structural conflicts, material incompatibilities
-- Construction sequencing issues, phasing concerns
-
-💰 **Cost & Schedule Risks**:
-- Scope gaps, ambiguous specifications, change order potential
-- Long-lead items, specialty materials, permit delays
-- Constructability issues, access limitations
-
-**COMPREHENSIVE ANALYSIS**: Find EVERY issue you can identify. Whether it's 15, 25, or 40+ findings - catch them all. Construction professionals depend on thorough analysis.`,
-        messages: [{
-          role: 'user',
-          content: `EXTRACT EVERY CONSTRUCTION ELEMENT for BILL OF QUANTITIES estimation. Analyze each document and identify EVERY single building component, material, system, and assembly mentioned. For estimation purposes, extract ALL construction elements - no matter how small.
-
-EXTRACT ALL ELEMENTS FROM EACH DOCUMENT:
-FROM Construction Assemblies: Every door type, window type, frame, hardware, glazing, sealant, trim
-FROM Building Sections: Every wall assembly, structural element, foundation detail, roof component  
-FROM Wall Sections: Every material layer, insulation type, vapor barrier, cladding, fastener
-FROM Floor Plans: Every partition, flooring type, ceiling system, fixture, equipment
-FROM Details: Every connection detail, flashing, joint sealant, accessory, specialty item
-FROM Elevations: Every exterior finish, window system, door system, trim, cladding panel
-
-ESTIMATION FOCUS - Find EVERY item that would appear in a Bill of Quantities:
-- Foundation systems (every footing, slab, waterproofing, reinforcement type)
-- Structural systems (every beam, column, connection, fastener, structural material)
-- Building envelope (every insulation, vapor barrier, cladding panel, window, door)
-- MEP systems (every electrical device, wiring type, plumbing fixture, HVAC component)
-- Interior systems (every partition type, finish material, ceiling tile, flooring)
-- Exterior systems (every roofing material, siding panel, trim piece, hardware)
-- Specialties (every stair component, railing, millwork piece, equipment)
-
-Extract HUNDREDS of elements - every material and component that would need to be estimated and purchased.
-
-${documentContent}
-
-Find comprehensive issues and provide them in this JSON format:
-{
-  "findings": [
-    {
-      "category": "Code Compliance",
-      "severity": "High",
-      "title": "Brief issue title",
-      "description": "Detailed description of the issue",
-      "evidence": ["Specific references from documents"],
-      "recommendation": "What should be done",
-      "potentialImpact": "Why this matters",
-      "canCreateRfi": true,
-      "suggestedRfiSubject": "RFI subject if needed"
-    }
-  ],
-  "summary": "Overall assessment and key concerns"
-}`
-        }]
-      });
-
-      const analysisText = (response.content[0] as any).text;
-      
-      // Parse the JSON response
-      let analysisData;
-      try {
-        // Extract JSON from markdown code blocks if present
-        const jsonMatch = analysisText.match(/```json\s*([\s\S]*?)\s*```/) || analysisText.match(/\{[\s\S]*\}/);
-        const jsonString = jsonMatch ? jsonMatch[1] || jsonMatch[0] : analysisText;
-        analysisData = JSON.parse(jsonString);
-      } catch (parseError) {
-        console.error('Failed to parse AI analysis JSON:', parseError);
-        // Fallback response
-        analysisData = {
-          findings: [{
-            id: 'analysis-1',
-            category: 'Quality Control',
-            severity: 'Medium',
-            title: 'Document Analysis Completed',
-            description: 'AI analysis completed but response format needs adjustment.',
-            evidence: ['Analysis response received'],
-            recommendation: 'Review documents manually for detailed insights.',
-            potentialImpact: 'Ensure all compliance and quality issues are addressed.',
-            canCreateRfi: false
-          }],
-          summary: 'Document analysis completed. Manual review recommended for detailed findings.'
-        };
-      }
-
-      // Add IDs and ensure proper structure
-      analysisData.findings = analysisData.findings.map((finding: any, index: number) => ({
-        ...finding,
-        id: `finding-${Date.now()}-${index}`,
-        canCreateRfi: finding.canCreateRfi !== false,
-        suggestedRfiSubject: finding.suggestedRfiSubject || `Clarification needed: ${finding.title}`,
-        // 🚀 NEW: Track affected elements for BIM viewer highlighting
-        affectedElements: finding.affectedElements || [],
-        location: finding.location || finding.documentReferences?.[0] || 'General',
-        floor: finding.floor // Floor assignment from Claude's analysis
-      }));
-
-      console.log(`✅ Generated ${analysisData.findings.length} proactive findings`);
-      
-      // 🚀 NEW: Cache the results
-      const documentHashes = this.generateDocumentHashes(analyzedDocs);
-      await this.saveAnalysisCache(projectId, analysisData, documentHashes);
-      
-      return analysisData;
 
     } catch (error) {
       console.error('❌ Proactive analysis failed:', error);
@@ -1499,7 +1229,7 @@ Current Context: ${JSON.stringify(context)}${projectContent}`,
     };
     
     try {
-      const response = await anthropic.messages.create({
+      const _response = await anthropic.messages.create({
         model: DEFAULT_MODEL_STR,
         max_tokens: 6000,
         system: `You are a specialized ${discipline} construction expert. ${disciplinePrompts[discipline as keyof typeof disciplinePrompts]}`,
@@ -1508,7 +1238,7 @@ Current Context: ${JSON.stringify(context)}${projectContent}`,
           content: `Analyze these ${discipline} documents and identify all potential issues:\n\n${documentContent}`
         }]
       });
-      
+
       console.log(`✅ ${discipline} analysis complete for ${documents.length} documents`);
       
     } catch (error) {
@@ -1710,7 +1440,7 @@ Return as JSON array with title, content, category, and tags.`,
     }
   }
 
-  private async getFallbackTips(context: CoachContext): Promise<CoachTip[]> {
+  private async getFallbackTips(_context: CoachContext): Promise<CoachTip[]> {
     const fallbackTips = [
       {
         id: 'fallback-1',

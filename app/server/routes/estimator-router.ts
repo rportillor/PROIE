@@ -52,13 +52,13 @@ import { generateLaborBurdenSummary } from "../estimator/labor-burden";
 import { buildWBSStructure } from "../estimator/wbs-cbs";
 import { generateRebarSummary, type SeismicZone } from "../estimator/rebar-density";
 import { generateRateVariants, formatRateVariantReport } from "../estimator/rate-variants";
-import { createSnapshot, type RevisionMetadata, type EstimateSnapshot } from "../estimator/estimate-versioning";
-import { registerMissingData, generateRFI, type MissingDataItem, type RFI } from "../estimator/rfi-generator";
+import { createSnapshot, type RevisionMetadata } from "../estimator/estimate-versioning";
+import { registerMissingData, generateRFI, type MissingDataItem } from "../estimator/rfi-generator";
 import { registerQuote, generateQuoteRegister, formatQuoteRegisterReport, type VendorQuote } from "../estimator/vendor-quotes";
 import { createAlternate, generateAlternateSummary } from "../estimator/alternates-tracking";
 import { annotateWithNRM2, formatNRM2Report } from "../estimator/nrm2-measurement";
 import { runMonteCarloSimulation, formatMonteCarloReport, type MonteCarloConfig } from "../estimator/monte-carlo";
-import { generateBidLeveling, formatBidLevelingReport, type BidPackage, type BidLevelConfig } from "../estimator/bid-leveling";
+import { generateBidLeveling, formatBidLevelingReport, type BidLevelConfig } from "../estimator/bid-leveling";
 
 // ─── Benchmark Pack Registration (runs once at import time) ──
 import { BUILDING_PACK } from "../estimator/benchmark-pack-building";
@@ -155,7 +155,7 @@ async function resolveProjectLocationFromModel(modelId: string): Promise<string>
  * Returns an RFI flag string on any failure — never a hardcoded name.
  * Per EstimatorPro no-defaults policy.
  */
-async function resolveProjectNameFromProjectId(projectId: string | undefined): Promise<string> {
+async function _resolveProjectNameFromProjectId(projectId: string | undefined): Promise<string> {
   if (!projectId) {
     return '[PROJECT NAME — RFI REQUIRED: projectId not supplied in request]';
   }
@@ -229,7 +229,7 @@ estimatorRouter.get("/estimates/:modelId/budget", async (req: Request, res: Resp
       taxRate: req.query.taxRate ? parseFloat(req.query.taxRate as string) : undefined,
     };
 
-    const { estimate, budget } = await buildEstimateAndBudget(modelId, config);
+    const { estimate: _estimate, budget } = await buildEstimateAndBudget(modelId, config);
     const summary = formatBudgetSummary(budget);
 
     res.json({ modelId, budget, summary });
@@ -294,7 +294,7 @@ estimatorRouter.get("/estimates/:modelId/boe", async (req: Request, res: Respons
 estimatorRouter.get("/estimates/:modelId/sov", async (req: Request, res: Response) => {
   try {
     const { modelId } = req.params;
-    const { estimate, budget } = await buildEstimateAndBudget(modelId);
+    const { estimate, budget: _budget } = await buildEstimateAndBudget(modelId);
 
     const sovConfig: SOVConfig = {
       projectName: (req.query.projectName as string) || await resolveProjectNameFromModel(modelId),
@@ -480,7 +480,7 @@ estimatorRouter.post("/estimates/:modelId/snapshot", async (req: Request, res: R
     const { modelId } = req.params;
     const { estimate, budget } = await buildEstimateAndBudget(modelId);
 
-    const existingCount = await storage.countEstimateRfis(modelId); // reuse count pattern
+    const _existingCount = await storage.countEstimateRfis(modelId); // reuse count pattern
     const existing = await storage.getEstimateSnapshots(modelId);
     const revNum = existing.length + 1;
     const metadata: RevisionMetadata = {
@@ -750,7 +750,7 @@ estimatorRouter.get("/estimates/:modelId/alternates", async (req: Request, res: 
     const { modelId } = req.params;
     const alternates = (await storage.getEstimateAlternates(modelId)).map(a => a.alternateData as any);
 
-    const { estimate, budget } = await buildEstimateAndBudget(modelId);
+    const { estimate: _estimate3, budget } = await buildEstimateAndBudget(modelId);
     const summary = generateAlternateSummary(
       alternates as any,
       budget.GRAND_TOTAL,

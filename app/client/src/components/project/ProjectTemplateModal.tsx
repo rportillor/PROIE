@@ -9,7 +9,7 @@ import { PROJECT_TEMPLATES, type ProjectTemplate } from "@shared/project-templat
 interface ProjectTemplateModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelectTemplate: (template: ProjectTemplate) => void;
+  onSelectTemplate: (_template: ProjectTemplate) => void;
   preSelectedTemplate?: ProjectTemplate | null;
 }
 
@@ -169,7 +169,7 @@ export function ProjectTemplateModal({
               {/* Progress Indicator */}
               <div className="flex items-center space-x-2">
                 <div className="flex space-x-1">
-                  {['browse', 'details'].map((step, index) => (
+                  {['browse', 'details'].map((step, _index) => (
                     <div
                       key={step}
                       className={`w-2 h-2 rounded-full transition-all duration-300 ${

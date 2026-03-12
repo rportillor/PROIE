@@ -112,7 +112,7 @@ function SeverityBadge({ severity }: { severity: string }) {
   );
 }
 
-function CategoryBadge({ category }: { category: string }) {
+function _CategoryBadge({ category }: { category: string }) {
   const colors: Record<string, string> = {
     hard: "bg-red-600 text-white",
     soft: "bg-amber-500 text-white",
@@ -177,7 +177,7 @@ export default function ClashDashboard({ projectId, modelId }: ClashDashboardPro
   // State
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [filterSeverity, setFilterSeverity] = useState<string>("all");
-  const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterCategory, _setFilterCategory] = useState<string>("all");
   const [filterDiscipline, setFilterDiscipline] = useState<string>("all");
   const [filterZone, setFilterZone] = useState<string>("");
   const [sortField, setSortField] = useState<string>("severity");

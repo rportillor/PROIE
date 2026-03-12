@@ -146,7 +146,7 @@ export class DocumentChunker {
         
         // Stop capturing after enough context or when we hit another division
         if (relevantLines.length > context.length / 10 + 50) {
-          const nextDivisionMatch = divisions.some(div => 
+          const nextDivisionMatch = divisions.some(_div =>
             lines[i + 1]?.toLowerCase().includes(`division`) && 
             !divisions.includes(lines[i + 1]?.toLowerCase().match(/division (\d+)/)?.[1] || '')
           );

@@ -17,7 +17,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import { db } from '../db';
-import { eq, and, desc, asc, inArray, sql } from 'drizzle-orm';
+import { eq, and, desc, asc, inArray } from 'drizzle-orm';
 import {
   gridDetectionRuns,
   gridComponents,
@@ -214,7 +214,7 @@ export async function getGridAxesByComponent(componentId: string): Promise<GridA
 export async function updateGridAxisStatus(
   axisId: string,
   status: 'AUTO' | 'NEEDS_REVIEW' | 'CONFIRMED' | 'REJECTED',
-  reviewedBy?: string
+  _reviewedBy?: string
 ): Promise<GridAxis | undefined> {
   const [updated] = await db.update(gridAxes)
     .set({ status, updatedAt: new Date() })

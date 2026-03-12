@@ -5,11 +5,8 @@ import { Router } from "express";
 import { authenticateToken } from "../auth";
 import { storage } from "../storage";
 import { logger } from "../utils/enterprise-logger";
-import { 
-  groupDocumentsByFloor, 
-  analyzeFloorDocuments, 
-  generateFloorBIM, 
-  combineFloorModels 
+import {
+  groupDocumentsByFloor,
 } from "../helpers/floor-analyzer";
 
 export const floorBimRouter = Router();

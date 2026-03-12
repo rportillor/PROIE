@@ -1,7 +1,9 @@
 // server/helpers/layout-calibration.ts
 // Hardened layout calibration: footprint fallback, unit scaling, de-dup positioning, and global transform.
+// v15.30: Uses extracted drawing scale when available instead of heuristic guessing.
 
 import { convexHull } from "./geom-utils";
+import type { DrawingScaleResult } from "../bim/drawing-scale-extractor";
 
 // Dynamic import helper for footprint-extractor service
 async function tryFootprintService() {
@@ -14,8 +16,8 @@ async function tryFootprintService() {
 }
 
 type Pt = { x:number; y:number };
-type P3 = { x:number; y:number; z:number };
-type Storey = { name?: string; elevation?: number };
+type _P3 = { x:number; y:number; z:number };
+type _Storey = { name?: string; elevation?: number };
 
 // Configuration values must come from Claude's analysis of construction documents
 // No hardcoded defaults allowed - spacing should be extracted from actual drawings
@@ -49,8 +51,26 @@ function safeJSON(s:string){
   } 
 }
 
-function detectScale(elements:any[]):number{
-  // Heuristic: use wall thickness / column size medians to infer units.
+/**
+ * Detect coordinate scale factor.
+ * Priority: 1) extracted drawing scale, 2) element-size heuristic fallback.
+ */
+function detectScale(elements:any[], extractedScale?: DrawingScaleResult | null):number{
+  // ── 1) Use extracted drawing scale if available and reliable ──────────
+  if (extractedScale?.primary_scale && extractedScale.primary_scale.factor > 0) {
+    const conf = extractedScale.confidence;
+    const factor = extractedScale.primary_scale.factor;
+    console.log(`📐 SCALE: Using extracted scale ${extractedScale.primary_scale.ratio} (factor=${factor}, confidence=${conf}) from sheet ${extractedScale.sheet_id}`);
+    if (conf === 'high' || conf === 'medium') {
+      return factor;
+    }
+    // Low confidence: still prefer it over heuristic but log warning
+    console.warn(`⚠️ SCALE: Low confidence extraction — using factor=${factor} but results may be inaccurate`);
+    return factor;
+  }
+
+  // ── 2) Fallback: heuristic from element dimensions ───────────────────
+  console.warn('⚠️ SCALE: No extracted drawing scale — falling back to element-size heuristic');
   const arr:number[]=[];
   for(const e of elements){
     const k = String(e?.elementType||e?.type||e?.category||"");
@@ -93,7 +113,7 @@ async function tryEnsureFootprint(projectId:string, modelId:string):Promise<Pt[]
       const poly = (r as any)?.building_footprint || (r as any)?.footprint || (r as any)?.perimeter;
       if (Array.isArray(poly) && poly.length>=3) return poly.map((p:any)=>({x:Number(p.x), y:Number(p.y)}));
     }
-  }catch{}
+  }catch{ /* intentionally empty */ }
   return null;
 }
 async function tryEnsurePropertyLine(projectId:string, modelId:string):Promise<Pt[]|null>{
@@ -104,7 +124,7 @@ async function tryEnsurePropertyLine(projectId:string, modelId:string):Promise<P
       const poly = (r as any)?.property_line;
       if (Array.isArray(poly) && poly.length>=3) return poly.map((p:any)=>({x:Number(p.x), y:Number(p.y)}));
     }
-  }catch{}
+  }catch{ /* intentionally empty */ }
   return null;
 }
 
@@ -123,7 +143,7 @@ function inferFootprintFromElements(elements:any[]):Pt[]|null{
   return null;
 }
 
-function synthesizeFootprintFromMEP(elements:any[]):Pt[] {
+function _synthesizeFootprintFromMEP(elements:any[]):Pt[] {
   // 🚨 CRITICAL ERROR: Should NEVER reach this fallback
   // Building footprint must come from construction drawings, not MEP fixture counts
   console.error(`❌ CRITICAL: synthesizeFootprintFromMEP should never be called`);
@@ -185,7 +205,7 @@ function applyScaleAndPosition(elements:any[], opts:{scale:number; yaw:number; t
 function spreadDuplicates(elements:any[], rect:Pt[]){
   const seen = new Map<string, number>();
   const edgesArr = edges(rect);
-  let edgeIdx = 0, t = 0;
+  let edgeIdx = 0, _t = 0;
 
   for (const e of elements) {
     const { g } = parseGeometry(e);
@@ -204,14 +224,14 @@ function spreadDuplicates(elements:any[], rect:Pt[]){
     g.location.realLocation = { x: q.x, y: q.y, z: p.z };
     e.geometry = g;
 
-    if (offset >= L*0.9) { edgeIdx++; t = 0; } else { t += step; }
+    if (offset >= L*0.9) { edgeIdx++; _t = 0; } else { _t += step; }
   }
   return elements;
 }
 
 // Tile MEP uniformly inside rect (when they collapsed to one point):
 function tileMEPInside(elements:any[], rect:Pt[], spacingFromAnalysis?: {light?: number; sprinkler?: number}){
-  const types = countByType(elements);
+  const _types = countByType(elements);
   const mep = elements.filter(e => /(LIGHT|SPRINKLER|RECEPTACLE|DUCT|PIPE|CONDUIT|DIFFUSER|PANEL|MECH)/i.test(String(e?.elementType||e?.type||e?.category||"")));
   if (!mep.length) return elements;
 
@@ -284,13 +304,15 @@ export async function calibrateAndPositionElements(
     clampOutliersMeters?: number;
     spacingFromAnalysis?: {light?: number; sprinkler?: number};
     minDiagFromAnalysis?: number;
+    /** v15.30: Extracted drawing scale — used instead of heuristic when provided */
+    extractedScale?: DrawingScaleResult | null;
   } = {}
 ){
   // "preferClaude" uses the same footprint-priority chain as "auto"
-  const mode = opts.mode === "preferClaude" ? "auto" : (opts.mode ?? "auto");
+  const _mode = opts.mode === "preferClaude" ? "auto" : (opts.mode ?? "auto");
 
-  // 0) Unit scale & sanitize positions
-  const scale = detectScale(elements);
+  // 0) Unit scale & sanitize positions — prefer extracted scale over heuristic
+  const scale = detectScale(elements, opts.extractedScale);
   console.log(`🧭 CALIBRATION: detected unit scale=${scale.toFixed(4)} for ${elements.length} elements`);
   // Use analysis yaw/translate if available later; for now yaw=0 and translate set after rect chosen.
   let yaw = 0;

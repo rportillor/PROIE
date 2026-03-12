@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { AtomicRevisionService } from '../services/atomic-revision-service';
-import { storage } from '../storage';
+// storage imported for future use in revision handling
+import { storage as _storage } from '../storage';
 
 const router = Router();
 const upload = multer({ dest: 'uploads/temp' });
@@ -26,7 +27,7 @@ router.get('/projects/:projectId/documents/:documentId/revisions', async (req, r
 // Upload new revision using atomic service
 router.post('/projects/:projectId/documents/:documentId/revisions', upload.single('file'), async (req, res) => {
   try {
-    const { projectId, documentId } = req.params;
+    const { projectId: _projectId, documentId } = req.params;
     const { notes } = req.body;
     const file = req.file;
 

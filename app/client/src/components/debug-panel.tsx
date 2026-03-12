@@ -15,7 +15,6 @@ import {
   AlertTriangle,
   RefreshCw,
   Eye,
-  Download
 } from 'lucide-react';
 import { errorMonitor } from '@/utils/error-monitoring';
 import { runLiveErrorCheck } from '@/utils/live-error-check';

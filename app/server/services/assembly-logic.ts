@@ -212,7 +212,7 @@ export class AssemblyLogicService {
   /**
    * 📏 Get proper unit for material in assembly context
    */
-  private getProperUnit(material: any, assemblyType: string): string {
+  private getProperUnit(material: any, _assemblyType: string): string {
     const description = (material.description || material.name || '').toLowerCase();
     
     // Fasteners

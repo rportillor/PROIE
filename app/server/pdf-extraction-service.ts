@@ -1,9 +1,7 @@
 import fs from "fs/promises";
-import path from "path";
 import pdfParse from "pdf-parse";
 import { fromPath as pdf2picFromPath } from "pdf2pic";
 import { storage } from './storage';
-import type { Document } from '@shared/schema';
 
 export interface ExtractedPdf {
   pageCount: number;

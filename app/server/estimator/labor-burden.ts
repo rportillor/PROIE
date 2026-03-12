@@ -18,7 +18,7 @@
 //            CRA payroll requirements, CIQS labor costing practices
 // =============================================================================
 
-import type { EstimateSummary } from './estimate-engine';
+import type { EstimateSummary as _EstimateSummary } from './estimate-engine';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -430,3 +430,229 @@ export const STATUTORY_BURDENS_ON_2025 = ONTARIO_2025_STATUTORY;
 
 /** Pre-populated Ontario 2025 trade rates */
 export const TRADE_RATES_ON_2025 = ONTARIO_2025_TRADES;
+
+// ─── Multi-Province Statutory Burden Support ────────────────────────────────
+//
+// Issue: WSIB and EHT are Ontario-specific. For multi-province projects,
+// applying Ontario burden structure to other provinces produces incorrect
+// loaded rates. CPP and EI are national (same rates), but workers' comp
+// and provincial health taxes vary significantly.
+//
+// This section provides province-specific statutory overrides so
+// generateLaborBurdenSummary() can produce correct loaded rates for any province.
+
+export type CanadianProvince =
+  | 'Ontario' | 'British Columbia' | 'Alberta' | 'Quebec'
+  | 'Manitoba' | 'Saskatchewan' | 'Nova Scotia' | 'New Brunswick'
+  | 'Newfoundland' | 'PEI';
+
+export interface ProvincialBurdenOverride {
+  province: CanadianProvince;
+  /** Workers' compensation board name (varies by province) */
+  wcbName: string;
+  /** Default WCB rate per $100 assessable for construction (varies by trade) */
+  wcbDefaultRate: number;
+  /** Provincial employer health tax or equivalent (0 if none) */
+  healthTaxRate: number;
+  /** Health tax name (EHT in Ontario, none in most provinces) */
+  healthTaxName: string;
+  /** Provincial vacation pay minimum (ESA equivalent) */
+  vacationPayRate: number;
+  /** Number of provincial statutory holidays */
+  statutoryHolidays: number;
+  /** Notes on provincial differences */
+  notes: string;
+}
+
+const PROVINCIAL_BURDEN_OVERRIDES: Record<CanadianProvince, ProvincialBurdenOverride> = {
+  'Ontario': {
+    province: 'Ontario', wcbName: 'WSIB', wcbDefaultRate: 4.86,
+    healthTaxRate: 0.0195, healthTaxName: 'EHT',
+    vacationPayRate: 0.04, statutoryHolidays: 9,
+    notes: 'Baseline province. EHT applies to payroll >$1M.',
+  },
+  'British Columbia': {
+    province: 'British Columbia', wcbName: 'WorkSafeBC', wcbDefaultRate: 3.44,
+    healthTaxRate: 0.0195, healthTaxName: 'EHT (BC)',
+    vacationPayRate: 0.04, statutoryHolidays: 10,
+    notes: 'BC EHT applies to payroll >$500K. WorkSafeBC rates vary by CU code.',
+  },
+  'Alberta': {
+    province: 'Alberta', wcbName: 'WCB Alberta', wcbDefaultRate: 3.18,
+    healthTaxRate: 0.0, healthTaxName: 'None',
+    vacationPayRate: 0.04, statutoryHolidays: 9,
+    notes: 'No provincial health tax. WCB rates per industry code.',
+  },
+  'Quebec': {
+    province: 'Quebec', wcbName: 'CNESST', wcbDefaultRate: 5.60,
+    healthTaxRate: 0.0298, healthTaxName: 'HSF (Health Services Fund)',
+    vacationPayRate: 0.06, statutoryHolidays: 8,
+    notes: 'CNESST rates higher for construction. HSF 2.7-4.26% graduated. Vacation 6% CCQ requirement.',
+  },
+  'Manitoba': {
+    province: 'Manitoba', wcbName: 'WCB Manitoba', wcbDefaultRate: 4.20,
+    healthTaxRate: 0.0215, healthTaxName: 'HE Levy',
+    vacationPayRate: 0.04, statutoryHolidays: 8,
+    notes: 'Health & Education Levy on payroll >$2.25M.',
+  },
+  'Saskatchewan': {
+    province: 'Saskatchewan', wcbName: 'WCB Saskatchewan', wcbDefaultRate: 3.15,
+    healthTaxRate: 0.0, healthTaxName: 'None',
+    vacationPayRate: 0.0375, statutoryHolidays: 10,
+    notes: 'No provincial health tax. 3/52 weeks vacation = 5.77% after 1 year.',
+  },
+  'Nova Scotia': {
+    province: 'Nova Scotia', wcbName: 'WCB Nova Scotia', wcbDefaultRate: 2.65,
+    healthTaxRate: 0.0, healthTaxName: 'None',
+    vacationPayRate: 0.04, statutoryHolidays: 6,
+    notes: 'No provincial health tax. Fewer stat holidays than Ontario.',
+  },
+  'New Brunswick': {
+    province: 'New Brunswick', wcbName: 'WorkSafeNB', wcbDefaultRate: 2.92,
+    healthTaxRate: 0.0, healthTaxName: 'None',
+    vacationPayRate: 0.04, statutoryHolidays: 8,
+    notes: 'No provincial health tax.',
+  },
+  'Newfoundland': {
+    province: 'Newfoundland', wcbName: 'WorkplaceNL', wcbDefaultRate: 3.85,
+    healthTaxRate: 0.02, healthTaxName: 'HAPSET',
+    vacationPayRate: 0.04, statutoryHolidays: 7,
+    notes: 'Health and Post-Secondary Education Tax on payroll >$2M.',
+  },
+  'PEI': {
+    province: 'PEI', wcbName: 'WCB PEI', wcbDefaultRate: 2.08,
+    healthTaxRate: 0.0, healthTaxName: 'None',
+    vacationPayRate: 0.04, statutoryHolidays: 7,
+    notes: 'No provincial health tax. Lowest WCB rates in Canada.',
+  },
+};
+
+/**
+ * Get provincial statutory burdens adjusted for a specific province.
+ * CPP and EI are national (unchanged). WSIB/WCB, health tax, vacation,
+ * and stat holidays are province-specific.
+ */
+export function getProvincialStatutoryBurdens(province: CanadianProvince): StatutoryBurden[] {
+  const override = PROVINCIAL_BURDEN_OVERRIDES[province];
+  if (!override) return ONTARIO_2025_STATUTORY; // fallback
+
+  const statHolidayRate = override.statutoryHolidays / 250; // working days
+
+  return [
+    // National: CPP (same across all provinces)
+    {
+      name: 'CPP2',
+      description: 'Canada Pension Plan (employer share)',
+      rate: 0.0595,
+      basis: 'gross-wages',
+      annualMaximum: 4055.50,
+      employerOnly: false,
+      notes: 'National rate — same in all provinces',
+    },
+    // National: EI (same across all provinces, except Quebec which has QPIP)
+    {
+      name: 'EI',
+      description: 'Employment Insurance (employer share)',
+      rate: province === 'Quebec' ? 0.01960 : 0.02282, // Quebec EI reduced due to QPIP
+      basis: 'insurable-earnings',
+      annualMaximum: province === 'Quebec' ? 905.76 : 1049.12,
+      employerOnly: false,
+      notes: province === 'Quebec'
+        ? 'Quebec reduced EI rate (QPIP covers parental leave)'
+        : 'Employer pays 1.4x employee rate',
+    },
+    // Provincial: Workers' Compensation
+    {
+      name: override.wcbName,
+      description: override.wcbName + ' (' + province + ')',
+      rate: 0.0, // Applied per trade via wsibRate field (overridden below)
+      basis: 'assessable-payroll',
+      employerOnly: true,
+      notes: 'Rate varies by trade — default construction rate: $' +
+        override.wcbDefaultRate.toFixed(2) + '/$100. ' + override.notes,
+    },
+    // Provincial: Health Tax (if applicable)
+    ...(override.healthTaxRate > 0 ? [{
+      name: override.healthTaxName,
+      description: override.healthTaxName + ' (' + province + ')',
+      rate: override.healthTaxRate,
+      basis: 'gross-wages' as const,
+      employerOnly: true,
+      notes: province + ' employer health tax',
+    }] : []),
+    // Provincial: Vacation Pay
+    {
+      name: 'Vacation Pay',
+      description: 'Vacation pay (' + province + ' minimum)',
+      rate: override.vacationPayRate,
+      basis: 'gross-wages',
+      employerOnly: true,
+      notes: province + ' minimum ' + (override.vacationPayRate * 100).toFixed(1) + '%',
+    },
+    // Provincial: Statutory Holidays
+    {
+      name: 'Public Holidays',
+      description: province + ' statutory holidays (' + override.statutoryHolidays + ' days)',
+      rate: Math.round(statHolidayRate * 10000) / 10000,
+      basis: 'gross-wages',
+      employerOnly: true,
+      notes: override.statutoryHolidays + ' public holidays / 250 working days',
+    },
+    // Quebec-specific: QPIP (Quebec Parental Insurance Plan)
+    ...(province === 'Quebec' ? [{
+      name: 'QPIP',
+      description: 'Quebec Parental Insurance Plan (employer)',
+      rate: 0.00692,
+      basis: 'gross-wages' as const,
+      employerOnly: false,
+      notes: 'Quebec only — replaces federal parental EI benefits',
+    }] : []),
+  ];
+}
+
+/**
+ * Generate labor burden summary for a specific province.
+ * Adjusts trade WCB rates using the provincial default as a proxy.
+ */
+export function generateProvincialLaborBurdenSummary(
+  province: CanadianProvince,
+  trades?: TradeRate[],
+  crews?: CrewComposition[]
+): LaborBurdenSummary {
+  const override = PROVINCIAL_BURDEN_OVERRIDES[province];
+  const statutory = getProvincialStatutoryBurdens(province);
+
+  // Adjust trade WCB rates proportionally for the target province
+  const tradeList = (trades || ONTARIO_2025_TRADES).map(t => ({
+    ...t,
+    // Scale WSIB rate by ratio of provincial default to Ontario default
+    wsibRate: override
+      ? t.wsibRate * (override.wcbDefaultRate / PROVINCIAL_BURDEN_OVERRIDES['Ontario'].wcbDefaultRate)
+      : t.wsibRate,
+    wsibRateGroup: override ? override.wcbName + ':' + t.wsibRateGroup : t.wsibRateGroup,
+  }));
+
+  const totalStatPct = statutory
+    .filter(s => s.name !== override?.wcbName && s.name !== 'WSIB')
+    .reduce((sum, s) => sum + s.rate, 0);
+
+  const loadedRates = tradeList.map(t => calculateLoadedRate(t, statutory));
+  const crewRates = (crews || []).map(c => calculateCrewRate(c, loadedRates));
+
+  const avgBurden = loadedRates.length > 0
+    ? loadedRates.reduce((s, r) => s + r.burdenPercent, 0) / loadedRates.length : 0;
+
+  return {
+    province,
+    year: 2025,
+    statutoryBurdens: statutory,
+    totalStatutoryPercent: Math.round(totalStatPct * 10000) / 100,
+    tradeRates: loadedRates,
+    crewRates,
+    averageBurdenPercent: Math.round(avgBurden * 100) / 100,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+/** Available provincial burden overrides */
+export const PROVINCIAL_OVERRIDES = PROVINCIAL_BURDEN_OVERRIDES;

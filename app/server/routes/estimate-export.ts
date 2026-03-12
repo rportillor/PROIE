@@ -71,7 +71,7 @@ function rowsToCsv(rows: any[], delimiter = ","): string {
   const lines = rows.map(r =>
     keys.map(k => {
       const v = String((r as any)[k] ?? "");
-      return /[",\n]/.test(v) ? `"${v.replace(/"/g, '\"\"')}"`  : v;
+      return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"`  : v;
     }).join(delimiter)
   );
   return [header, ...lines].join("\n");

@@ -19,8 +19,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Progress } from "@/components/ui/progress";
-import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { apiRequest } from "@/lib/queryClient";
@@ -31,7 +29,6 @@ import {
   AlertTriangle,
   Info,
   Play,
-  RefreshCw,
   Eye,
   Tag,
   Crosshair,
@@ -40,7 +37,6 @@ import {
   Clock,
   FileText,
   Loader2,
-  ChevronRight,
 } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -195,7 +191,7 @@ export function GridReviewDashboard({ projectId }: GridReviewDashboardProps) {
     },
   });
 
-  const confirmAxis = useMutation({
+  const _confirmAxis = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
       const res = await apiRequest("PUT", `/api/grid-detection/axis/${id}/status`, {
         status,
@@ -334,13 +330,13 @@ function QualityGradeBadge({ grade, confidence }: { grade: string; confidence: n
 // ─── Overview Tab ────────────────────────────────────────────────────────────
 
 function OverviewTab({
-  runs, stats, statsLoading, selectedRunId, onSelectRun,
+  runs, stats, statsLoading: _statsLoading, selectedRunId, onSelectRun,
 }: {
   runs: GridDetectionRun[];
   stats: GridRunStats | undefined;
   statsLoading: boolean;
   selectedRunId: string | null | undefined;
-  onSelectRun: (id: string) => void;
+  onSelectRun: (_id: string) => void;
 }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -437,8 +433,8 @@ function ReviewTab({
   reviewItems, onConfirm, onReject, isPending,
 }: {
   reviewItems: AxisLabelAssociation[];
-  onConfirm: (id: string) => void;
-  onReject: (id: string) => void;
+  onConfirm: (_id: string) => void;
+  onReject: (_id: string) => void;
   isPending: boolean;
 }) {
   if (reviewItems.length === 0) {
@@ -566,7 +562,7 @@ function ScoreBreakdownBar({ breakdown }: { breakdown: AxisLabelAssociation["sco
 // ─── Validation Tab ──────────────────────────────────────────────────────────
 
 function ValidationTab({ runId }: { runId: string | null | undefined }) {
-  const { data: fullData } = useQuery<{ success: boolean; result: DetectionResult }>({
+  const { data: _fullData } = useQuery<{ success: boolean; result: DetectionResult }>({
     queryKey: ["/api/grid-detection/run", runId, "full-result"],
     enabled: false, // We don't have a direct endpoint for validation yet — use detect result
   });
@@ -682,7 +678,7 @@ function DetectTab({
 }: {
   projectId: string;
   statusData: any;
-  onTrigger: (data: any) => void;
+  onTrigger: (_data: any) => void;
   isPending: boolean;
   result: { success: boolean; result: DetectionResult } | undefined;
 }) {

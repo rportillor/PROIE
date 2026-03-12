@@ -7,18 +7,12 @@ import crypto from "crypto";
 import { storage } from "../storage";
 import { BimError } from "./error-handler";
 import type { User } from "@shared/schema";
+import { JWT_SECRET } from "../config/jwt-secret";
 
 // Security configuration
 const ACCESS_TOKEN_LIFETIME = '15m';  // Short-lived access tokens
 const REFRESH_TOKEN_LIFETIME = '7d';  // Longer-lived refresh tokens
 const REFRESH_TOKEN_ROTATION_THRESHOLD = 24 * 60 * 60 * 1000; // 24 hours
-
-const JWT_SECRET = process.env.JWT_SECRET || (() => {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('JWT_SECRET environment variable is required in production');
-  }
-  return crypto.randomBytes(64).toString('hex');
-})();
 
 const REFRESH_SECRET = process.env.REFRESH_SECRET || JWT_SECRET + '_refresh';
 

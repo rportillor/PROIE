@@ -276,7 +276,7 @@ export default function BoqTable({ boqItems, isLoading }: BoqTableProps) {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {paginatedItems.map((item, index) => (
+              {paginatedItems.map((item, _index) => (
                 <tr key={item.id} data-testid={`boq-row-${item.id}`}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                     {item.itemCode}

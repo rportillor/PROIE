@@ -243,6 +243,34 @@ npm run dev                       # Starts on port 5000
 
 ---
 
+## BIM Feature Status (Phase 2 Implementation)
+
+| Feature | Status | Implementation |
+|---|---|---|
+| Parametric constraints (wall auto-joins, beam-column snapping) | **Implemented** | `bim-constraints.ts`: `autoJoinWalls()` detects L/T/X joins; `snapBeamsToColumns()` links beam endpoints to columns |
+| Trim/extend logic at element intersections | **Implemented** | `bim-constraints.ts`: `trimExtendAtIntersections()` detects near-misses and records trim/extend actions |
+| Foundation elements (footings, piles, grade beams) | **Implemented** | `parametric-elements.ts`: `createPile()` (driven/bored/helical/micropile), `createGradeBeam()`, enhanced `createFooting()` with pile_cap type |
+| Rebar/reinforcement modeling | **Implemented** | `parametric-elements.ts`: `generateRebarGeometry()` creates individual bars per CSA G30.18 (top/bottom/stirrups), attaches `RebarInfo` to host |
+| Connection details (steel plates, bolts, welds) | **Implemented** | `parametric-elements.ts`: `createSteelConnection()` generates shear tab plates, bolt groups, weld lines with geometry |
+| MEP coordination (auto-routing) | **Implemented** | `mep-routing.ts`: `autoRouteMEP()` with A* pathfinding, obstacle avoidance, orthogonal routing |
+| Phasing / construction sequencing | **Implemented** | `bim-constraints.ts`: `assignPhases()` maps element types to WBS phases (1.1-1.11); `PhaseAssignment` on each element |
+| LOD tracking (100→500) | **Implemented** | `bim-constraints.ts`: `classifyLOD()` scores elements 100-500 per BIM Forum spec based on geometry, data, connections |
+| Revision management | **Implemented** | `bim-constraints.ts`: `initRevisions()` + `diffRevisions()` track added/modified/deleted/unchanged per element |
+| Workset/discipline isolation | **Implemented** | `bim-constraints.ts`: `assignWorksets()` classifies elements into 7 worksets (Structural, Mechanical, Plumbing, Electrical, Fire, Arch-Ext, Arch-Int) |
+| Curtain walls / complex facade systems | **Implemented** | `parametric-elements.ts`: `createCurtainWall()` generates panel grid + vertical/horizontal mullions with proper hosting |
+| Stairs, railings, ramps | **Implemented** | `parametric-elements.ts`: `createStair()`, `createRailing()` (posts + swept rails), `createRamp()` (sloped slab) |
+
+### New Files
+- `server/bim/bim-constraints.ts` — Parametric constraints engine (wall joins, beam snaps, trim/extend, phase/LOD/workset/revision assignment)
+
+### Schema Changes (require `npm run db:push`)
+New columns on `bim_elements`: `lod`, `phase_id`, `phase_name`, `created_phase`, `demolished_phase`, `workset_id`, `workset_name`, `discipline`, `revision_number`, `revision_action`, `rebar_data`, `connection_data`
+
+### Wall Opening Void Cut Fix
+`model-builder.ts` now collects door/window openings per wall and passes them to `createWall()` via the `openings` parameter. Walls are now boolean-subtracted at the profile level, showing actual holes where doors/windows are placed.
+
+---
+
 ## Known Items (Not Bugs)
 
 1. **1 dead file:** `server/smart-document-processor.ts` (771 lines, 0 consumers)

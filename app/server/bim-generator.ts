@@ -4,17 +4,15 @@ import type { BimModel, Document } from "@shared/schema";
 import Anthropic from '@anthropic-ai/sdk';
 import { RealQTOProcessor } from './real-qto-processor';
 import { ConstructionWorkflowProcessor } from './construction-workflow-processor';
-import type { RealBIMElement, AnalysisOptions } from './types/shared-bim-types';
 import { convertRealElementToLegacyFormat, getDocumentPath } from './helpers/bim-converter';
-import { deriveBuildingAnalysisFromClaude, analysisFromRawElements, validateOrRecomputeAnalysis } from './helpers/building-analysis';
+import { deriveBuildingAnalysisFromClaude, validateOrRecomputeAnalysis } from './helpers/building-analysis';
 import { extractPdfTextAndPages } from "./services/pdf-extract";
 import { scorePage } from "./helpers/page-scorer";
 import { estimateTokensForText, selectWithinBudget, chunkByTokens } from "./helpers/text-budget";
 import { mergeClaudeResults } from "./helpers/analysis-merge";
 import { calibrateAndPositionElements } from "./helpers/layout-calibration";
-import { ensureFootprintForModel } from "./services/footprint-extractor";
-import { placeDetectedSymbolsAsElements } from "./helpers/site-symbols";
-import { applySiteContext } from "./helpers/site-utils";
+import { extractDrawingScale, validateScalesAcrossSheets, computeScaleFactor } from "./bim/drawing-scale-extractor";
+import type { DrawingScaleResult } from "./bim/drawing-scale-extractor";
 import { postprocessAndSaveBIM } from "./services/bim-postprocess";
 import { getLodProfile } from "./helpers/lod-profile";
 import { deriveQuantitiesForElements } from "./helpers/quantity-derive";
@@ -132,7 +130,7 @@ async function buildElementsFromClaude(modelId: string, realQTOResult: any, anal
   }
 
   const mode = (process.env.POSITIONING_MODE as any) || "auto"; // "auto" | "forcePerimeter" | "preferClaude"
-  const total = realQTOResult?.elements?.length || 0;
+  const _total = realQTOResult?.elements?.length || 0;
 
   // Analysis logging for debugging
   logger.debug('Building analysis available', {
@@ -338,25 +336,40 @@ export class BIMGenerator {
 
       if (existingElements.length > 50) {
         console.log(`🛡️ FOUND EXISTING WORK: Model ${existingModel.id} has ${existingElements.length} elements`);
-        
-        // Check if this is a continuation request (user wants to add more elements)
-        const modelAge = existingModel.createdAt 
-          ? new Date().getTime() - new Date(existingModel.createdAt).getTime()
-          : 0;
-        const isStuck = existingModel.status === 'generating' && modelAge > 30 * 60 * 1000; // 30 minutes
-        
-        // For now, we'll continue with generation to add more elements
-        console.log(`📋 Continuing generation to add more elements to existing ${existingElements.length} elements`);
-        
+
+        // ── HUMAN-MODELER WORKFLOW: Iterative Refinement ──────────────────
+        // A human modeler works in passes — they don't delete the whole model
+        // and start over when new drawings arrive. They compare, diff, and
+        // update only what changed. We store the existing model's element
+        // snapshot for the post-generation diff step.
+        console.log(
+          `🔄 ITERATIVE REFINEMENT: Preserving ${existingElements.length} existing elements ` +
+          `for incremental diff after re-extraction. New/changed elements will be merged, ` +
+          `unchanged elements will be preserved with stable IDs.`
+        );
+
         // Use the existing model but continue with generation
         bimModel = existingModel;
         modelId = existingModel.id;
-        
+
+        // Store previous element snapshot for diffing in post-processing
+        try {
+          if ((storage as any).updateBimModelMetadata) {
+            await (storage as any).updateBimModelMetadata(modelId, {
+              previousElementSnapshot: {
+                count: existingElements.length,
+                timestamp: new Date().toISOString(),
+                elementIds: existingElements.map((e: any) => e.id || e.elementId),
+              },
+            });
+          }
+        } catch { /* non-blocking */ }
+
         // Update status to generating to show we're working on it
         await storage.updateBimModel(modelId, { status: 'generating' });
-        
-        console.log(`🔄 Using existing model ${modelId} and will add new elements`);
-        
+
+        console.log(`🔄 Using existing model ${modelId} — will diff new extraction against existing elements`);
+
         // Don't return early - continue with the generation process
       } else {
         // Less than 50 elements, safe to recreate
@@ -439,7 +452,7 @@ export class BIMGenerator {
         console.warn(`[watchdog] ${reason}`);
         try {
           await _status({ status: "failed", progress: 1.0, message: "Generation aborted by watchdog", error: reason });
-        } catch {}
+        } catch { /* intentionally empty */ }
       });
       
       // Initial status update
@@ -624,7 +637,7 @@ export class BIMGenerator {
       
       // Get project unit system for proper QTO processing
       const unitSystem = requirements.units || 'metric';
-      const project = await storage.getProject(projectId);
+      const _project = await storage.getProject(projectId);
       
       // 🎯 Process with real QTO system using ALL CONSTRUCTION DOCUMENTS
       console.log(`🔍 TRACE: About to process ${documents.length} documents with QTO system`);
@@ -891,7 +904,7 @@ export class BIMGenerator {
         }
         
         // ✅ Back-compat alias for older code paths
-        const result = realQTOResult;
+        const _result = realQTOResult;
       } else {
         // 🚨 NO FALLBACK TO FAKE DATA - Require real documents
         console.log('❌ No construction documents found - cannot generate BIM without real drawings');
@@ -901,9 +914,38 @@ export class BIMGenerator {
       // ✅ Normalize QTO result once for cleaner access everywhere
       realQTOResult = normalizeQTO(realQTOResult);
       
+      // 📐 EXTRACT DRAWING SCALE from Claude's analysis (v15.30)
+      let extractedScaleResult: DrawingScaleResult | null = null;
+      try {
+        const drawingScale = (realQTOResult as any)?.drawing_scale || (realQTOResult as any)?.building_analysis?.drawing_scale;
+        if (drawingScale?.primary_scale) {
+          const scaleStr = typeof drawingScale.primary_scale === 'string'
+            ? drawingScale.primary_scale
+            : drawingScale.primary_scale?.ratio || drawingScale.primary_scale;
+          const factor = computeScaleFactor(String(scaleStr));
+          if (factor && factor > 0) {
+            extractedScaleResult = {
+              sheet_id: drawingScale.scale_source || 'claude-analysis',
+              primary_scale: { ratio: String(scaleStr), factor },
+              detail_scales: (drawingScale.detail_scales || []).map((d: any) => ({
+                area: d.area || '',
+                ratio: d.ratio || '',
+                factor: computeScaleFactor(String(d.ratio)) || 0
+              })),
+              scale_bar: null,
+              confidence: 'medium',
+              source: drawingScale.scale_source || 'claude-analysis'
+            };
+            console.log(`📐 SCALE EXTRACTED: ${scaleStr} (factor=${factor}) from ${extractedScaleResult.source}`);
+          }
+        }
+      } catch (scaleErr: any) {
+        console.warn(`⚠️ Scale extraction from analysis failed: ${scaleErr?.message?.slice(0, 100)}`);
+      }
+
       // 🎯 CALIBRATE AND POSITION ELEMENTS - Fix layout to match real building footprint
       // v15.13b: wrapped in try/catch — a footprint error must not kill the pipeline.
-      // Postprocess will attempt calibration again and save whatever it has.
+      // v15.30: Now passes extracted scale for accurate coordinate conversion.
       console.log(`🔧 Calibrating ${realQTOResult.elements.length} elements to building footprint...`);
       try {
         const calibratedElements = await calibrateAndPositionElements(
@@ -916,7 +958,8 @@ export class BIMGenerator {
                || "auto",
             reCenterToOrigin: true,
             flipZIfAllYNegative: true,
-            clampOutliersMeters: process.env.CALIB_CLAMP_M ? Number(process.env.CALIB_CLAMP_M) : undefined
+            clampOutliersMeters: process.env.CALIB_CLAMP_M ? Number(process.env.CALIB_CLAMP_M) : undefined,
+            extractedScale: extractedScaleResult
           }
         );
         // Replace elements with calibrated positions
@@ -925,6 +968,82 @@ export class BIMGenerator {
       } catch (preCalibErr: any) {
         console.warn(`⚠️ Pre-calibration skipped (${preCalibErr?.message?.slice(0,120)}) — postprocessor will re-attempt`);
         // elements remain in raw QTO coordinates; postprocess step 4 will try again
+      }
+
+      // 🔧 APPLY EXTRACTED MEP DATA (v15.30) - Replace hardcoded fallbacks with real schedule data
+      try {
+        const mepSystems = (realQTOResult as any)?.mep_systems || (realQTOResult as any)?.building_analysis?.mep_systems;
+        if (mepSystems) {
+          const ductSchedules = mepSystems.duct_schedules || [];
+          const ceilingHeights = mepSystems.ceiling_heights || [];
+          const ductRouting = mepSystems.duct_routing || [];
+          const equipment = mepSystems.equipment || [];
+
+          console.log(`🔧 MEP DATA: ${ductSchedules.length} duct schedules, ${equipment.length} equipment, ${ceilingHeights.length} ceiling zones, ${ductRouting.length} routed ducts`);
+
+          // Build lookup maps for fast enrichment
+          const ductSizeMap = new Map<string, any>();
+          for (const ds of ductSchedules) {
+            if (ds.tag) ductSizeMap.set(ds.tag.toUpperCase(), ds);
+          }
+
+          const ceilingMap = new Map<string, any>();
+          for (const ch of ceilingHeights) {
+            if (ch.room) ceilingMap.set(ch.room.toUpperCase(), ch);
+          }
+
+          // Default ceiling height from RCP data (use median if multiple rooms)
+          const ceilingElevations = ceilingHeights
+            .map((ch: any) => Number(ch.ceiling_height_m))
+            .filter((v: number) => v > 0 && Number.isFinite(v));
+          const defaultCeilingHeight = ceilingElevations.length > 0
+            ? ceilingElevations.sort((a: number, b: number) => a - b)[Math.floor(ceilingElevations.length / 2)]
+            : null;
+
+          let mepEnriched = 0;
+          for (const el of realQTOResult.elements) {
+            const elType = String(el?.elementType || el?.type || el?.category || '').toUpperCase();
+            if (!/(DUCT|HVAC|DIFFUSER|GRILLE|PIPE|PLUMBING|MECHANICAL|AIR|VENTILATION|FAN|VAV|AHU)/i.test(elType)) continue;
+
+            const g = typeof el?.geometry === 'string' ? JSON.parse(el.geometry) : (el?.geometry || {});
+            const dims = g?.dimensions || {};
+            const loc = g?.location?.realLocation || { x: 0, y: 0, z: 0 };
+
+            // Try to match by tag
+            const tag = String(el?.properties?.tag || el?.name || '').toUpperCase();
+            const scheduleMatch = ductSizeMap.get(tag);
+
+            if (scheduleMatch) {
+              // Apply real dimensions from duct schedule
+              if (scheduleMatch.width_mm) dims.width = scheduleMatch.width_mm / 1000;
+              if (scheduleMatch.height_mm) dims.depth = scheduleMatch.height_mm / 1000;
+              if (scheduleMatch.diameter_mm) {
+                dims.width = scheduleMatch.diameter_mm / 1000;
+                dims.depth = scheduleMatch.diameter_mm / 1000;
+              }
+              el.properties = { ...el.properties, ...scheduleMatch, _source: 'duct_schedule' };
+              mepEnriched++;
+            }
+
+            // Apply ceiling-based elevation instead of hardcoded 3.0m
+            if (defaultCeilingHeight && (loc.z === 0 || loc.z === 3.0 || loc.z === 3.2)) {
+              // Duct runs above ceiling in plenum
+              const plenumOffset = 0.15; // 150mm above ceiling
+              loc.z = defaultCeilingHeight + plenumOffset;
+              g.location = { ...(g.location || {}), realLocation: loc };
+              el.geometry = g;
+            }
+
+            g.dimensions = dims;
+            el.geometry = g;
+          }
+
+          if (mepEnriched > 0) {
+            console.log(`✅ MEP ENRICHMENT: Applied real schedule data to ${mepEnriched} elements`);
+          }
+        }
+      } catch (mepErr: any) {
+        console.warn(`⚠️ MEP enrichment failed (non-blocking): ${mepErr?.message?.slice(0, 120)}`);
       }
 
       // 📊 DERIVE QUANTITIES - Professional QTO for estimator (includes MEP + wall thickness)
@@ -1021,6 +1140,75 @@ export class BIMGenerator {
       const elementsPositioned = elements; // elements from buildElementsFromClaude above
 
       console.log(`📦 ${elementsPositioned.length} elements → postprocessor`);
+
+      // ── ITERATIVE REFINEMENT: Diff against previous extraction ──────────
+      // If the model had existing elements, merge new extraction results
+      // with the previous snapshot — preserving stable IDs for unchanged
+      // elements and tracking additions/modifications/deletions.
+      // This mirrors how a human modeler works in passes.
+      try {
+        const modelMeta = await (storage as any).getBimModel?.(modelId);
+        const meta = modelMeta?.metadata || {};
+        const prevSnapshot = meta.previousElementSnapshot;
+        if (prevSnapshot && prevSnapshot.count > 0) {
+          console.log(
+            `🔄 ITERATIVE REFINEMENT: Comparing ${elementsPositioned.length} new elements ` +
+            `against ${prevSnapshot.count} previous elements...`
+          );
+          // Load previous elements for comparison
+          const previousElements = await storage.getBimElements(modelId);
+          if (previousElements.length > 0) {
+            // Simple spatial matching: for each new element, check if a previous
+            // element of the same type exists within 0.5m — if so, preserve its ID
+            let preserved = 0;
+            let added = 0;
+            for (const newEl of elementsPositioned) {
+              const ne = newEl as any;
+              const newLoc = ne?.geometry?.location?.realLocation || { x: 0, y: 0, z: 0 };
+              const newType = String(ne?.type || ne?.elementType || '').toUpperCase();
+              let matched = false;
+              for (const prevEl of previousElements) {
+                const pe = prevEl as any;
+                const prevLoc = pe?.geometry?.location?.realLocation || { x: 0, y: 0, z: 0 };
+                const prevType = String(pe?.elementType || '').toUpperCase();
+                if (newType === prevType) {
+                  const dist = Math.hypot(
+                    (newLoc.x || 0) - (prevLoc.x || 0),
+                    (newLoc.y || 0) - (prevLoc.y || 0),
+                    (newLoc.z || 0) - (prevLoc.z || 0)
+                  );
+                  if (dist < 0.5) {
+                    // Preserve previous ID for stable references
+                    ne.id = pe.id || pe.elementId;
+                    ne.properties = {
+                      ...(ne.properties || {}),
+                      refinementAction: 'unchanged_or_updated',
+                      previousRevision: prevSnapshot.timestamp,
+                    };
+                    preserved++;
+                    matched = true;
+                    break;
+                  }
+                }
+              }
+              if (!matched) {
+                ne.properties = {
+                  ...(ne.properties || {}),
+                  refinementAction: 'added',
+                  addedInRevision: new Date().toISOString(),
+                };
+                added++;
+              }
+            }
+            console.log(
+              `🔄 ITERATIVE REFINEMENT: ${preserved} elements preserved with stable IDs, ` +
+              `${added} new elements added`
+            );
+          }
+        }
+      } catch (refineErr: any) {
+        console.warn(`⚠️ Iterative refinement skipped (non-blocking): ${refineErr?.message?.slice(0, 120)}`);
+      }
 
       try {
         await _status({ progress: 0.72, message: "Calibration & grid snap" });
@@ -1706,10 +1894,70 @@ SCHEMA (adapt to what you find in the documents):
      // Place elements at locations shown in drawings
      // Use actual coordinates from plans, not random placement
   },
+  "drawing_scale": {
+     "primary_scale": "<string, e.g. '1:100' or '1/4\\\" = 1\\'-0\\\"'>",
+     "detail_scales": [{ "area": "<detail label>", "ratio": "<scale string>" }],
+     "scale_source": "<where you found the scale, e.g. 'title block bottom-right of A-101'>"
+  },
+  "mep_systems": {
+     "duct_schedules": [
+       {
+         "tag": "<duct tag e.g. SD-01>",
+         "system": "supply|return|exhaust|outside_air",
+         "shape": "rectangular|round|oval",
+         "width_mm": "<number from schedule>",
+         "height_mm": "<number from schedule>",
+         "diameter_mm": "<number for round ducts>",
+         "cfm": "<airflow from schedule>",
+         "insulation": "<insulation spec>",
+         "source_drawing": "<drawing number>"
+       }
+     ],
+     "equipment": [
+       {
+         "tag": "<equipment tag e.g. AHU-01>",
+         "type": "<air_handling_unit|vav_box|fan_coil|exhaust_fan|etc>",
+         "location": { "x": "<number>", "y": "<number>" },
+         "cfm": "<rated airflow>",
+         "connections": [{ "duct_tag": "<tag>", "direction": "supply|return" }],
+         "source_drawing": "<drawing number>"
+       }
+     ],
+     "ceiling_heights": [
+       {
+         "room": "<room name>",
+         "ceiling_height_m": "<actual from RCP>",
+         "plenum_depth_m": "<space above ceiling>",
+         "source_drawing": "<RCP drawing number>"
+       }
+     ],
+     "duct_routing": [
+       {
+         "duct_tag": "<tag>",
+         "waypoints": [{ "x": "<number>", "y": "<number>", "z": "<number>" }],
+         "fittings": [{ "type": "elbow|tee|reducer|transition", "position": { "x": "<n>", "y": "<n>", "z": "<n>" }, "angle": "<degrees>" }],
+         "connected_equipment": ["<equipment tags>"],
+         "terminals": [{ "type": "diffuser|grille|register", "tag": "<tag>", "position": { "x": "<n>", "y": "<n>" } }]
+       }
+     ],
+     "pipe_systems": [
+       {
+         "tag": "<pipe tag>",
+         "system": "chilled_water|hot_water|domestic_cold|domestic_hot|sanitary|storm|fire_protection",
+         "diameter_mm": "<pipe diameter>",
+         "material": "<pipe material>",
+         "source_drawing": "<drawing number>"
+       }
+     ]
+  },
   "drawing_analysis": {
      "floor_plans_found": ["list actual drawing names/numbers"],
      "sections_found": ["list actual section drawing names"],
      "elevations_found": ["list elevation drawings if any"],
+     "mechanical_plans_found": ["list M-sheet drawing numbers"],
+     "plumbing_plans_found": ["list P-sheet drawing numbers"],
+     "electrical_plans_found": ["list E-sheet drawing numbers"],
+     "rcp_plans_found": ["list reflected ceiling plan drawing numbers"],
      "specifications_found": ["list specification documents"]
   },
   "extraction_confidence": {
@@ -1744,7 +1992,7 @@ Analyze these construction documents as a professional QS would - identify the d
 
       // Per-batch Claude → per-batch RealQTO
       const parts: any[] = [];
-      const elementParts: any[][] = [];
+      const _elementParts: any[][] = [];
 
       for (let i = 0; i < batches.length; i++) {
         const chunk = batches[i];
@@ -1766,7 +2014,14 @@ Analyze these construction documents as a professional QS would - identify the d
    • GRID SPACING: Read the dimension values between grid lines (e.g., "6000" between Grid A and Grid B)
    • COLUMN LOCATIONS: Visually identify columns by their material pattern (check legend for concrete/steel hatching)
    • USE VISUAL ANALYSIS: Match the visual pattern from legend to identify what's a column vs other elements
-3. **MEP Plans (M-101, E-101, P-101, etc.)**: Mechanical, electrical, plumbing systems  
+3. **MEP Plans (M-101, E-101, P-101, etc.)**: CRITICAL - Extract structured MEP data:
+   • DUCT SCHEDULES: Find duct schedule tables — extract tag, system type, dimensions (WxH or diameter), CFM, insulation
+   • EQUIPMENT: Identify AHUs, VAV boxes, exhaust fans — extract tags, locations, CFM ratings, duct connections
+   • DUCT ROUTING: Trace duct runs from equipment to terminals — extract waypoints, fittings (elbows, tees, reducers)
+   • DIFFUSERS/GRILLES: Locate terminal devices — extract type, tag, position from plan
+   • PIPE SYSTEMS: Extract pipe sizes, materials, system type (CHW, HHW, domestic, sanitary, storm)
+   • RCP (Reflected Ceiling Plans): Extract ceiling heights, plenum depths, diffuser locations per room
+   • DO NOT use hardcoded heights — read actual mounting elevations from sections/details
 4. **Elevations & Sections**: CRITICAL - Extract floor-by-floor data BY FOLLOWING DIMENSION LINES:
    • FOLLOW EXTENSION LINES: Trace each dimension's extension lines to see what it measures
    • FLOOR ELEVATIONS: Follow dimension lines pointing to floor slabs - these show elevation from grade (0.00)
@@ -1822,10 +2077,19 @@ Analyze these construction documents as a professional QS would - identify the d
 - Examples: "STEEL_W_BEAM_W14x22", "CONCRETE_SLAB_8_INCH", "GLASS_CURTAIN_WALL_SYSTEM", 
   "HVAC_ROOFTOP_UNIT", "FIRE_SPRINKLER_HEAD", "ELECTRICAL_PANEL_400A", "CERAMIC_FLOOR_TILE"
 
+**DRAWING SCALE EXTRACTION (CRITICAL - DO THIS FIRST):**
+- Find the title block (usually bottom-right of each sheet)
+- Read the scale annotation: "Scale: 1:100", "1/4" = 1'-0"", etc.
+- If "As Noted" → check each detail/section for its own scale
+- If graphical scale bar present → note the real-world length it represents
+- Report the scale in the "drawing_scale" field of your JSON response
+- ALL dimensions and coordinates must be converted using this scale
+
 **BUILD ORDER (CRITICAL - MUST FOLLOW THIS SEQUENCE):**
-1. FIRST: Establish origin point (0,0,0) at bottom-left corner
-2. SECOND: Extract grid lines and spacing - this is your coordinate system
-3. THIRD: Place all elements using grid coordinates
+1. FIRST: Read the drawing scale from the title block
+2. SECOND: Establish origin point (0,0,0) at bottom-left corner
+3. THIRD: Extract grid lines and spacing - this is your coordinate system
+4. FOURTH: Place all elements using grid coordinates with correct scale
 
 **COMPREHENSIVE BUILDING MODEL ACCURACY:**
 - INTEGRATE information from ALL drawings to build complete accurate model:
@@ -2567,7 +2831,7 @@ Error: ${error}
 
   private async generateBIMMetadata(elements: BIMElement[], requirements: BIMGenerationRequirements, strategy: any): Promise<any> {
     try {
-      const metadataAnalysis = await anthropic.messages.create({
+      const _metadataAnalysis = await anthropic.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 2500,
         system: "You are a BIM metadata and standards expert. Generate comprehensive project metadata including classifications, standards compliance, and professional documentation.",
@@ -2658,14 +2922,14 @@ DO NOT return fake components - require real analysis!
     return elements;
   }
 
-  private createElementFromAnalysis(line: string, index: number, document: Document): BIMElement | null {
+  private createElementFromAnalysis(_line: string, _index: number, _document: Document): BIMElement | null {
     // This function should NOT generate fake elements with arbitrary dimensions
     throw new Error('❌ FAKE ELEMENT GENERATION BLOCKED: This function should not create elements without real dimensions!\\n' +
       '🔍 Claude MUST extract actual element dimensions from the construction documents.\\n' +
       '⚠️ NO FAKE DIMENSIONS ALLOWED - Elements must have real measurements from drawings.');
   }
 
-  private generateFallbackComponents(document: Document): BIMElement[] {
+  private generateFallbackComponents(_document: Document): BIMElement[] {
     throw new Error(`
 🚫 MOCK COMPONENTS BLOCKED: This function should NEVER be called!
 

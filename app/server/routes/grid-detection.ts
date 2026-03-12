@@ -29,7 +29,7 @@ import { Router, Request, Response } from 'express';
 import {
   getDetectionRunsByProject,
   getDetectionRun,
-  getLatestRunForFile,
+  getLatestRunForFile as _getLatestRunForFile,
   getFullGridDataForRun,
   getGridRunStats,
   getGridAxisLabelsNeedingReview,
@@ -233,7 +233,7 @@ gridDetectionRouter.post('/detect', async (req: Request, res: Response) => {
       try {
         const { getDetectionProfile } = await import('../services/grid-detection-profiles');
         parameterOverrides = getDetectionProfile(profile);
-      } catch (err) {
+      } catch (_err) {
         console.warn(`Profile "${profile}" not found, using defaults`);
       }
     }

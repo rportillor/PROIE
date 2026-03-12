@@ -24,7 +24,7 @@ rasterOverlayRouter.get("/bim/models/:modelId/debug/raster-overlay", async (req,
       if (typeof (storage as any).getBimElements === "function") {
         elements = await (storage as any).getBimElements(modelId);
       }
-    } catch {}
+    } catch { /* elements not available */ }
 
     for (const e of elements) {
       const g = typeof e?.geometry === "string" ? JSON.parse(e.geometry) : e?.geometry;

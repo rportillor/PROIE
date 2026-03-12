@@ -53,7 +53,7 @@ import {
   updateQuote,
   deleteQuote,
   createBidPackage,
-  getBidPackage,
+  getBidPackage as _getBidPackage,
   getBidPackagesByProject,
   updateBidPackage,
   deleteBidPackage,
@@ -91,16 +91,16 @@ import {
   rejectEstimate,
   freezeEstimate,
   reopenEstimate,
-  getReviewHistory,
+  getReviewHistory as _getReviewHistory,
   computeVersionDiff,
   addBidder,
-  getBidders,
-  deleteBidder,
+  getBidders as _getBidders,
+  deleteBidder as _deleteBidder,
   generateBidLevelingSheet,
   addAlternate,
   getAlternates,
   updateAlternateStatus,
-  deleteAlternate,
+  deleteAlternate as _deleteAlternate,
   computeAlternateImpact,
 } from '../estimator/estimate-workflow';
 
@@ -124,7 +124,7 @@ import {
 } from '../estimator/boe-generator';
 
 // Upstream imports — existing modules this layer consumes
-import { generateEstimateFromElements, buildEstimateForModel } from '../estimator/estimate-engine';
+import { generateEstimateFromElements as _generateEstimateFromElements, buildEstimateForModel } from '../estimator/estimate-engine';
 import { prescreenCodeAdders } from '../estimator/codes-standards-register';
 import type { EstimateSummary } from '../estimator/estimate-engine';
 

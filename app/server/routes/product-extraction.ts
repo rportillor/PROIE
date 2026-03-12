@@ -200,7 +200,7 @@ Return detailed JSON array of all products with complete specifications.`
     if (jsonMatch) {
       return JSON.parse(jsonMatch[0]);
     }
-  } catch (e) {
+  } catch (_e) {
     logger.warn(`Failed to parse JSON from ${section.division}`, { content: content.substring(0, 500) });
   }
   

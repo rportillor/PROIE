@@ -1,5 +1,5 @@
-import { db } from '../db';
-import { sql } from 'drizzle-orm';
+import { db as _db } from '../db';
+import { sql as _sql } from 'drizzle-orm';
 
 // Claude pricing (as of 2025) - Model: claude-sonnet-4-20250514
 const CLAUDE_PRICING = {
@@ -251,7 +251,7 @@ class ClaudeCostMonitor {
       // Try to load from a simple storage table
       // For now, keep in memory - in production, you'd persist this
       console.log('📊 Loaded usage data from storage');
-    } catch (error) {
+    } catch (_error) {
       console.warn('⚠️ Could not load usage data, starting fresh');
     }
   }
@@ -264,7 +264,7 @@ class ClaudeCostMonitor {
       // Save usage data - in production, you'd persist this to database
       // For now, we keep it in memory with the instance
       console.log('💾 Usage data saved');
-    } catch (error) {
+    } catch (_error) {
       console.warn('⚠️ Could not save usage data');
     }
   }

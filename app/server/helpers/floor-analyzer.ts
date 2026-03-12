@@ -25,7 +25,7 @@ export interface FloorAnalysisResult {
  * Group documents by floor using Claude's intelligent analysis
  */
 export async function groupDocumentsByFloor(documents: any[], projectId?: string): Promise<FloorDocumentGroup[]> {
-  const floorGroups = new Map<string, FloorDocumentGroup>();
+  const _floorGroups = new Map<string, FloorDocumentGroup>();
   
   // First, try Claude's intelligent document analysis
   if (projectId) {
@@ -263,7 +263,7 @@ function getElementTypeFromDescription(description: string): string {
 export async function analyzeFloorDocuments(
   projectId: string,
   floorGroup: FloorDocumentGroup,
-  timeout: number = 60000 // Reduced timeout for smaller batches
+  _timeout: number = 60000 // Reduced timeout for smaller batches
 ): Promise<FloorAnalysisResult> {
   logger.info(`Starting floor analysis for ${floorGroup.floorName}`, {
     projectId,
@@ -385,7 +385,7 @@ export async function generateFloorBIM(
       return [];
     }
 
-    const positionedElements = floorResult.elements.map((element, index) => {
+    const positionedElements = floorResult.elements.map((element, _index) => {
       // Apply floor-specific elevation offset using Claude's discovered floor structure
       const floorElevation = floorResult.elevation || (floorResult.level * 3500); // Use discovered elevation or fallback in millimeters
       

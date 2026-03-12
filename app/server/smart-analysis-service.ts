@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { storage } from './storage';
-import { AnalysisResult, InsertAnalysisResult, DocumentHash, InsertDocumentHash } from '@shared/schema';
+import { AnalysisResult, InsertAnalysisResult } from '@shared/schema';
 
 interface SmartAnalysisOptions {
   projectId: string;
@@ -25,7 +25,7 @@ export class SmartAnalysisService {
    * Performs cost-efficient analysis that only processes changed documents
    */
   async performSmartAnalysis(options: SmartAnalysisOptions): Promise<AnalysisResult> {
-    const { projectId, userId, analysisType, forceFullAnalysis = false } = options;
+    const { projectId, userId: _userId, analysisType, forceFullAnalysis = false } = options;
     
     console.log(`🧠 Starting smart ${analysisType} analysis for project ${projectId}...`);
     const startTime = Date.now();
@@ -150,7 +150,7 @@ export class SmartAnalysisService {
     changeDetection: AnalysisChangeDetection,
     previousAnalysis: AnalysisResult | null,
     analysisType: string,
-    projectId: string
+    _projectId: string
   ): Promise<any> {
     const documentsToProcess = [
       ...changeDetection.changedDocuments,
@@ -288,7 +288,7 @@ Keep the analysis focused and cost-efficient. Only analyze what's changed or new
    */
   private async generateChangesSummary(
     changeDetection: AnalysisChangeDetection,
-    analysisResult: any
+    _analysisResult: any
   ): Promise<string> {
     const changes = [];
     
@@ -317,7 +317,7 @@ Keep the analysis focused and cost-efficient. Only analyze what's changed or new
   private async getPreviousAnalysis(projectId: string, analysisType: string): Promise<AnalysisResult | null> {
     try {
       return await storage.getLatestAnalysisResult(projectId, analysisType);
-    } catch (error) {
+    } catch (_error) {
       console.log('No previous analysis found');
       return null;
     }

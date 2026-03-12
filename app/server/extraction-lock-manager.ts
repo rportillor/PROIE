@@ -70,7 +70,7 @@ export class ExtractionLockManager {
         
         // Try again
         return await this.acquireLock(processId, timeoutMs);
-      } catch (createError) {
+      } catch (_createError) {
         console.error('Failed to manage lock:', error);
         return false;
       }
@@ -182,7 +182,7 @@ export class ExtractionLockManager {
       
       return isActive;
       
-    } catch (error) {
+    } catch (_error) {
       return false;
     }
   }

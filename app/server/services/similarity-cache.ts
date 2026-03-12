@@ -17,7 +17,7 @@ function folder() {
 
 function fileFor(projectId: string) {
   // sanitize to safe filename
-  const safe = projectId.replace(/[^a-z0-9_\-\.]/gi, "_");
+  const safe = projectId.replace(/[^a-z0-9_\-.]/gi, "_");
   return path.join(folder(), `${safe}.json`);
 }
 

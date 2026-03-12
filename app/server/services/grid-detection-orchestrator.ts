@@ -45,7 +45,6 @@ import {
   createGridNodeAxesBatch,
   createCoordinateTransform,
   getProjectGridSystem,
-  type FullGridData,
 } from './grid-storage';
 import type {
   InsertGridDetectionRun,

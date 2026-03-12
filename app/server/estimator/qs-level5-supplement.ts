@@ -16,20 +16,20 @@
 // =============================================================================
 
 import { Router, type Request, type Response } from 'express';
-import type { EstimateSummary } from '../estimator/estimate-engine';
-import { buildEstimateForModel } from '../estimator/estimate-engine';
+import type { EstimateSummary as _EstimateSummary } from "./estimate-engine";
+import { buildEstimateForModel } from "./estimate-engine";
 import {
   enrichEstimateLineItems,
   generateUniformatSummary,
   generateCSIDivisionSummary,
   reconcileElementDivision,
-} from '../estimator/uniformat-crosswalk';
-import { getBenchmark, getCompleteness } from '../estimator/benchmark-engine';
-import { getResult as getMCResult } from '../estimator/monte-carlo-engine';
-import { getResult as getCodeResult } from '../estimator/code-driven-adders';
-import { getSOV } from '../estimator/schedule-of-values';
-import { getLatestVersion } from '../estimator/estimate-workflow';
-import { getBoE } from '../estimator/boe-generator';
+} from "./uniformat-crosswalk";
+import { getBenchmark, getCompleteness } from "./benchmark-engine";
+import { getResult as getMCResult } from "./monte-carlo-engine";
+import { getResult as getCodeResult } from "./code-driven-adders";
+import { getSOV } from "./schedule-of-values";
+import { getLatestVersion } from "./estimate-workflow";
+import { getBoE } from "./boe-generator";
 
 export const qs5SupplementRouter = Router();
 

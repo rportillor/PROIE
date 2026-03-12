@@ -325,7 +325,7 @@ describe('qaRule6_Connectivity', () => {
   it('flags unconnected MEP connectors', () => {
     const result = engine.qaRule6_Connectivity([makeMEPElement()], 'v1.0');
     // makeMEPElement has 1 connected + 1 unconnected
-    expect(result.unconnectedElementCount).toBeGreaterThan(0);
+    expect(result.unconnectedCount).toBeGreaterThan(0);
   });
 });
 

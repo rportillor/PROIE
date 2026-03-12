@@ -10,10 +10,10 @@ interface AIAnalysisStatusProps {
 
 export default function AIAnalysisStatus({ projectId }: AIAnalysisStatusProps) {
   const [realTimeProgress, setRealTimeProgress] = useState<number>(0);
-  const [currentStage, setCurrentStage] = useState<string>("analyzing");
+  const [_currentStage, setCurrentStage] = useState<string>("analyzing");
 
   // Get real-time analysis progress
-  const { data: progressData, refetch, isLoading: progressLoading } = useQuery({
+  const { data: progressData, refetch: _refetch, isLoading: _progressLoading } = useQuery({
     queryKey: ['/api/projects', projectId, 'similarity'],
     enabled: !!projectId,
     refetchInterval: false, // Disable polling - analysis complete

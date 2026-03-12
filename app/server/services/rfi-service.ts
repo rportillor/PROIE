@@ -1,12 +1,9 @@
 import { eq, desc, and } from "drizzle-orm";
 import { db } from "../db";
 import { 
-  rfis, 
-  rfiResponses, 
+  rfis,
+  rfiResponses,
   rfiAttachments,
-  documents,
-  projects,
-  users,
   type InsertRfi, 
   type InsertRfiResponse, 
   type InsertRfiAttachment,
@@ -141,7 +138,7 @@ export class RfiService {
   static async generateRfiFromConflict(
     projectId: string,
     conflictData: any,
-    submittedBy: string
+    _submittedBy: string
   ): Promise<Rfi> {
     const rfiNumber = await generateRfiNumber(projectId);
     

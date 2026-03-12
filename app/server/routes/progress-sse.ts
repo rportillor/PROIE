@@ -31,7 +31,7 @@ progressSseRouter.get("/bim/models/:modelId/progress/stream", async (req, res) =
           error: model.lastError || meta.lastError || null,
         });
       }
-    } catch {}
+    } catch { /* model not found */ }
 
     const bus = getBus(modelId);
     const onTick = (payload: any) => send(payload);
@@ -41,7 +41,7 @@ progressSseRouter.get("/bim/models/:modelId/progress/stream", async (req, res) =
     const ka = setInterval(() => res.write(`: ping ${Date.now()}\n\n`), 15_000);
 
     req.on("close", () => { clearInterval(ka); bus.off("tick", onTick); res.end(); });
-  } catch (e:any) {
+  } catch (_e:any) {
     res.status(500).end();
   }
 });

@@ -4,7 +4,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Progress } from '@/components/ui/progress';
 import { Link } from 'wouter';
 import { 
   Box, 
@@ -38,7 +37,7 @@ export default function BIMIntegrationCard({ projectId }: BIMIntegrationCardProp
   const [generatingBIM, setGeneratingBIM] = useState(false);
   const [currentGenerationModelId, setCurrentGenerationModelId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
-  const [progressStep, setProgressStep] = useState('');
+  const [_progressStep, setProgressStep] = useState('');
   const { toast } = useToast();
 
   // Fetch project documents
@@ -466,7 +465,8 @@ export default function BIMIntegrationCard({ projectId }: BIMIntegrationCardProp
                   variant="outline" 
                   className="w-full justify-start h-auto p-4"
                   onClick={() => {
-                    const url = `/api/bim-models/${latestModel.id}/ifc`;
+                    // Use v2 endpoint (real geometry) if available, fall back to legacy
+                    const url = `/api/bim/models/${latestModel.id}/download-v2`;
                     const link = document.createElement('a');
                     link.href = url;
                     link.download = `${latestModel.name}.ifc`;

@@ -6,7 +6,6 @@
  */
 
 import { storage } from './storage';
-import { randomUUID } from 'crypto';
 import type { BoqItem, BimElement } from '@shared/schema';
 
 export interface ValidationDiscrepancy {
@@ -53,7 +52,7 @@ export class BoqBimValidator {
         this.getBIMElements(projectId)
       ]);
       
-      console.log(`[*]  Found ${boqItems.length} BOQ items and ${bimElements.length} BIM elements`);
+      console.log(`[*]  Found ${boqItems.length} BOQ items and ${bimElements.length} BIM elements`);
       
       // Detect discrepancies
       const discrepancies = await this.detectDiscrepancies(boqItems, bimElements);
@@ -178,7 +177,7 @@ export class BoqBimValidator {
   }
   
   /**
-   * [*]  Calculate overall confidence score
+   * [*]  Calculate overall confidence score
    */
   private calculateConfidenceScore(
     boqItems: BoqItem[], 
@@ -241,7 +240,7 @@ export class BoqBimValidator {
   }
   
   /**
-   * [*]  Calculate material accuracy based on actual matching
+   * [*]  Calculate material accuracy based on actual matching
    */
   private calculateMaterialAccuracy(boqItems: BoqItem[], bimElements: BimElement[]): number {
     if (boqItems.length === 0 || bimElements.length === 0) return 0;
@@ -290,7 +289,7 @@ export class BoqBimValidator {
       recommendations.push('[*] Use construction documents to create 3D model, then extract quantities');
     } else if (boqItems.length === 0 && bimElements.length > 0) {
       recommendations.push('[*] CRITICAL: Generate BOQ from BIM model - cost estimation requires quantities');
-      recommendations.push('[*]  Extract quantities from 3D elements to create comprehensive BOQ');
+      recommendations.push('[*]  Extract quantities from 3D elements to create comprehensive BOQ');
     } else if (criticalIssues > 0) {
       recommendations.push(`🚨 Address ${criticalIssues} critical issues before proceeding with cost estimation`);
     }

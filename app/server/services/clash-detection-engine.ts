@@ -652,7 +652,7 @@ function detectWorkflowClashes(elements: ResolvedElement[]): Clash[] {
 
 function checkWorkflowConflict(
   a: ResolvedElement, b: ResolvedElement,
-  seqA: number, seqB: number
+  _seqA: number, _seqB: number
 ): { description: string; recommendation: string; severity: ClashSeverity } | null {
   const tA = a.elementType;
   const tB = b.elementType;

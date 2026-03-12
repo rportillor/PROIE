@@ -113,7 +113,7 @@ export interface ConstructionSequenceProposal {
 
 // ─── WBS Phase Map (must match wbs-cbs.ts) ───────────────────────────────────
 
-const WBS_PHASES: Record<string, { code: string; name: string }> = {
+const _WBS_PHASES: Record<string, { code: string; name: string }> = {
   'pre-construction':   { code: '1.1',  name: 'Pre-Construction' },
   'site-prep':          { code: '1.2',  name: 'Site Preparation' },
   'foundations':        { code: '1.3',  name: 'Foundations & Substructure' },
@@ -155,7 +155,7 @@ export class ConstructionSequenceGenerator {
     geometryData:     Record<string, any>;
   }): Promise<ConstructionSequenceProposal> {
 
-    const { projectId, modelId, projectName, constructionType, floors,
+    const { projectId: _projectId, modelId: _modelId, projectName, constructionType, floors,
             floorCount, gfa, estimate, projectStartDate, occupancyGroup,
             geometryData } = params;
 
@@ -545,7 +545,7 @@ export function generateP6XER(
 
 export function generateSequenceMSProjectXML(
   proposal:    ConstructionSequenceProposal,
-  projectCode: string,
+  _projectCode: string,
 ): string {
   const startDate = proposal.estimatedStartDate || new Date().toISOString().split('T')[0];
 

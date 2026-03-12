@@ -12,7 +12,7 @@ async function readGrayPng(path: string): Promise<Gray> {
   return { w: width, h: height, data: new Uint8Array(raw) };
 }
 
-function crop(g: Gray, x:number, y:number, w:number, h:number): Gray {
+function _crop(g: Gray, x:number, y:number, w:number, h:number): Gray {
   const out = new Uint8Array(w*h);
   for (let j=0;j<h;j++){
     const sy = Math.min(g.h-1, Math.max(0, y+j));

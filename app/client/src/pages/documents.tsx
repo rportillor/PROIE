@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   Search, 
@@ -26,8 +25,7 @@ import {
 
 import { UserAccessPanel } from '@/components/documents/UserAccessPanel';
 import { useToast } from '@/hooks/use-toast';
-import { apiRequest } from '@/lib/queryClient';
-import { errorMonitor, logDocumentError, logAuthError, logAPIError } from '@/utils/error-monitoring';
+import { logDocumentError, logAuthError } from '@/utils/error-monitoring';
 import { runLiveErrorCheck } from '@/utils/live-error-check';
 import { DebugPanel } from '@/components/debug-panel';
 import { mobileLog } from '@/utils/mobile-console';
@@ -63,7 +61,7 @@ export default function Documents() {
     }
   }, []);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterProject, setFilterProject] = useState<string>('all');
+  const [filterProject, _setFilterProject] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterType, setFilterType] = useState<string>('all');
   const [filterDiscipline, setFilterDiscipline] = useState<string>('all');
@@ -262,7 +260,7 @@ export default function Documents() {
   });
 
   // Fetch projects for filter dropdown
-  const { data: projects = [] } = useQuery({
+  const { data: _projects = [] } = useQuery({
     queryKey: ['/api/projects'],
   });
 
@@ -284,7 +282,7 @@ export default function Documents() {
       let comparison = 0;
       
       switch (sortBy) {
-        case 'name':
+        case 'name': {
           // Smart numerical sort for construction drawings
           const extractDrawingNumber = (name: string) => {
             // Extract drawing number from various formats
@@ -300,10 +298,10 @@ export default function Documents() {
             // Fallback for non-drawing files
             return { prefix: 'Z', number: 9999, original: name };
           };
-          
+
           const aDrawing = extractDrawingNumber(a.name);
           const bDrawing = extractDrawingNumber(b.name);
-          
+
           // Sort by prefix first (A, S, M, etc.), then by number
           const prefixComparison = aDrawing.prefix.localeCompare(bDrawing.prefix);
           if (prefixComparison !== 0) {
@@ -313,6 +311,7 @@ export default function Documents() {
             comparison = aDrawing.number - bDrawing.number;
           }
           break;
+        }
         case 'project':
           comparison = a.projectName.localeCompare(b.projectName);
           break;
@@ -768,7 +767,7 @@ export default function Documents() {
                     <Button 
                       variant="ghost" 
                       size="sm" 
-                      onClick={() => handleViewDocument(doc.projectId?.toString() || projectId, doc.id, doc.fileName)}
+                      onClick={() => handleViewDocument(doc.projectId, doc.id, doc.name)}
                       data-testid={`view-${doc.id}`}
                     >
                       <Eye className="w-4 h-4" />
@@ -787,7 +786,7 @@ export default function Documents() {
                           const blob = await resp.blob();
                           const url = URL.createObjectURL(blob);
                           const a = document.createElement("a");
-                          a.href = url; a.download = doc.fileName || "download";
+                          a.href = url; a.download = doc.name || "download";
                           document.body.appendChild(a); a.click();
                           document.body.removeChild(a); URL.revokeObjectURL(url);
                         } catch (err) { toast({ title: "Download Failed", description: (err as Error).message, variant: "destructive" }); }

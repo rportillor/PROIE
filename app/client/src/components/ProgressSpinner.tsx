@@ -15,9 +15,8 @@ export function ProgressSpinner({
   showMessage = true 
 }: ProgressSpinnerProps) {
   const { 
-    progress, 
-    message, 
-    phase, 
+    progress,
+    message,
     isComplete, 
     hasError, 
     errorMessage,

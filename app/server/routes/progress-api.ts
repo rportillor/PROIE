@@ -20,7 +20,7 @@ progressRouter.get("/progress/:operationId", (req, res) => {
     }
     
     res.json(tracker.getStatus());
-  } catch (error) {
+  } catch (_error) {
     res.status(500).json({ error: 'Failed to get progress status' });
   }
 });
@@ -30,7 +30,7 @@ progressRouter.get("/progress", (req, res) => {
   try {
     const allTrackers = ProgressTracker.getAllTrackers();
     res.json(allTrackers);
-  } catch (error) {
+  } catch (_error) {
     res.status(500).json({ error: 'Failed to get progress status' });
   }
 });

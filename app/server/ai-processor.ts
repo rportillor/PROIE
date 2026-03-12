@@ -1,17 +1,14 @@
 import { Server as SocketIOServer } from "socket.io";
 import { logger } from "./utils/enterprise-logger";
 import { storage } from "./storage";
-import type { ProcessingJob, AiConfiguration } from "@shared/schema";
+import type { AiConfiguration } from "@shared/schema";
 import { CADParser, type CADParseResult } from "./cad-parser";
 import { StandardsService } from "./standards-service";
 import { regulatoryAnalysisService } from './regulatory-cache';
 import fs from "fs/promises";
 import path from "path";
 import Anthropic from '@anthropic-ai/sdk';
-import { Jimp } from 'jimp';
 import { ocrImageBuffer } from './services/ocr';
-import { ClaudeAPIManager } from './helpers/claude-api-manager';
-import { ProgressTracker } from './helpers/progress-tracker';
 import { alertDeprecatedPath } from './monitoring/deprecated-path-monitor';
 
 // Initialize Claude API client
@@ -86,7 +83,7 @@ export class AIProcessor {
   }
 
   private async runProcessingPipeline(jobId: string, document: any, config: AiConfiguration): Promise<void> {
-    const stages = this.getProcessingStages(config);
+    const _stages = this.getProcessingStages(config);
     const processingStartedAt = Date.now();
     
     await this.updateJobStatus(jobId, "processing", 0, "initializing");
@@ -192,7 +189,7 @@ export class AIProcessor {
     }
   }
 
-  private async parseCADFile(filePath: string, originalName: string, config: AiConfiguration): Promise<any> {
+  private async parseCADFile(filePath: string, originalName: string, _config: AiConfiguration): Promise<any> {
     try {
       logger.info(`🔧 Starting CAD parsing for: ${originalName}`);
       
@@ -351,7 +348,7 @@ export class AIProcessor {
     return nlpResults;
   }
 
-  private async runAdvancedNLP(document: any, config: AiConfiguration): Promise<any> {
+  private async runAdvancedNLP(document: any, _config: AiConfiguration): Promise<any> {
     try {
       // Use Claude for advanced NLP analysis of construction specifications
       const analysis = await anthropic.messages.create({
@@ -386,7 +383,7 @@ ${document.textContent || 'No text content available - document may be scanned o
     }
   }
 
-  private async runStandardNLP(document: any, config: AiConfiguration): Promise<any> {
+  private async runStandardNLP(document: any, _config: AiConfiguration): Promise<any> {
     try {
       // Use Claude for standard NLP analysis with focus on construction terminology
       const analysis = await anthropic.messages.create({
@@ -816,7 +813,7 @@ ${document.textContent || 'No text content available - document may be scanned o
   }
 
   // Helper methods for Claude integration
-  private async analyzeWithClaude(textContent: string, images: string[], fileType: string, config: AiConfiguration): Promise<any> {
+  private async analyzeWithClaude(textContent: string, _images: string[], _fileType: string, _config: AiConfiguration): Promise<any> {
     try {
       // Determine drawing type from filename for specific spatial analysis
       const drawingType = this.identifyDrawingType(textContent);
@@ -1016,7 +1013,7 @@ FORMAT: Return actual measurements and coordinates found in the drawing.`
     }
   }
 
-  private async analyzeConstructionImages(images: string[], config: AiConfiguration): Promise<any> {
+  private async analyzeConstructionImages(images: string[], _config: AiConfiguration): Promise<any> {
     try {
       // Use Claude Vision to analyze construction drawings and extract text/data
       const analysisPrompt = `You are an expert construction document analyst specializing in reading architectural and engineering drawings. Analyze these construction drawing images and extract:

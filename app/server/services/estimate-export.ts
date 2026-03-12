@@ -1,7 +1,7 @@
 // server/services/estimate-export.ts
 import { deriveQuantitiesForElements } from "../helpers/quantity-derive";
 import { assignRenderColors } from "../helpers/render-colors";
-import { getRateProfile, pickRuleFor, RateProfile } from "../services/rates";
+import { getRateProfile, pickRuleFor, RateProfile } from "./rates";
 
 /* ---------------- base rows (unchanged) ---------------- */
 

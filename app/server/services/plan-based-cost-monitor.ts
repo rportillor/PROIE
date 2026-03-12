@@ -1,5 +1,5 @@
-import { db } from '../db';
-import { sql } from 'drizzle-orm';
+import { db as _db } from '../db';
+import { sql as _sql } from 'drizzle-orm';
 
 // Plan-based token allocation system
 interface Plan {
@@ -97,7 +97,7 @@ class PlanBasedCostMonitor {
   /**
    * Get current plan configuration for a user/organization
    */
-  async getCurrentPlan(organizationId?: string): Promise<Plan> {
+  async getCurrentPlan(_organizationId?: string): Promise<Plan> {
     // In production, you'd fetch this from user/organization settings
     // For now, default to standard plan
     const defaultPlan = 'standard'; // This would come from database
@@ -124,7 +124,7 @@ class PlanBasedCostMonitor {
     const totalDailyUsed = dailyUsage + tokensUsed;
     
     const monthlyPercentage = (totalMonthlyUsed / plan.monthlyTokens) * 100;
-    const dailyPercentage = (totalDailyUsed / plan.dailyTokens) * 100;
+    const _dailyPercentage = (totalDailyUsed / plan.dailyTokens) * 100;
     
     const usage: PlanUsage = {
       planName: plan.name,
@@ -239,7 +239,7 @@ class PlanBasedCostMonitor {
     let totalTokens = 0;
 
     // Get usage for each plan type
-    for (const [planKey, plan] of Object.entries(this.plans)) {
+    for (const [_planKey, plan] of Object.entries(this.plans)) {
       const monthlyUsage = await this.getMonthlyTokenUsage();
       const usage: PlanUsage = {
         planName: plan.name,
@@ -293,7 +293,7 @@ class PlanBasedCostMonitor {
 
   // Private helper methods
 
-  private async getMonthlyTokenUsage(organizationId?: string): Promise<number> {
+  private async getMonthlyTokenUsage(_organizationId?: string): Promise<number> {
     // Get actual usage from Claude cost monitor
     try {
       const { claudeCostMonitor } = await import('./claude-cost-monitor.js');
@@ -305,7 +305,7 @@ class PlanBasedCostMonitor {
     }
   }
 
-  private async getDailyTokenUsage(organizationId?: string): Promise<number> {
+  private async getDailyTokenUsage(_organizationId?: string): Promise<number> {
     // Get actual usage from Claude cost monitor
     try {
       const { claudeCostMonitor } = await import('./claude-cost-monitor.js');

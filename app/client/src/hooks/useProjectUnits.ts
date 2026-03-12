@@ -9,7 +9,7 @@ export function useProjectUnits() {
   const [location] = useLocation();
   
   // Extract project ID from URL
-  const projectId = location.match(/\/projects\/([^\/]+)/)?.[1];
+  const projectId = location.match(/\/projects\/([^/]+)/)?.[1];
   
   // Fetch project data to get country information
   const { data: project, isLoading } = useQuery({

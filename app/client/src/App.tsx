@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import MainLayout from "@/components/layout/main-layout";
 import { Loader2 } from "lucide-react";
 import { lazy, Suspense } from "react";
+import { ErrorBoundary, RouteErrorBoundary } from "@/components/error-boundary";
 
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const Projects = lazy(() => import("@/pages/projects"));
@@ -36,6 +37,12 @@ const AIConfiguration = lazy(() => import("@/pages/ai-configuration"));
 const Estimator = lazy(() => import("@/pages/estimator"));
 // M-4: Benchmark Comparison page — server-side modules were complete, page was missing
 const Benchmark = lazy(() => import("@/pages/benchmark"));
+// Phase 2: Parameter Editor — live BIM element editing with undo/redo
+const ParameterEditor = lazy(() => import("@/pages/parameter-editor"));
+// Phase 5: Sheet Viewer — 2D drawing production from 3D model
+const SheetViewer = lazy(() => import("@/pages/sheet-viewer"));
+// Structural & Energy Analysis Dashboard
+const AnalysisDashboard = lazy(() => import("@/pages/analysis-dashboard"));
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center">
@@ -66,6 +73,7 @@ function AdminRoute() {
 function AuthenticatedRouter() {
   return (
     <MainLayout>
+      <RouteErrorBoundary>
       <Suspense fallback={<PageLoader />}>
         <Switch>
           <Route path="/" component={Dashboard} />
@@ -101,6 +109,11 @@ function AuthenticatedRouter() {
           <Route path="/benchmark" component={Benchmark} />
           <Route path="/projects/:projectId/benchmark" component={Benchmark} />
           <Route path="/projects/:projectId/benchmark/:modelId" component={Benchmark} />
+          {/* Phase 2: Parameter Editor */}
+          <Route path="/projects/:projectId/parameter-editor/:modelId" component={ParameterEditor} />
+          {/* Phase 5: Sheet Viewer */}
+          <Route path="/projects/:projectId/sheets/:modelId" component={SheetViewer} />
+          <Route path="/projects/:projectId/analysis/:modelId" component={AnalysisDashboard} />
           {/* QA */}
           <Route path="/qa/dashboard" component={TestDashboard} />
           <Route path="/qa/uat-signoff" component={UatSignoff} />
@@ -108,6 +121,7 @@ function AuthenticatedRouter() {
           <Route component={NotFound} />
         </Switch>
       </Suspense>
+      </RouteErrorBoundary>
     </MainLayout>
   );
 }
@@ -141,16 +155,18 @@ function AppContent() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <AuthProvider>
-          <Toaster />
-          <div className="app-bg min-h-screen">
-            <AppContent />
-          </div>
-        </AuthProvider>
-      </TooltipProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <AuthProvider>
+            <Toaster />
+            <div className="app-bg min-h-screen">
+              <AppContent />
+            </div>
+          </AuthProvider>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

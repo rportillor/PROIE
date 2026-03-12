@@ -54,7 +54,6 @@ import {
   type AxisGeometry,
   type ContentBounds,
   type LabelEngineParams,
-  type LabelEngineResult,
 } from './grid-label-engine';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -172,7 +171,7 @@ function dist(a: Vec2, b: Vec2): number {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-function distSq(a: Vec2, b: Vec2): number {
+function _distSq(a: Vec2, b: Vec2): number {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   return dx * dx + dy * dy;
@@ -245,7 +244,7 @@ function pointToSegmentDist(pt: Vec2, s0: Vec2, s1: Vec2): number {
 }
 
 /** Median of a number array (mutates via sort) */
-function median(arr: number[]): number {
+function _median(arr: number[]): number {
   if (arr.length === 0) return 0;
   arr.sort((a, b) => a - b);
   const mid = Math.floor(arr.length / 2);
@@ -942,7 +941,7 @@ function buildConsolidatedAxes(
 // STEP 8: MARKER DETECTION — v1.1 §5.1 steps 18-19
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function detectMarkers(
+function _detectMarkers(
   circles: RawCircle[],
   axes: MergedAxis[],
   bounds: BBox,
@@ -1031,7 +1030,7 @@ function isGridLabelCandidate(text: string): boolean {
          /^\d{1,2}[-.]?[A-Z]$/.test(norm);       // Number-Letter
 }
 
-function extractLabels(
+function _extractLabels(
   texts: RawText[],
   markers: DetectedMarker[],
   axes: MergedAxis[],
@@ -1112,7 +1111,7 @@ interface ScoredAssociation {
   status: 'AUTO' | 'NEEDS_REVIEW';
 }
 
-function scoreLabelAxisAssociations(
+function _scoreLabelAxisAssociations(
   axes: MergedAxis[],
   labels: DetectedLabel[],
   markers: DetectedMarker[],
@@ -1325,7 +1324,7 @@ function unitScaleToMeters(insunits: number): number {
   }
 }
 
-function packageExtractorResult(
+function _packageExtractorResult(
   families: AngleCluster[],
   axes: MergedAxis[],
   markers: DetectedMarker[],

@@ -50,9 +50,6 @@ import type {
   InsertGridComponent,
   InsertGridFamily,
   InsertGridAxis,
-  InsertGridMarker,
-  InsertGridLabel,
-  InsertGridAxisLabel,
   InsertGridNode,
   InsertGridNodeAxis,
   InsertGridCoordinateTransform,
@@ -855,7 +852,7 @@ async function extractOCRWords(
       const { x0, y0, x1, y1 } = word.bbox;
       const cx = (x0 + x1) / 2;
       const cy = (y0 + y1) / 2;
-      const w  = x1 - x0;
+      const _w  = x1 - x0;
       const h  = y1 - y0;
 
       words.push({
@@ -895,7 +892,7 @@ interface IntersectionPt {
  */
 function computeRasterIntersections(
   axes:     MergedAxis[],
-  families: AngleCluster[],
+  _families: AngleCluster[],
 ): IntersectionPt[] {
   const intersections: IntersectionPt[] = [];
   const n = axes.length;
@@ -1243,7 +1240,7 @@ export const rasterGridExtractor: GridExtractor = {
     // offsetToleranceMm is in mm; raster operates in pixels.
     // At DEFAULT_ASSUMED_DPI=150, 1mm ≈ 5.9px. Apply approximate conversion.
     const pxPerMm    = (img.dpi / 25.4) * img.scale;
-    const offsetTolPx = params.offsetToleranceMm * pxPerMm;
+    const _offsetTolPx = params.offsetToleranceMm * pxPerMm;
     const gapTolPx    = params.gapMergeToleranceMm * pxPerMm;
 
     const axes = buildAxes(clusters, gapTolPx);

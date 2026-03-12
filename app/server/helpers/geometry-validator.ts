@@ -433,7 +433,7 @@ export class GeometryValidator {
           y: gridData.typical_spacing_y || null
         }
       };
-    } catch (error) {
+    } catch (_error) {
       console.warn('Could not extract grid system from analysis');
       return null;
     }

@@ -16,7 +16,7 @@ type Storey = { name: string; elevation: number };
 export function inferStoreysIfMissing(
   incomingStoreys: Storey[] | undefined,
   elements: any[],
-  opts?: { floorHeight?: number; floorsGuess?: number }
+  _opts?: { floorHeight?: number; floorsGuess?: number }
 ): Storey[] {
   // 1. Use supplied storeys if available
   if (Array.isArray(incomingStoreys) && incomingStoreys.length) return incomingStoreys;

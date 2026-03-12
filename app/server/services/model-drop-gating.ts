@@ -23,8 +23,7 @@
  */
 
 import { type BEPRuleSet, MOORINGS_BEP, runBEPValidation } from './bep-rules-engine';
-import type { DisciplineCode, DisciplineDefinition } from './discipline-sop';
-import { getDisciplineDefinition } from './discipline-sop';
+import type { DisciplineCode } from './discipline-sop';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES

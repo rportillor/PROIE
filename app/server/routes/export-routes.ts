@@ -36,7 +36,7 @@ import {
   generateMSProjectXML,
   buildBOQExportSheets,
   sheetsToSpreadsheetML,
-  sheetToCSV,
+  sheetToCSV as _sheetToCSV,
   exportBOQtoCSV,
   exportDivisionSummaryCSV,
   exportTradePackageCSV,
@@ -152,7 +152,7 @@ exportRouter.post('/export/ms-project/:projectId', async (req: Request, res: Res
     );
 
     let seqModel = null;
-    try { seqModel = await storage.getSequencingModel?.(projectId); } catch {}
+    try { seqModel = await storage.getSequencingModel?.(projectId); } catch { /* optional */ }
     const sov = generateScheduleOfValues(projectId, params.projectName, boqReport, seqModel, params.retainageRate);
     const xml = generateMSProjectXML(sov, params.projectName, params.startDate);
 
@@ -288,7 +288,7 @@ exportRouter.post('/export/csv/clashes/:projectId', async (req: Request, res: Re
 
     let clashResult = req.body.clashResult;
     if (!clashResult) {
-      try { clashResult = await storage.getClashResults?.(projectId); } catch {}
+      try { clashResult = await storage.getClashResults?.(projectId); } catch { /* optional */ }
     }
     if (!clashResult) return res.status(404).json({ error: 'No clash detection results found' });
 
@@ -308,7 +308,7 @@ exportRouter.post('/export/csv/gaps/:projectId', async (req: Request, res: Respo
 
     let gaps = req.body.gaps;
     if (!gaps) {
-      try { gaps = await storage.getProjectGaps?.(projectId); } catch {}
+      try { gaps = await storage.getProjectGaps?.(projectId); } catch { /* optional */ }
     }
 
     const register = generateGapRegister(projectId, params.projectName, gaps || []);

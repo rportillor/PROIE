@@ -14,7 +14,7 @@
 // Consumed by: budget-structure.ts (firm pricing), qs-level5-routes.ts
 // =============================================================================
 
-import type { EstimateLineItem, EstimateSummary } from './estimate-engine';
+import type { EstimateSummary } from './estimate-engine';
 
 
 // ─── VENDOR QUOTE TYPES ─────────────────────────────────────────────────────

@@ -137,7 +137,7 @@ class BackgroundProcessorService {
       }
       
       // Process this batch (ensure no undefined values)
-      const result = await this.processor.processConstructionDocuments(
+      const _result = await this.processor.processConstructionDocuments(
         projectId || '',
         currentBatch,
         {

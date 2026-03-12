@@ -50,26 +50,23 @@ import { Router, type Request, type Response } from 'express';
 import { storage } from '../storage';
 
 // ── Module imports ────────────────────────────────────────────────────────
-import { runClashDetection, runClashDetectionForProject, emptyClearanceRequirements } from './clash-detection-engine';
+import { runClashDetectionForProject, emptyClearanceRequirements } from './clash-detection-engine';
 import type { ClearanceRequirements, ClashDetectionResult } from './clash-detection-engine';
 import { getEnabledTemplates, validateTemplateIntegrity } from './clash-test-templates';
-import { runSpatialClashTests, type SpatialClashRunResult } from './spatial-clash-engine';
 import { filterFalsePositives, type FilterResult } from './false-positive-filter';
 import { deduplicateClashes, type DedupResult, type ClashGroup } from './dedup-engine';
-import { IssueLogManager, type IssueRecord, type IssuePriority, type IssueStatus, isValidTransition } from './issue-log';
-import { generateBCFTopics, serializeBCFToXML, generateIssueCSV, generateClashCSV, generateHTMLMeetingSummary } from './bcf-export';
-import { generateViewpointSet, generateAllViewpoints, type ViewpointSet } from './viewpoint-generator';
-import { computeDelta, DropHistory, type DeltaSummary, type DropSnapshot } from './delta-tracker';
-import { generateTrendReport, type TrendReport, type MilestoneDefinition } from './trend-analytics';
-import { linkIssuesToSchedule, type ScheduleActivity, type ScheduleLinkageResult } from './schedule-linkage';
+import { IssueLogManager, type IssuePriority, type IssueStatus } from './issue-log';
+import { generateBCFTopics, serializeBCFToXML, generateIssueCSV, generateHTMLMeetingSummary } from './bcf-export';
+import { generateViewpointSet } from './viewpoint-generator';
+import { DropHistory } from './delta-tracker';
+import { generateTrendReport, type MilestoneDefinition } from './trend-analytics';
+import { linkIssuesToSchedule, type ScheduleActivity } from './schedule-linkage';
 import { assessMilestoneProtection, type ProjectMilestone, type MilestoneProtectionReport } from './milestone-protection';
-import { runDisciplineTests, type DisciplineTestResult } from './discipline-tests';
+import { runDisciplineTests } from './discipline-tests';
 import { buildPenetrationMatrix, exportPenetrationMatrixCSV, type PenetrationMatrix } from './penetrations-matrix';
-import { getCurrentPhase, trackSLAs, generateMeetingPack, verifyClosures, type MeetingPack, type ActionItem, DEFAULT_CADENCE } from './governance-engine';
-import { calculatePriorityScores, quickScoreFromSeverity, type ScoringInput } from './priority-scoring';
-import { detectBatchGaps, buildGapRegister, createToleranceGap, type GapRecord, type GapRegister } from './gap-policy-engine';
-import { runModelDropGate, type GateResult, DEFAULT_THRESHOLDS } from './model-drop-gating';
-import { runBEPValidation, MOORINGS_BEP } from './bep-rules-engine';
+import { getCurrentPhase, trackSLAs, generateMeetingPack, type ActionItem } from './governance-engine';
+import { detectBatchGaps, buildGapRegister, createToleranceGap, type GapRecord } from './gap-policy-engine';
+import { runModelDropGate } from './model-drop-gating';
 import type { DisciplineCode } from './discipline-sop';
 import {
   getAnalysis as getConstructabilityAnalysis,
@@ -84,7 +81,6 @@ import {
   runSafetyChecks,
   validateAnalysis as validateConstructabilityAnalysis,
   formatConstructabilitySummary,
-  type ConstructabilityAnalysis,
 } from './constructability-engine';
 
 // ═══════════════════════════════════════════════════════════════════════════════

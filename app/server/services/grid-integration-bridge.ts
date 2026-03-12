@@ -25,16 +25,11 @@
 
 import {
   getProjectGridSystem,
-  type ProjectGridSystem,
-  getGridNodesByComponent,
-  getGridComponentsByRun,
   getDetectionRunsByProject,
   getFullGridDataForRun,
 } from './grid-storage';
 
 import {
-  issuesToConflictResults,
-  type ValidationReport,
   type ValidationIssue,
 } from './grid-validation-engine';
 

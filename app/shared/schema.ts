@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, decimal, integer, boolean, json, jsonb, unique, index, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, decimal, integer, boolean, jsonb, unique, index, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -504,13 +504,24 @@ export const bimElements = pgTable("bim_elements", {
   quantityImperial: decimal("quantity_imperial", { precision: 10, scale: 2 }), // Always in imperial
   ifcGuid: varchar("ifc_guid", { length: 36 }), // IFC Global Unique Identifier
   // ─── RFI / Attention flags ─────────────────────────────────────────────────
-  // Set when element geometry or properties cannot be fully resolved from drawings.
-  // The element is included in the model as a visible placeholder so the QS can
-  // see the gap and resolve it — it is never silently excluded.
   rfiFlag: boolean("rfi_flag").notNull().default(false),
-  rfiId: varchar("rfi_id", { length: 36 }), // FK to rfis.id once RFI is created
+  rfiId: varchar("rfi_id", { length: 36 }),
   needsAttention: boolean("needs_attention").notNull().default(false),
-  attentionReason: text("attention_reason"), // Human-readable: what data is missing
+  attentionReason: text("attention_reason"),
+  // ─── Phase 2: LOD, Phase, Workset, Revision ───────────────────────────────
+  lod: integer("lod"), // LOD level: 100, 200, 300, 350, 400, 500 (BIM Forum spec)
+  phaseId: varchar("phase_id", { length: 20 }), // WBS code e.g. "1.3.2"
+  phaseName: varchar("phase_name", { length: 100 }), // e.g. "Foundations & Substructure"
+  createdPhase: varchar("created_phase", { length: 100 }), // phase when element is built
+  demolishedPhase: varchar("demolished_phase", { length: 100 }), // phase when removed (reno)
+  worksetId: varchar("workset_id", { length: 20 }), // e.g. "WS_STRUCT"
+  worksetName: varchar("workset_name", { length: 100 }), // e.g. "Structural"
+  discipline: varchar("discipline", { length: 50 }), // Architectural, Structural, Mechanical, etc.
+  revisionNumber: integer("revision_number"), // model revision number
+  revisionAction: varchar("revision_action", { length: 20 }), // added, modified, deleted, unchanged
+  // ─── Rebar / Connection data (JSON) ───────────────────────────────────────
+  rebarData: jsonb("rebar_data"), // RebarInfo JSON (total weight, bars, cover)
+  connectionData: jsonb("connection_data"), // ConnectionDetail[] JSON
   // ───────────────────────────────────────────────────────────────────────────
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -518,6 +529,9 @@ export const bimElements = pgTable("bim_elements", {
   modelIdIdx: index("bim_elements_model_id_idx").on(table.modelId),
   elementTypeIdx: index("bim_elements_element_type_idx").on(table.elementType),
   createdAtIdx: index("bim_elements_created_at_idx").on(table.createdAt),
+  lodIdx: index("bim_elements_lod_idx").on(table.lod),
+  phaseIdIdx: index("bim_elements_phase_id_idx").on(table.phaseId),
+  worksetIdIdx: index("bim_elements_workset_id_idx").on(table.worksetId),
 }));
 
 // Analysis Results Storage - for revision comparison
@@ -1150,7 +1164,7 @@ export type ProjectCodeAccess = typeof projectCodeAccess.$inferSelect;
 // Document revision management service (simplified)
 export class DocumentRevisionService {
   // Create a new revision of an existing document
-  static createRevision(baseDoc: Document, notes?: string): Partial<InsertDocument> {
+  static createRevision(baseDoc: Document, _notes?: string): Partial<InsertDocument> {
     return {
       projectId: baseDoc.projectId,
       filename: baseDoc.filename,
@@ -2523,3 +2537,121 @@ export const rateVersions = pgTable("rate_versions", {
 export const insertRateVersionSchema = createInsertSchema(rateVersions).omit({ id: true, createdAt: true });
 export type InsertRateVersion = z.infer<typeof insertRateVersionSchema>;
 export type RateVersion = typeof rateVersions.$inferSelect;
+
+// ── BIM Transaction History — undo/redo audit trail ──
+export const bimTransactions = pgTable("bim_transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  modelId: varchar("model_id").notNull(),
+  projectId: varchar("project_id").notNull(),
+  description: text("description").notNull(),
+  changes: jsonb("changes").notNull(), // PropertyChange[] — elementId, property, oldValue, newValue
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
+  userName: varchar("user_name", { length: 100 }),
+  undone: boolean("undone").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({
+  modelIdIdx: index("bim_tx_model_id_idx").on(t.modelId),
+  projectIdIdx: index("bim_tx_project_id_idx").on(t.projectId),
+  createdAtIdx: index("bim_tx_created_at_idx").on(t.createdAt),
+}));
+
+export const insertBimTransactionSchema = createInsertSchema(bimTransactions).omit({ id: true, createdAt: true });
+export type InsertBimTransaction = z.infer<typeof insertBimTransactionSchema>;
+export type BimTransaction = typeof bimTransactions.$inferSelect;
+
+// ── BIM Sheets — 2D drawing sheet metadata ──
+export const bimSheets = pgTable("bim_sheets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  modelId: varchar("model_id").notNull(),
+  projectId: varchar("project_id").notNull(),
+  sheetNumber: varchar("sheet_number", { length: 20 }).notNull(),
+  sheetTitle: varchar("sheet_title", { length: 200 }).notNull(),
+  paperSize: varchar("paper_size", { length: 10 }).notNull().default("A1"),
+  orientation: varchar("orientation", { length: 10 }).notNull().default("landscape"),
+  scale: integer("scale").notNull().default(100),
+  svgContent: text("svg_content"), // full SVG markup
+  titleBlock: jsonb("title_block"), // title block metadata
+  viewConfigs: jsonb("view_configs"), // array of view configurations
+  status: varchar("status", { length: 20 }).notNull().default("draft"), // draft, issued, superseded
+  revision: varchar("revision", { length: 10 }).notNull().default("A"),
+  issuedAt: timestamp("issued_at"),
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  modelIdIdx: index("bim_sheets_model_id_idx").on(t.modelId),
+  projectIdIdx: index("bim_sheets_project_id_idx").on(t.projectId),
+  sheetNumberIdx: index("bim_sheets_number_idx").on(t.sheetNumber),
+}));
+
+export const insertBimSheetSchema = createInsertSchema(bimSheets).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertBimSheet = z.infer<typeof insertBimSheetSchema>;
+export type BimSheet = typeof bimSheets.$inferSelect;
+
+// ── BIM Model Revisions — revision tracking for AI refinement loop ──
+export const bimRevisions = pgTable("bim_revisions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  modelId: varchar("model_id").notNull(),
+  projectId: varchar("project_id").notNull(),
+  revisionNumber: integer("revision_number").notNull().default(1),
+  description: text("description"),
+  changesSummary: jsonb("changes_summary"), // { added, modified, deleted, moved counts + details }
+  baseRevisionId: varchar("base_revision_id"), // parent revision
+  mergeConflicts: jsonb("merge_conflicts"), // any unresolved merge conflicts
+  status: varchar("status", { length: 20 }).notNull().default("draft"), // draft, approved, merged, superseded
+  createdBy: varchar("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({
+  modelIdIdx: index("bim_rev_model_id_idx").on(t.modelId),
+  projectIdIdx: index("bim_rev_project_id_idx").on(t.projectId),
+  revisionNumberIdx: index("bim_rev_number_idx").on(t.revisionNumber),
+  modelRevisionUniq: unique("bim_rev_model_revision_uniq").on(t.modelId, t.revisionNumber),
+}));
+
+export const insertBimRevisionSchema = createInsertSchema(bimRevisions).omit({ id: true, createdAt: true });
+export type InsertBimRevision = z.infer<typeof insertBimRevisionSchema>;
+export type BimRevision = typeof bimRevisions.$inferSelect;
+
+// ── BIM Clash Resolutions — approved resolution records ──
+export const bimClashResolutions = pgTable("bim_clash_resolutions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  modelId: varchar("model_id").notNull(),
+  projectId: varchar("project_id").notNull(),
+  clashId: varchar("clash_id").notNull(),
+  elementAId: varchar("element_a_id").notNull(),
+  elementBId: varchar("element_b_id").notNull(),
+  strategy: varchar("strategy", { length: 30 }).notNull(), // reroute, move, resize, etc.
+  modifications: jsonb("modifications"), // changes applied
+  confidence: decimal("confidence", { precision: 5, scale: 4 }),
+  riskLevel: varchar("risk_level", { length: 10 }), // low, medium, high
+  costEstimate: decimal("cost_estimate", { precision: 12, scale: 2 }),
+  approvedBy: varchar("approved_by").references(() => users.id, { onDelete: "set null" }),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({
+  modelIdIdx: index("bim_clash_res_model_id_idx").on(t.modelId),
+  clashIdIdx: index("bim_clash_res_clash_id_idx").on(t.clashId),
+}));
+
+export const insertBimClashResolutionSchema = createInsertSchema(bimClashResolutions).omit({ id: true, createdAt: true });
+export type InsertBimClashResolution = z.infer<typeof insertBimClashResolutionSchema>;
+export type BimClashResolution = typeof bimClashResolutions.$inferSelect;
+
+// ── BIM Constraints — parametric constraint definitions ──
+export const bimConstraints = pgTable("bim_constraints", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  modelId: varchar("model_id").notNull(),
+  constraintType: varchar("constraint_type", { length: 20 }).notNull(), // fixed, coincident, parallel, perpendicular, distance, aligned, hosted, tangent
+  elementIds: jsonb("element_ids").notNull(), // array of element IDs involved
+  parameters: jsonb("parameters"), // type-specific params (distance value, axis, etc.)
+  priority: integer("priority").notNull().default(1),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => ({
+  modelIdIdx: index("bim_constraints_model_id_idx").on(t.modelId),
+  typeIdx: index("bim_constraints_type_idx").on(t.constraintType),
+}));
+
+export const insertBimConstraintSchema = createInsertSchema(bimConstraints).omit({ id: true, createdAt: true });
+export type InsertBimConstraint = z.infer<typeof insertBimConstraintSchema>;
+export type BimConstraint = typeof bimConstraints.$inferSelect;

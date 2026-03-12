@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 // @ts-ignore - Three.js types issue with package exports
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+import { BIMTransformControls, type TransformResult } from "./transform-controls";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ZoomIn, ZoomOut, Home, Layers, Eye, EyeOff, AlertTriangle } from "lucide-react";
@@ -13,7 +14,7 @@ export type UnitSystem = typeof UNIT_SYSTEMS[keyof typeof UNIT_SYSTEMS];
 export interface ViewerProps {
   ifcUrl?: string;
   modelId?: string;
-  onElementSelect?: (e: SelectedElement|null) => void;
+  onElementSelect?: (_e: SelectedElement|null) => void;
   unitSystem?: UnitSystem;
   showBothUnits?: boolean;
 }
@@ -21,10 +22,13 @@ export interface ViewerProps {
 export interface SelectedElement {
   expressID?: number;
   type: string;
+  name?: string;
   material?: string;
-  dimensions?: { height?: number; width?: number; length?: number };
+  dimensions?: { height?: number; width?: number; length?: number; depth?: number; thickness?: number };
   volume?: number;
   area?: number;
+  storey?: string;
+  sectionDesignation?: string;
   properties?: Record<string, any>;
 }
 
@@ -109,7 +113,7 @@ function getDims(e:any){
   };
 }
 
-function getRealLocation(e:any){
+function _getRealLocation(e:any){
   const type = (e.elementType || e.type || "").toLowerCase();
   
   // 🏗️ WALLS: Use start/end midpoint for accurate positioning
@@ -129,11 +133,11 @@ function getRealLocation(e:any){
   if (typeof e?.location === 'string' && e.location !== '{}') {
     try {
       parsedLocation = JSON.parse(e.location);
-    } catch(err) {
+    } catch {
       console.warn('Failed to parse location:', e.location);
     }
   }
-  
+
   const p = e?.geometry?.location?.realLocation
         || e?.properties?.realLocation
         || e?.geometry?.location?.coordinates
@@ -158,7 +162,7 @@ function detectGridFromElements(elements: any[]): { xs: number[]; ys: number[] }
     if (typeof e?.location === 'string' && e.location !== '{}') {
       try {
         parsedLocation = JSON.parse(e.location);
-      } catch(err) {
+      } catch {
         console.warn('Failed to parse location:', e.location);
       }
     }
@@ -342,7 +346,7 @@ function getWallRotation(e:any) {
   return Math.atan2(dy, dx); // Rotation in radians
 }
 
-export default function Viewer3D({ modelId }: ViewerProps){
+export default function Viewer3D({ modelId, onElementSelect }: ViewerProps){
   const mountRef = useRef<HTMLDivElement|null>(null);
   const three = useRef<{renderer:THREE.WebGLRenderer, scene:THREE.Scene, camera:THREE.PerspectiveCamera, controls:OrbitControls} | null>(null);
   const [ready,setReady]=useState(false);
@@ -359,6 +363,50 @@ export default function Viewer3D({ modelId }: ViewerProps){
   const [showFloorPanel,setShowFloorPanel]=useState(false);
   // ─────────────────────────────────────────────────────────────────────────
   const loadAbortController = useRef<AbortController|null>(null);
+  const transformControls = useRef<BIMTransformControls|null>(null);
+  const moveDebounceTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
+
+  // ── Constraint-propagating move handler ──────────────────────────────────
+  const handleElementMove = useCallback((result: TransformResult) => {
+    if (!modelId || !result.elementId) return;
+    // Debounce: only call API 200ms after last drag event
+    if (moveDebounceTimer.current) clearTimeout(moveDebounceTimer.current);
+    moveDebounceTimer.current = setTimeout(async () => {
+      try {
+        const token = localStorage.getItem("auth_token");
+        const headers: Record<string,string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const resp = await fetch(`/api/bim/models/${modelId}/elements/${result.elementId}/move`, {
+          method: 'POST',
+          credentials: 'include',
+          headers,
+          body: JSON.stringify({
+            position: result.position,
+            rotation: result.rotation,
+          }),
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (!data.affectedElements || !three.current) return;
+
+        // Update affected element meshes in the scene
+        const { scene } = three.current;
+        for (const [affectedId, newPos] of Object.entries(data.affectedElements)) {
+          if (affectedId === result.elementId) continue; // already moved by gizmo
+          const pos = newPos as { origin: {x:number;y:number;z:number}; rotation: number };
+          // Find the mesh for this element in the scene
+          scene.traverse((obj: THREE.Object3D) => {
+            const elData = obj.userData?.element;
+            if (elData && (elData.id === affectedId || elData.globalId === affectedId)) {
+              // BIM Z-up → Three.js Y-up
+              obj.position.set(pos.origin.x, pos.origin.z, pos.origin.y);
+              obj.rotation.y = -(pos.rotation || 0);
+            }
+          });
+        }
+      } catch { /* non-blocking */ }
+    }, 200);
+  }, [modelId]);
 
   useEffect(()=>{
     if(!mountRef.current) return;
@@ -444,8 +492,84 @@ export default function Viewer3D({ modelId }: ViewerProps){
     let id:number; const tick=()=>{controls.update(); renderer.render(scene,camera); id=requestAnimationFrame(tick)}; id=requestAnimationFrame(tick);
     const ro = new ResizeObserver(()=>{ if(!three.current||!mountRef.current) return; const w=mountRef.current.clientWidth,h=mountRef.current.clientHeight||640; camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.setSize(w,h);});
     ro.observe(container);
+
+    // ── Transform controls for constraint-propagating move ────────────────
+    try {
+      const tc = new BIMTransformControls(scene, camera, renderer.domElement, controls);
+      tc.onTransformChange(handleElementMove);
+      transformControls.current = tc;
+    } catch { /* TransformControls may not load in some environments */ }
+
+    // ── Raycaster click handler for element selection ──────────────────────
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    let pointerDownPos = { x: 0, y: 0 };
+
+    const onPointerDown = (ev: PointerEvent) => { pointerDownPos = { x: ev.clientX, y: ev.clientY }; };
+    const onPointerUp = (ev: PointerEvent) => {
+      // Only treat as click if pointer didn't move (not an orbit drag)
+      const dx = ev.clientX - pointerDownPos.x;
+      const dy = ev.clientY - pointerDownPos.y;
+      if (Math.sqrt(dx * dx + dy * dy) > 5) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+
+      const intersects = raycaster.intersectObjects(scene.children, true);
+      let hit: THREE.Intersection | null = null;
+      for (const inter of intersects) {
+        let obj: THREE.Object3D | null = inter.object;
+        while (obj) {
+          if (obj.userData?.element) { hit = inter; break; }
+          obj = obj.parent;
+        }
+        if (hit) break;
+      }
+
+      if (hit) {
+        let obj: THREE.Object3D | null = hit.object;
+        while (obj && !obj.userData?.element) obj = obj.parent;
+        const elData = obj?.userData?.element;
+        if (elData && onElementSelect) {
+          const dims = elData.geometry?.dimensions || elData.properties?.dimensions || {};
+          const quantities = elData.quantities || {};
+          onElementSelect({
+            expressID: undefined,
+            type: elData.elementType || elData.type || 'Unknown',
+            name: elData.name || elData.elementType,
+            material: elData.material || elData.properties?.material,
+            dimensions: {
+              height: quantities.height || Number(dims.height) || undefined,
+              width: quantities.width || Number(dims.width) || undefined,
+              length: quantities.length || Number(dims.length) || undefined,
+              depth: quantities.thickness || Number(dims.depth) || undefined,
+              thickness: quantities.thickness || Number(dims.thickness) || undefined,
+            },
+            volume: quantities.volume || Number(elData.properties?.volume) || undefined,
+            area: quantities.surfaceArea || Number(elData.properties?.area) || undefined,
+            storey: elData.storeyName || elData.storey,
+            sectionDesignation: elData.properties?.sectionDesignation || elData.properties?.profileName,
+            properties: elData.properties,
+          });
+          // Attach transform gizmo to clicked element for constraint-propagating move
+          if (obj && transformControls.current) {
+            transformControls.current.attach(obj);
+          }
+        }
+      } else {
+        // Clicked empty space — detach gizmo and deselect
+        if (transformControls.current) transformControls.current.detach();
+        if (onElementSelect) onElementSelect(null);
+      }
+    };
+
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    renderer.domElement.addEventListener('pointerup', onPointerUp);
+
     setReady(true);
-    return ()=>{ cancelAnimationFrame(id); ro.disconnect(); renderer.dispose(); while(scene.children.length) scene.remove(scene.children[0]); container.removeChild(renderer.domElement); three.current=null; setReady(false); };
+    return ()=>{ cancelAnimationFrame(id); ro.disconnect(); renderer.domElement.removeEventListener('pointerdown', onPointerDown); renderer.domElement.removeEventListener('pointerup', onPointerUp); if(transformControls.current) { transformControls.current.dispose(); transformControls.current=null; } renderer.dispose(); while(scene.children.length) scene.remove(scene.children[0]); container.removeChild(renderer.domElement); three.current=null; setReady(false); };
   },[]);
 
   // ── Fetch storey list whenever modelId changes ─────────────────────────────
@@ -559,7 +683,7 @@ export default function Viewer3D({ modelId }: ViewerProps){
       
       // 🏗️ ELEMENT CONNECTIVITY: Group connected elements
       const wallConnections = new Map();
-      const mepConnections = new Map();
+      const _mepConnections = new Map();
       
       // Build connectivity maps
       elements.forEach((el: any, idx: number) => {
@@ -580,7 +704,7 @@ export default function Viewer3D({ modelId }: ViewerProps){
         yLines: gridAnalysis.ys.slice(0, 10)
       });
       
-      const edgeMat = new THREE.LineBasicMaterial({ color: 0x000000, opacity: 0.25, transparent: true });
+      const _edgeMat = new THREE.LineBasicMaterial({ color: 0x000000, opacity: 0.25, transparent: true });
       const box = new THREE.Box3();
 
       // 🎯 COORDINATE TRANSFORMATION: Properly transform building coordinates to Three.js coordinate system
@@ -588,13 +712,13 @@ export default function Viewer3D({ modelId }: ViewerProps){
       // Three.js: X=X, Y=height (vertical), Z=depth
       let minZ = Infinity, maxZ = -Infinity;
       let minBuildingY = Infinity, maxBuildingY = -Infinity;
-      const rawCoords = elements.map((e: any) => {
+      const _rawCoords = elements.map((e: any) => {
         // Parse location if it's a JSON string
         let parsedLocation = null;
         if (typeof e?.location === 'string' && e.location !== '{}') {
           try {
             parsedLocation = JSON.parse(e.location);
-          } catch(err) {
+          } catch {
             console.warn('Failed to parse location:', e.location);
           }
         }
@@ -619,7 +743,427 @@ export default function Viewer3D({ modelId }: ViewerProps){
       const yOffset = 0; // Keep building centered - no large coordinate offset
       console.log(`🎯 Coordinate system transformation: Y offset = ${yOffset.toFixed(1)}m (Building: Y=${minBuildingY.toFixed(1)} to ${maxBuildingY.toFixed(1)}, Z=${minZ.toFixed(1)} to ${maxZ.toFixed(1)})`);
 
+      // ═══════════════════════════════════════════════════════════════════
+      // HELPER: Create Three.js geometry from serialized mesh data
+      // When the 3D geometry kernel has produced real mesh data, use it
+      // instead of falling back to box approximations.
+      // ═══════════════════════════════════════════════════════════════════
+      function createMeshFromSerialized(meshData: any): THREE.BufferGeometry | null {
+        if (!meshData || !meshData.vertices || !meshData.indices) return null;
+        if (meshData.vertices.length < 9 || meshData.indices.length < 3) return null;
+
+        try {
+          const geo = new THREE.BufferGeometry();
+          const verts = new Float32Array(meshData.vertices.length);
+          // Axis swap: building Z-up → Three.js Y-up
+          for (let i = 0; i < meshData.vertices.length; i += 3) {
+            verts[i]     = meshData.vertices[i];     // X → X
+            verts[i + 1] = meshData.vertices[i + 2]; // Z → Y (up)
+            verts[i + 2] = meshData.vertices[i + 1]; // Y → Z (forward)
+          }
+          geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+          geo.setIndex(new THREE.BufferAttribute(new Uint32Array(meshData.indices), 1));
+          if (meshData.normals && meshData.normals.length === meshData.vertices.length) {
+            const norms = new Float32Array(meshData.normals.length);
+            for (let i = 0; i < meshData.normals.length; i += 3) {
+              norms[i]     = meshData.normals[i];
+              norms[i + 1] = meshData.normals[i + 2];
+              norms[i + 2] = meshData.normals[i + 1];
+            }
+            geo.setAttribute('normal', new THREE.BufferAttribute(norms, 3));
+          } else {
+            geo.computeVertexNormals();
+          }
+          geo.computeBoundingSphere();
+          return geo;
+        } catch (err) {
+          console.warn('Failed to create mesh from serialized data:', err);
+          return null;
+        }
+      }
+
+      // Color map for real mesh elements
+      function getMeshColor(type: string, material: string): number {
+        const t = (type || '').toLowerCase();
+        if (/exterior wall/.test(t)) return 0xC4A882;
+        if (/interior wall|partition/.test(t)) return 0xE8DCC8;
+        if (/curtain/.test(t)) return 0x88CCEE;
+        if (/column/.test(t)) return 0x808080;
+        if (/beam/.test(t)) return 0xA0A0A0;
+        if (/slab|floor/.test(t)) return 0xD0D0D0;
+        if (/roof/.test(t)) return 0x8B4513;
+        if (/door/.test(t)) return 0x8B6914;
+        if (/window/.test(t)) return 0x4FC3F7;
+        if (/stair/.test(t)) return 0xB0B0B0;
+        if (/footing|foundation/.test(t)) return 0x696969;
+        if (/duct/.test(t)) return 0x4CAF50;
+        if (/pipe/.test(t)) return 0x2196F3;
+        if (/cable|tray/.test(t)) return 0xFF9800;
+        if (/light/.test(t)) return 0xFFEB3B;
+        if (/sprinkler/.test(t)) return 0xF44336;
+        if (/panel/.test(t)) return 0x9C27B0;
+        if (/railing/.test(t)) return 0x708090;
+        return 0xCCCCCC;
+      }
+
+      let meshRenderedCount = 0;
+      let boxFallbackCount = 0;
+
       for(const e of elements){
+        // ═══════════════════════════════════════════════════════════════
+        // PRIORITY 1: Try to render from real mesh data (geometry kernel)
+        // ═══════════════════════════════════════════════════════════════
+        const meshData = e?.geometry?.mesh || e?.mesh;
+        const realMeshGeo = createMeshFromSerialized(meshData);
+
+        if (realMeshGeo) {
+          const elType = e.type || e.elementType || '';
+          const elMaterial = e.material || e.properties?.material || '';
+          const color = getMeshColor(elType, elMaterial);
+          const opacity = /window|glazing|curtain/i.test(elType) ? 0.4 : 1.0;
+          const isTransparent = opacity < 1;
+
+          const mat = new THREE.MeshStandardMaterial({
+            color,
+            metalness: /steel|metal|aluminum/i.test(elMaterial) ? 0.6 : 0.1,
+            roughness: /glass|glazing/i.test(elMaterial) ? 0.1 : 0.85,
+            flatShading: true,
+            transparent: isTransparent,
+            opacity,
+          });
+
+          const mesh = new THREE.Mesh(realMeshGeo, mat);
+
+          // Add edges for visual clarity
+          if (!isTransparent) {
+            const edges = new THREE.EdgesGeometry(realMeshGeo, 30);
+            const edgeMat = new THREE.LineBasicMaterial({ color: 0x000000, opacity: 0.15, transparent: true });
+            mesh.add(new THREE.LineSegments(edges, edgeMat));
+          }
+
+          mesh.userData = { element: e };
+          root.add(mesh);
+          meshRenderedCount++;
+
+          // Expand bounding box
+          realMeshGeo.computeBoundingBox();
+          if (realMeshGeo.boundingBox) {
+            box.expandByPoint(realMeshGeo.boundingBox.min);
+            box.expandByPoint(realMeshGeo.boundingBox.max);
+          }
+          continue; // Skip legacy box rendering
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // PRIORITY 2: Parametric profile rendering
+        // When geometry-upgrade.ts has resolved real profiles (steel
+        // sections, wall assemblies, column shapes, MEP shapes), render
+        // them as proper Three.js geometry instead of bounding boxes.
+        // This is what makes a BIM viewer look like Revit/Navisworks.
+        // ═══════════════════════════════════════════════════════════════
+        const profile = e?.geometry?.profile;
+        const assembly = e?.geometry?.assembly;
+        if (profile || assembly) {
+          const dims2 = getDims(e);
+          if (dims2) {
+            let parsedLoc2 = null;
+            if (typeof e?.location === 'string' && e.location !== '{}') {
+              try { parsedLoc2 = JSON.parse(e.location); } catch {}
+            }
+            const rawLoc2 = e?.geometry?.location?.realLocation
+              || e?.properties?.realLocation
+              || e?.geometry?.location?.coordinates
+              || parsedLoc2 || e?.location || {x:0,y:0,z:0};
+            const cc3 = coerceCoordToMetres(
+              Number(rawLoc2.x || 0), Number(rawLoc2.y || 0), Number(rawLoc2.z || 0)
+            );
+            const pp = { x: cc3.x, y: cc3.z, z: cc3.y }; // BIM Z-up → Three.js Y-up
+            const elType2 = (e.elementType || e.type || e.category || '').toLowerCase();
+            const yaw = e?.geometry?.orientation?.yawRad || 0;
+
+            let profileGeo: THREE.BufferGeometry | null = null;
+            let profileColor = 0xCCCCCC;
+            let profileMatProps: any = { metalness: 0.1, roughness: 0.85, flatShading: true };
+
+            // ── I-BEAM / W-SECTION PROFILES ──────────────────────────────
+            if (profile?.shape === 'w-section' || profile?.shape === 'i_beam') {
+              const d = profile.depth || dims2.height || 0.3;    // total depth
+              const bf = profile.flangeWidth || dims2.width || 0.15; // flange width
+              const tw = profile.webThickness || d * 0.04;       // web thickness
+              const tf = profile.flangeThickness || d * 0.06;    // flange thickness
+              const beamLength = dims2.depth || dims2.width || 3; // span length
+
+              // Build I-beam cross-section as a THREE.Shape
+              const shape = new THREE.Shape();
+              const hw = bf / 2;   // half flange width
+              const hd = d / 2;    // half depth
+              const htw = tw / 2;  // half web thickness
+
+              // Outer I shape: start at bottom-left of bottom flange
+              shape.moveTo(-hw, -hd);
+              shape.lineTo(hw, -hd);
+              shape.lineTo(hw, -hd + tf);
+              shape.lineTo(htw, -hd + tf);
+              shape.lineTo(htw, hd - tf);
+              shape.lineTo(hw, hd - tf);
+              shape.lineTo(hw, hd);
+              shape.lineTo(-hw, hd);
+              shape.lineTo(-hw, hd - tf);
+              shape.lineTo(-htw, hd - tf);
+              shape.lineTo(-htw, -hd + tf);
+              shape.lineTo(-hw, -hd + tf);
+              shape.closePath();
+
+              const extrudeSettings = { steps: 1, depth: beamLength, bevelEnabled: false };
+              profileGeo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+              // Extrude goes along Z; rotate so beam runs along X
+              profileGeo.rotateY(Math.PI / 2);
+              profileGeo.translate(0, hd, 0); // bottom of beam at origin
+              profileColor = 0x708090; // steel gray
+              profileMatProps = { metalness: 0.65, roughness: 0.35, flatShading: true };
+            }
+
+            // ── HSS RECTANGULAR SECTIONS ─────────────────────────────────
+            else if (profile?.shape === 'hss-rect' || profile?.shape === 'hollow_rectangular') {
+              const d = profile.depth || dims2.height || 0.2;
+              const w = profile.outerWidth || profile.flangeWidth || dims2.width || 0.2;
+              const wt = profile.wallThickness || 0.008;
+              const beamLength = dims2.depth || dims2.width || 3;
+
+              const outer = new THREE.Shape();
+              outer.moveTo(-w/2, -d/2);
+              outer.lineTo(w/2, -d/2);
+              outer.lineTo(w/2, d/2);
+              outer.lineTo(-w/2, d/2);
+              outer.closePath();
+
+              const hole = new THREE.Path();
+              const iw = w/2 - wt, id = d/2 - wt;
+              hole.moveTo(-iw, -id);
+              hole.lineTo(iw, -id);
+              hole.lineTo(iw, id);
+              hole.lineTo(-iw, id);
+              hole.closePath();
+              outer.holes.push(hole);
+
+              profileGeo = new THREE.ExtrudeGeometry(outer, { steps: 1, depth: beamLength, bevelEnabled: false });
+              profileGeo.rotateY(Math.PI / 2);
+              profileGeo.translate(0, d/2, 0);
+              profileColor = 0x708090;
+              profileMatProps = { metalness: 0.65, roughness: 0.35, flatShading: true };
+            }
+
+            // ── HSS ROUND / PIPE SECTIONS ────────────────────────────────
+            else if (profile?.shape === 'hss-round' || profile?.shape === 'pipe') {
+              const outerR = (profile.depth || profile.diameter || dims2.width || 0.1) / 2;
+              const wt = profile.wallThickness || outerR * 0.1;
+              const innerR = Math.max(outerR - wt, outerR * 0.5);
+              const pipeLen = Math.max(dims2.depth, dims2.height, dims2.width, 0.5);
+
+              // Outer cylinder minus inner = hollow pipe
+              profileGeo = new THREE.CylinderGeometry(outerR, outerR, pipeLen, 16);
+              profileColor = /plumb|water|copper/i.test(elType2) ? 0xB87333 : 0x808080;
+              profileMatProps = { metalness: 0.7, roughness: 0.3, flatShading: false };
+            }
+
+            // ── CYLINDRICAL COLUMNS ──────────────────────────────────────
+            else if (profile?.shape === 'circular' && /column|pillar|pier/i.test(elType2)) {
+              const diameter = profile.diameter || dims2.width || 0.4;
+              const h = dims2.height || 3;
+              profileGeo = new THREE.CylinderGeometry(diameter/2, diameter/2, h, 16);
+              profileGeo.translate(0, h/2, 0);
+              profileColor = 0x808080;
+              profileMatProps = { metalness: 0.5, roughness: 0.5, flatShading: false };
+            }
+
+            // ── CIRCULAR PIPES / CONDUITS ──────────────────────────────────
+            else if (profile?.type === 'pipe' || (profile?.shape === 'circular' && /pipe|conduit|sprinkler/i.test(elType2))) {
+              const diam = profile.diameter || dims2.width || 0.05;
+              const pipeLen = Math.max(dims2.depth, dims2.height, dims2.width, 0.5);
+              profileGeo = new THREE.CylinderGeometry(diam/2, diam/2, pipeLen, 12);
+              profileGeo.rotateZ(Math.PI / 2); // horizontal
+              profileColor = /plumb|water|copper|hot|cold/i.test(elType2) ? 0xB87333 : 0x808080;
+              profileMatProps = { metalness: 0.7, roughness: 0.3, flatShading: false };
+            }
+
+            // ── CIRCULAR DUCTS ───────────────────────────────────────────
+            else if (profile?.shape === 'circular' && /duct/i.test(elType2)) {
+              const diam = profile.diameter || dims2.width || 0.3;
+              const ductLen = Math.max(dims2.depth, dims2.height, 1);
+              profileGeo = new THREE.CylinderGeometry(diam/2, diam/2, ductLen, 12);
+              profileGeo.rotateZ(Math.PI / 2); // horizontal orientation
+              profileColor = 0xA9A9A9;
+              profileMatProps = { metalness: 0.7, roughness: 0.4, flatShading: false };
+            }
+
+            // ── RECTANGULAR DUCTS (with visible thickness) ───────────────
+            else if (profile?.shape === 'rectangular' && /duct/i.test(elType2)) {
+              const dw = profile.width || dims2.width || 0.6;
+              const dh = profile.height || dims2.depth || 0.3;
+              const wt2 = 0.002; // sheet metal thickness
+              const ductLen = Math.max(dims2.depth, dims2.height, 1);
+
+              const outer = new THREE.Shape();
+              outer.moveTo(-dw/2, -dh/2);
+              outer.lineTo(dw/2, -dh/2);
+              outer.lineTo(dw/2, dh/2);
+              outer.lineTo(-dw/2, dh/2);
+              outer.closePath();
+
+              const inner = new THREE.Path();
+              inner.moveTo(-dw/2 + wt2, -dh/2 + wt2);
+              inner.lineTo(dw/2 - wt2, -dh/2 + wt2);
+              inner.lineTo(dw/2 - wt2, dh/2 - wt2);
+              inner.lineTo(-dw/2 + wt2, dh/2 - wt2);
+              inner.closePath();
+              outer.holes.push(inner);
+
+              profileGeo = new THREE.ExtrudeGeometry(outer, { steps: 1, depth: ductLen, bevelEnabled: false });
+              profileGeo.rotateY(Math.PI / 2);
+              profileColor = 0xA9A9A9;
+              profileMatProps = { metalness: 0.7, roughness: 0.4, flatShading: true };
+            }
+
+            // ── CABLE TRAY (U-channel) ───────────────────────────────────
+            else if (profile?.shape === 'u_channel') {
+              const tw2 = profile.width || dims2.width || 0.3;
+              const td = profile.depth || dims2.depth || 0.1;
+              const wt3 = 0.003;
+              const trayLen = Math.max(dims2.height, dims2.depth, 1);
+
+              const shape = new THREE.Shape();
+              // U-channel: bottom + two sides (open top)
+              shape.moveTo(-tw2/2, 0);
+              shape.lineTo(tw2/2, 0);
+              shape.lineTo(tw2/2, td);
+              shape.lineTo(tw2/2 - wt3, td);
+              shape.lineTo(tw2/2 - wt3, wt3);
+              shape.lineTo(-tw2/2 + wt3, wt3);
+              shape.lineTo(-tw2/2 + wt3, td);
+              shape.lineTo(-tw2/2, td);
+              shape.closePath();
+
+              profileGeo = new THREE.ExtrudeGeometry(shape, { steps: 1, depth: trayLen, bevelEnabled: false });
+              profileGeo.rotateY(Math.PI / 2);
+              profileColor = 0xFF9800;
+              profileMatProps = { metalness: 0.5, roughness: 0.5, flatShading: true };
+            }
+
+            // ── MULTI-LAYER WALL ASSEMBLIES ──────────────────────────────
+            else if (assembly && assembly.layers && /wall|partition/i.test(elType2)) {
+              const wallLen = Math.max(dims2.width, dims2.depth, 1);
+              const wallH = dims2.height || 3;
+              const layers: { name: string; thickness: number; material: string; isStructural: boolean }[] = assembly.layers;
+
+              // Build each layer as a separate colored box
+              const wallGroup = new THREE.Group();
+              let currentOffset = 0;
+              const totalThk = assembly.totalThickness || layers.reduce((s: number, l: any) => s + l.thickness, 0);
+
+              for (const layer of layers) {
+                const layerThk = layer.thickness;
+                const layerGeo = new THREE.BoxGeometry(wallLen, wallH, layerThk);
+                const layerZ = -totalThk / 2 + currentOffset + layerThk / 2;
+                layerGeo.translate(0, wallH / 2, layerZ);
+
+                // Color by material type
+                let layerColor = 0xE8DCC8; // default beige
+                const mat = (layer.material || '').toLowerCase();
+                if (/brick/.test(mat)) layerColor = 0xB22222;
+                else if (/steel|metal|aluminum/.test(mat)) layerColor = 0x708090;
+                else if (/gypsum|drywall/.test(mat)) layerColor = 0xFAF0E6;
+                else if (/insulation|batt|mineral|xps/.test(mat)) layerColor = 0xFFFF99;
+                else if (/concrete|cmu|masonry/.test(mat)) layerColor = 0x808080;
+                else if (/osb|sheathing|plywood/.test(mat)) layerColor = 0xDEB887;
+                else if (/air/.test(mat)) { currentOffset += layerThk; continue; } // skip air cavities
+                else if (/polyethylene|vapor|barrier/.test(mat)) layerColor = 0x4169E1;
+
+                const layerMat = new THREE.MeshStandardMaterial({
+                  color: layerColor,
+                  metalness: layer.isStructural ? 0.4 : 0.1,
+                  roughness: 0.7,
+                  flatShading: true,
+                });
+                const layerMesh = new THREE.Mesh(layerGeo, layerMat);
+
+                // Add thin edges between layers for visual separation
+                const edgesGeo = new THREE.EdgesGeometry(layerGeo, 30);
+                const edgeMat2 = new THREE.LineBasicMaterial({ color: 0x000000, opacity: 0.1, transparent: true });
+                layerMesh.add(new THREE.LineSegments(edgesGeo, edgeMat2));
+
+                wallGroup.add(layerMesh);
+                currentOffset += layerThk;
+              }
+
+              // Position and rotate the wall group
+              wallGroup.position.set(pp.x, pp.y, pp.z);
+              wallGroup.rotation.y = -yaw; // yaw in BIM → Y rotation in Three.js
+              wallGroup.userData = { element: e };
+              root.add(wallGroup);
+
+              // Expand bounding box
+              const tmpBox = new THREE.Box3().setFromObject(wallGroup);
+              box.expandByPoint(tmpBox.min);
+              box.expandByPoint(tmpBox.max);
+              meshRenderedCount++;
+              continue; // skip box fallback
+            }
+
+            // ── SQUARE/RECTANGULAR COLUMN PROFILES ───────────────────────
+            else if (profile?.shape === 'square' && /column|pillar/i.test(elType2)) {
+              const side = profile.side || dims2.width || 0.4;
+              const h = dims2.height || 3;
+              profileGeo = new THREE.BoxGeometry(side, h, side);
+              profileGeo.translate(0, h/2, 0);
+              profileColor = 0x808080;
+              profileMatProps = { metalness: 0.4, roughness: 0.6, flatShading: true };
+            }
+
+            else if (profile?.shape === 'rectangular' && /column|pillar/i.test(elType2)) {
+              const cw = profile.width || dims2.width || 0.4;
+              const cd = profile.depth || dims2.depth || 0.3;
+              const h = dims2.height || 3;
+              profileGeo = new THREE.BoxGeometry(cw, h, cd);
+              profileGeo.translate(0, h/2, 0);
+              profileColor = 0x808080;
+              profileMatProps = { metalness: 0.4, roughness: 0.6, flatShading: true };
+            }
+
+            // ── RENDER THE PROFILE GEOMETRY ──────────────────────────────
+            if (profileGeo) {
+              const mat = new THREE.MeshStandardMaterial({ color: profileColor, ...profileMatProps });
+              const mesh = new THREE.Mesh(profileGeo, mat);
+              mesh.position.set(pp.x, pp.y, pp.z);
+              mesh.rotation.y = -yaw;
+
+              // Add subtle edges for visual definition
+              if (!profileMatProps.transparent) {
+                const edges = new THREE.EdgesGeometry(profileGeo, 25);
+                const edgeMat = new THREE.LineBasicMaterial({ color: 0x000000, opacity: 0.12, transparent: true });
+                mesh.add(new THREE.LineSegments(edges, edgeMat));
+              }
+
+              mesh.userData = { element: e };
+              root.add(mesh);
+              meshRenderedCount++;
+
+              // Expand bounding box
+              profileGeo.computeBoundingBox();
+              if (profileGeo.boundingBox) {
+                const worldMin = profileGeo.boundingBox.min.clone().add(new THREE.Vector3(pp.x, pp.y, pp.z));
+                const worldMax = profileGeo.boundingBox.max.clone().add(new THREE.Vector3(pp.x, pp.y, pp.z));
+                box.expandByPoint(worldMin);
+                box.expandByPoint(worldMax);
+              }
+              continue; // Skip legacy box fallback
+            }
+          }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // FALLBACK: Legacy box-based rendering (pre-geometry-kernel data)
+        // ═══════════════════════════════════════════════════════════════
+        boxFallbackCount++;
         const dims = getDims(e);
         if (!dims) continue; // TS18047 fix: getDims returns null when dimensions missing — skip element
 
@@ -628,18 +1172,18 @@ export default function Viewer3D({ modelId }: ViewerProps){
         if (typeof e?.location === 'string' && e.location !== '{}') {
           try {
             parsedLocation = JSON.parse(e.location);
-          } catch(err) {
+          } catch {
             // Ignore parse errors
           }
         }
-        
+
         const rawLocation = e?.geometry?.location?.realLocation
               || e?.properties?.realLocation
               || e?.geometry?.location?.coordinates
               || parsedLocation
               || e?.location
               || {x:0,y:0,z:0};
-        
+
         // Coerce to metres (backward compat), then axis-swap for Three.js
         const cc2 = coerceCoordToMetres(
           Number(rawLocation.x || 0),
@@ -673,14 +1217,14 @@ export default function Viewer3D({ modelId }: ViewerProps){
         // Openings & Doors/Windows
         const isDoor = /(door|entrance|exit|portal)/.test(type);
         const isWindow = /(window|glazing|curtain.wall)/.test(type);
-        const isOpening = isDoor || isWindow || /(opening|aperture)/.test(type);
+        const _isOpening = isDoor || isWindow || /(opening|aperture)/.test(type);
         
         // Vertical Transportation & Circulation
         const isStair = /(stair|step|riser|tread|flight)/.test(type);
         const isRailing = /(railing|handrail|guardrail|balustrade)/.test(type);
         const isElevator = /(elevator|lift)/.test(type);
         const isEscalator = /(escalator|moving.walk)/.test(type);
-        const isVerticalTransport = isElevator || isEscalator;
+        const _isVerticalTransport = isElevator || isEscalator;
         
         // MEP Systems
         const isHVAC = /(hvac|duct|air|ventilation|fan|vav|ahu)/.test(type);
@@ -697,7 +1241,7 @@ export default function Viewer3D({ modelId }: ViewerProps){
         const isBathroom = /(toilet|sink|basin|shower|bath|tub|urinal|bidet)/.test(type);
         const isKitchen = /(kitchen|cabinet|range|oven|dishwasher|refrigerator)/.test(type);
         const isCounter = /(counter|countertop|worktop|island)/.test(type);
-        const isFixture = isBathroom || isKitchen || /(fixture|appliance)/.test(type);
+        const _isFixture = isBathroom || isKitchen || /(fixture|appliance)/.test(type);
         
         // Furniture & Equipment
         const isFurniture = /(furniture|desk|chair|table|bed|sofa|shelf)/.test(type);
@@ -708,7 +1252,7 @@ export default function Viewer3D({ modelId }: ViewerProps){
         const isDrainage = /(drainage|drain|gutter|downspout|catch.basin)/.test(type);
         const isPaving = /(paving|asphalt|concrete.slab|sidewalk|driveway|parking)/.test(type);
         const isUtility = /(utility|gas|water.main|sewer.main|electrical.service)/.test(type);
-        const isSiteWork = isLandscaping || isDrainage || isPaving || isUtility;
+        const _isSiteWork = isLandscaping || isDrainage || isPaving || isUtility;
         
         // Interior Components & Finishes
         const isPartition = /(partition|drywall|gypsum|glass.partition)/.test(type);
@@ -717,13 +1261,13 @@ export default function Viewer3D({ modelId }: ViewerProps){
         const isPaint = /(paint|coating|finish)/.test(type);
         const isMillwork = /(millwork|trim|molding|baseboard|crown)/.test(type);
         const isFinish = isFlooring || isPaint || isMillwork || /(finish)/.test(type);
-        const isInsulation = /(insulation|thermal|vapor|barrier)/.test(type);
+        const _isInsulation = /(insulation|thermal|vapor|barrier)/.test(type);
         
         // Exterior Wall Materials
         const isBrick = /(brick|masonry|stone|granite|limestone)/.test(type);
         const isSiding = /(siding|cladding|vinyl|aluminum|wood.siding)/.test(type);
         const isCurtainWall = /(curtain.wall|glass.wall|storefront)/.test(type);
-        const isExteriorFinish = isBrick || isSiding || isCurtainWall;
+        const _isExteriorFinish = isBrick || isSiding || isCurtainWall;
         
         // Structural Elements
         const isStruct = isColumn || isBeam || isFoundation || /(structural|frame|truss)/.test(type);
@@ -768,18 +1312,19 @@ export default function Viewer3D({ modelId }: ViewerProps){
           geo.translate(0, thick/2, 0); // Bottom edge at origin
           color = 0x8B4513; // Brown for roof
         } else if(isColumn){
-          // Columns: Vertical, square cross-section
-          const size = Math.min(dims.width, dims.depth, 0.6); // Max 60cm square
-          geo = new THREE.BoxGeometry(size, dims.height, size);
+          // Columns: Use actual extracted dimensions — no artificial caps
+          const colW = dims.width || dims.depth || 0.4;
+          const colD = dims.depth || dims.width || 0.4;
+          geo = new THREE.BoxGeometry(colW, dims.height, colD);
           geo.translate(0, dims.height/2, 0); // Bottom edge at origin
           color = 0x708090; // Steel gray
           materialProps.metalness = 0.6;
         } else if(isBeam){
-          // Beams: Horizontal, rectangular
-          const height = Math.min(dims.height, 0.8); // Typical beam height
-          const width = Math.min(dims.width, 0.4);   // Typical beam width
-          geo = new THREE.BoxGeometry(dims.depth, height, width);
-          geo.translate(0, height/2, 0); // Bottom edge at origin
+          // Beams: Use actual extracted dimensions — no artificial caps
+          const bH = dims.height || 0.5;
+          const bW = dims.width || 0.3;
+          geo = new THREE.BoxGeometry(dims.depth || 5, bH, bW);
+          geo.translate(0, bH/2, 0); // Bottom edge at origin
           color = 0x708090; // Steel gray
           materialProps.metalness = 0.6;
         } else if(isDoor){
@@ -863,9 +1408,46 @@ export default function Viewer3D({ modelId }: ViewerProps){
           materialProps.metalness = 0.9;
           materialProps.roughness = 0.2;
         } else if(isHVAC){
-          // HVAC: Galvanized steel appearance
+          // HVAC: Galvanized steel ductwork
+          // v15.30: If routing waypoints exist, create segmented duct run
+          const routing = e.properties?.duct_routing || e.properties?.routing;
+          if (Array.isArray(routing) && routing.length >= 2) {
+            // Build duct run from waypoints as a group of segments
+            const ductGroup = new THREE.Group();
+            const ductMat = new THREE.MeshStandardMaterial({
+              color: e.properties?.system === 'return' ? 0x4682B4 : // steel blue for return
+                     e.properties?.system === 'exhaust' ? 0x696969 : // dim gray for exhaust
+                     0xA9A9A9, // dark gray for supply
+              metalness: 0.7, roughness: 0.4
+            });
+            for (let ri = 0; ri < routing.length - 1; ri++) {
+              const wp1 = routing[ri];
+              const wp2 = routing[ri + 1];
+              const dx = (wp2.x || 0) - (wp1.x || 0);
+              const dy = (wp2.y || 0) - (wp1.y || 0);
+              const dz = (wp2.z || 0) - (wp1.z || 0);
+              const segLen = Math.sqrt(dx*dx + dy*dy + dz*dz);
+              if (segLen < 0.01) continue;
+              const segW = dims.width || 0.3;
+              const segD = dims.depth || 0.3;
+              const segGeo = new THREE.BoxGeometry(segW, segD, segLen);
+              const segMesh = new THREE.Mesh(segGeo, ductMat);
+              segMesh.position.set(
+                ((wp1.x||0) + (wp2.x||0)) / 2,
+                ((wp1.z||0) + (wp2.z||0)) / 2, // z→y in viewer
+                ((wp1.y||0) + (wp2.y||0)) / 2
+              );
+              segMesh.lookAt(new THREE.Vector3(wp2.x||0, wp2.z||0, wp2.y||0));
+              ductGroup.add(segMesh);
+            }
+            root.add(ductGroup);
+            continue; // skip normal mesh creation for routed ducts
+          }
+          // Fallback: single box for unrouted ducts
           geo = new THREE.BoxGeometry(dims.width, dims.height, dims.depth);
-          color = 0xA9A9A9; // Dark gray for HVAC
+          color = e.properties?.system === 'return' ? 0x4682B4 :
+                  e.properties?.system === 'exhaust' ? 0x696969 :
+                  0xA9A9A9; // Dark gray for supply ducts
           materialProps.metalness = 0.7;
         } else if(isPlumbing){
           // Plumbing: Copper/PVC pipes
@@ -1144,11 +1726,16 @@ export default function Viewer3D({ modelId }: ViewerProps){
         box.expandByPoint(new THREE.Vector3(p.x + dims.width/2, p.y + dims.height, p.z + dims.depth/2));
       }
 
+      // Log mesh vs box rendering stats
+      if (meshRenderedCount > 0 || boxFallbackCount > 0) {
+        console.log(`[3D Viewer] Rendered ${meshRenderedCount} elements with real mesh geometry, ${boxFallbackCount} with box fallback`);
+      }
+
       // frame with safety net for tiny scenes
       const size = box.getSize(new THREE.Vector3());
       const diag = Math.max(10, size.length(), 30); // ensure at least ~30m diag for camera
       const center = box.getCenter(new THREE.Vector3());
-      
+
       // Building should now be properly centered around origin
       console.log(`🎯 Building centered at:`, {
         x: center.x.toFixed(2), 
@@ -1374,7 +1961,7 @@ export default function Viewer3D({ modelId }: ViewerProps){
               if(!three.current) return; 
               const {camera,controls} = three.current;
               const grid = three.current.scene.getObjectByName("grid") as THREE.GridHelper;
-              const size = 40; const center = new THREE.Vector3(0,0,0);
+              const _size = 40; const center = new THREE.Vector3(0,0,0);
               if(grid){ grid.position.set(0,0,0); }
               controls.target.copy(center); 
               camera.position.set(10,8,10); 
