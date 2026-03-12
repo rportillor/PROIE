@@ -113,8 +113,13 @@ async function loadElementsMap(modelId: string): Promise<Map<string, BIMSolid>> 
         thickness: props?.thickness,
       },
       material: dbEl.material || 'Unknown',
-      hostedIds: [],
-      connectedIds: [],
+      hostedIds: Array.isArray(props?.hostedElementIds) ? props.hostedElementIds : [],
+      connectedIds: [
+        ...(Array.isArray(props?.connectedWallIds) ? props.connectedWallIds : []),
+        ...(Array.isArray(props?.connectedColumnIds) ? props.connectedColumnIds : []),
+        ...(Array.isArray(props?.supportedBeamIds) ? props.supportedBeamIds : []),
+        ...(Array.isArray(props?.boundingWallIds) ? props.boundingWallIds : []),
+      ],
       origin: loc?.origin || { x: 0, y: 0, z: 0 },
       rotation: loc?.rotation || 0,
       ifcClass: props?.ifcClass || 'IFCBUILDINGELEMENTPROXY',
@@ -143,8 +148,93 @@ async function loadElementsMap(modelId: string): Promise<Map<string, BIMSolid>> 
     map.set(dbEl.id, solid);
   }
 
+  // Second pass: populate hostedIds on host elements by reverse-looking up hostWallId
+  for (const dbEl of dbElements) {
+    const props = dbEl.properties as any;
+    const hostId = props?.hostWallId;
+    if (hostId && map.has(hostId)) {
+      const host = map.get(hostId)!;
+      if (!host.hostedIds.includes(dbEl.id)) {
+        host.hostedIds.push(dbEl.id);
+      }
+    }
+  }
+
+  // Auto-create constraints from established relationships
+  const autoConstraints = buildConstraintsFromRelationships(map);
+  if (autoConstraints.length > 0) {
+    const existing = modelConstraints.get(modelId) || [];
+    // Merge: only add constraints not already present (by id)
+    const existingIds = new Set(existing.map(c => c.id));
+    for (const c of autoConstraints) {
+      if (!existingIds.has(c.id)) existing.push(c);
+    }
+    modelConstraints.set(modelId, existing);
+  }
+
   modelElements.set(modelId, map);
   return map;
+}
+
+/**
+ * Auto-create active constraints from the relationships established by
+ * relationship-engine.ts. This bridges the gap between descriptive
+ * relationships and active constraint propagation.
+ */
+function buildConstraintsFromRelationships(elements: Map<string, BIMSolid>): Constraint[] {
+  const constraints: Constraint[] = [];
+
+  for (const [id, el] of elements) {
+    // Hosted constraints: doors/windows in walls
+    for (const hostedId of el.hostedIds) {
+      constraints.push({
+        id: `hosted_${id}_${hostedId}`,
+        type: 'hosted',
+        elementIds: [id, hostedId],
+        parameters: {},
+        priority: 8,
+        isActive: true,
+      });
+    }
+
+    // Wall-wall coincident constraints at join points
+    const elType = el.type.toLowerCase();
+    if (/wall|partition/i.test(elType)) {
+      for (const connId of el.connectedIds) {
+        const conn = elements.get(connId);
+        if (!conn || !/wall|partition/i.test(conn.type.toLowerCase())) continue;
+        // Only create once per pair (sorted ID order)
+        if (id > connId) continue;
+        constraints.push({
+          id: `wall_join_${id}_${connId}`,
+          type: 'coincident',
+          elementIds: [id, connId],
+          parameters: {},
+          priority: 6,
+          isActive: true,
+        });
+      }
+    }
+
+    // Beam-column distance constraints (beam endpoint stays at column center)
+    if (/beam|girder|joist/i.test(elType)) {
+      for (const connId of el.connectedIds) {
+        const conn = elements.get(connId);
+        if (!conn || !/column|pillar|pier/i.test(conn.type.toLowerCase())) continue;
+        const dist = Math.hypot(el.origin.x - conn.origin.x, el.origin.y - conn.origin.y);
+        constraints.push({
+          id: `beam_col_${id}_${connId}`,
+          type: 'distance',
+          elementIds: [connId, id], // column is anchor, beam adjusts
+          parameters: { distance: dist },
+          priority: 5,
+          isActive: true,
+        });
+      }
+    }
+  }
+
+  return constraints;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

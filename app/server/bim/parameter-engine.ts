@@ -213,6 +213,101 @@ const DEFAULT_PROPAGATION_RULES: PropagationRule[] = [
     targetProperty: 'material',
     transform: 'copy',
   },
+
+  // ── WALL-WALL ENDPOINT FOLLOWING ──────────────────────────────────
+  // When a wall moves, connected walls' nearest endpoint follows
+  {
+    triggerProperty: 'origin.x',
+    targetRelation: 'connected',
+    targetProperty: 'origin.x',
+    transform: 'custom',
+    customFn: (oldVal, newVal, source, target) => {
+      // Only move connected walls, not beams/slabs
+      if (!/wall|partition/i.test(target.type)) return target.origin.x;
+      const delta = (newVal as number) - (oldVal as number);
+      // Move the connected wall's endpoint that was closest to the source
+      const srcLen = source.quantities.length || 3;
+      const cos = Math.cos(source.rotation);
+      const srcEnd = source.origin.x + cos * srcLen;
+      const tgtDist = Math.abs(target.origin.x - source.origin.x);
+      const tgtEndDist = Math.abs(target.origin.x - srcEnd);
+      // If target's origin was near source's origin, follow the move
+      if (tgtDist < 0.5) return target.origin.x + delta;
+      return target.origin.x;
+    },
+  },
+  {
+    triggerProperty: 'origin.y',
+    targetRelation: 'connected',
+    targetProperty: 'origin.y',
+    transform: 'custom',
+    customFn: (oldVal, newVal, source, target) => {
+      if (!/wall|partition/i.test(target.type)) return target.origin.y;
+      const delta = (newVal as number) - (oldVal as number);
+      const tgtDist = Math.abs(target.origin.y - source.origin.y);
+      if (tgtDist < 0.5) return target.origin.y + delta;
+      return target.origin.y;
+    },
+  },
+
+  // ── BEAM-COLUMN RE-SNAP ───────────────────────────────────────────
+  // When a column moves, connected beams' nearest endpoint re-snaps
+  {
+    triggerProperty: 'origin.x',
+    targetRelation: 'connected',
+    targetProperty: 'origin.x',
+    transform: 'custom',
+    customFn: (oldVal, newVal, source, target) => {
+      // Only snap beams to columns, not vice versa
+      if (!/beam|girder|joist/i.test(target.type)) return target.origin.x;
+      if (!/column|pillar|pier/i.test(source.type)) return target.origin.x;
+      const delta = (newVal as number) - (oldVal as number);
+      // If beam endpoint was near old column position, follow
+      const dist = Math.abs(target.origin.x - (oldVal as number));
+      if (dist < 0.5) return target.origin.x + delta;
+      return target.origin.x;
+    },
+  },
+  {
+    triggerProperty: 'origin.y',
+    targetRelation: 'connected',
+    targetProperty: 'origin.y',
+    transform: 'custom',
+    customFn: (oldVal, newVal, source, target) => {
+      if (!/beam|girder|joist/i.test(target.type)) return target.origin.y;
+      if (!/column|pillar|pier/i.test(source.type)) return target.origin.y;
+      const delta = (newVal as number) - (oldVal as number);
+      const dist = Math.abs(target.origin.y - (oldVal as number));
+      if (dist < 0.5) return target.origin.y + delta;
+      return target.origin.y;
+    },
+  },
+
+  // ── SLAB-WALL EDGE ADJUSTMENT ─────────────────────────────────────
+  // When a wall moves, bounded slabs adjust their edge (via dimension change)
+  {
+    triggerProperty: 'origin.x',
+    targetRelation: 'connected',
+    targetProperty: 'quantities.width',
+    transform: 'custom',
+    customFn: (oldVal, newVal, source, target) => {
+      if (!/slab|floor/i.test(target.type)) return target.quantities.width;
+      if (!/wall|partition/i.test(source.type)) return target.quantities.width;
+      // Adjust slab width by the delta of the bounding wall's movement
+      const delta = Math.abs((newVal as number) - (oldVal as number));
+      const currentWidth = target.quantities.width || 10;
+      // Determine if wall is on the positive or negative edge
+      const wallX = newVal as number;
+      const slabCenterX = target.origin.x;
+      const halfWidth = currentWidth / 2;
+      const wasOnPositiveEdge = Math.abs((oldVal as number) - (slabCenterX + halfWidth)) < 1.0;
+      const wasOnNegativeEdge = Math.abs((oldVal as number) - (slabCenterX - halfWidth)) < 1.0;
+      if (wasOnPositiveEdge || wasOnNegativeEdge) {
+        return currentWidth + ((newVal as number) - (oldVal as number)) * (wasOnPositiveEdge ? 1 : -1);
+      }
+      return target.quantities.width;
+    },
+  },
 ];
 
 export function propagateChange(

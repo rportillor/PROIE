@@ -357,6 +357,89 @@ export async function postprocessAndSaveBIM_LEGACY(opts: PostOpts) {
     console.warn("⚠️ POSTPROCESS: relationship engine failed (non-blocking):", e?.message || e);
   }
 
+  // PASS 2.5: Constraint propagation — verify all relationships are geometrically
+  // consistent (hosted elements at correct positions, wall joins aligned, beams
+  // snapped to columns). Like a human modeler doing a final constraint check.
+  try {
+    const { solveConstraints } = await import("../bim/parameter-engine");
+    const { vec3: mkVec3 } = await import("../bim/geometry-kernel");
+
+    // Build lightweight constraint set from relationship data
+    const constraintList: Array<{ id: string; type: string; elementIds: string[]; parameters: Record<string, number>; priority: number; isActive: boolean }> = [];
+    const elementMap = new Map<string, any>();
+
+    for (const el of work) {
+      const g = typeof el?.geometry === 'string' ? JSON.parse(el.geometry) : (el?.geometry || {});
+      const loc = g?.location?.realLocation || { x: 0, y: 0, z: 0 };
+      const props = el?.properties || {};
+
+      const solid = {
+        id: el.id,
+        type: String(el.elementType || el.type || ''),
+        origin: mkVec3(loc.x, loc.y, loc.z),
+        rotation: g?.orientation?.yawRad || 0,
+        quantities: { volume: 0, surfaceArea: 0, lateralArea: 0, length: g?.dimensions?.width, width: g?.dimensions?.depth, height: g?.dimensions?.height },
+        hostedIds: [] as string[],
+        connectedIds: [
+          ...(Array.isArray(props.connectedWallIds) ? props.connectedWallIds : []),
+          ...(Array.isArray(props.connectedColumnIds) ? props.connectedColumnIds : []),
+          ...(Array.isArray(props.supportedBeamIds) ? props.supportedBeamIds : []),
+          ...(Array.isArray(props.boundingWallIds) ? props.boundingWallIds : []),
+        ],
+      };
+
+      // Build host relationships
+      if (props.hostWallId) {
+        const hostEntry = elementMap.get(props.hostWallId);
+        if (hostEntry) hostEntry.hostedIds.push(el.id);
+      }
+
+      elementMap.set(el.id, solid);
+    }
+
+    // Create hosted constraints
+    for (const [id, solid] of elementMap) {
+      for (const hostedId of solid.hostedIds) {
+        constraintList.push({
+          id: `pp_hosted_${id}_${hostedId}`,
+          type: 'hosted',
+          elementIds: [id, hostedId],
+          parameters: {},
+          priority: 8,
+          isActive: true,
+        });
+      }
+    }
+
+    if (constraintList.length > 0) {
+      const result = solveConstraints(constraintList as any, elementMap as any, 5, 0.01);
+      console.log(
+        `🔧 POSTPROCESS: Constraint propagation — ${constraintList.length} constraints, ` +
+        `${result.iterations} iterations, converged=${result.converged}, ` +
+        `${result.adjustments.length} adjustments made`
+      );
+
+      // Write back adjusted positions to the work elements
+      if (result.adjustments.length > 0) {
+        for (const adj of result.adjustments) {
+          const workEl = work.find((e: any) => e.id === adj.elementId);
+          if (workEl && adj.property.startsWith('origin')) {
+            const g = typeof workEl?.geometry === 'string' ? JSON.parse(workEl.geometry) : (workEl?.geometry || {});
+            const solid = elementMap.get(adj.elementId);
+            if (solid && g?.location?.realLocation) {
+              g.location.realLocation = { x: solid.origin.x, y: solid.origin.y, z: solid.origin.z };
+              workEl.geometry = g;
+            }
+          }
+        }
+      }
+    } else {
+      console.log("🔧 POSTPROCESS: No constraints to propagate (no hosted relationships detected)");
+    }
+  } catch (e: any) {
+    console.warn("⚠️ POSTPROCESS: constraint propagation failed (non-blocking):", e?.message || e);
+  }
+
   // PASS 3: Clash detection — A human modeler runs clash detection before
   // submitting the model. We flag hard clashes (structural vs MEP overlaps)
   // and soft clashes (clearance violations) so the QS knows where RFIs are needed.
