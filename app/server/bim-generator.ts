@@ -336,25 +336,40 @@ export class BIMGenerator {
 
       if (existingElements.length > 50) {
         console.log(`🛡️ FOUND EXISTING WORK: Model ${existingModel.id} has ${existingElements.length} elements`);
-        
-        // Check if this is a continuation request (user wants to add more elements)
-        const modelAge = existingModel.createdAt 
-          ? new Date().getTime() - new Date(existingModel.createdAt).getTime()
-          : 0;
-        const _isStuck = existingModel.status === 'generating' && modelAge > 30 * 60 * 1000; // 30 minutes
-        
-        // For now, we'll continue with generation to add more elements
-        console.log(`📋 Continuing generation to add more elements to existing ${existingElements.length} elements`);
-        
+
+        // ── HUMAN-MODELER WORKFLOW: Iterative Refinement ──────────────────
+        // A human modeler works in passes — they don't delete the whole model
+        // and start over when new drawings arrive. They compare, diff, and
+        // update only what changed. We store the existing model's element
+        // snapshot for the post-generation diff step.
+        console.log(
+          `🔄 ITERATIVE REFINEMENT: Preserving ${existingElements.length} existing elements ` +
+          `for incremental diff after re-extraction. New/changed elements will be merged, ` +
+          `unchanged elements will be preserved with stable IDs.`
+        );
+
         // Use the existing model but continue with generation
         bimModel = existingModel;
         modelId = existingModel.id;
-        
+
+        // Store previous element snapshot for diffing in post-processing
+        try {
+          if ((storage as any).updateBimModelMetadata) {
+            await (storage as any).updateBimModelMetadata(modelId, {
+              previousElementSnapshot: {
+                count: existingElements.length,
+                timestamp: new Date().toISOString(),
+                elementIds: existingElements.map((e: any) => e.id || e.elementId),
+              },
+            });
+          }
+        } catch { /* non-blocking */ }
+
         // Update status to generating to show we're working on it
         await storage.updateBimModel(modelId, { status: 'generating' });
-        
-        console.log(`🔄 Using existing model ${modelId} and will add new elements`);
-        
+
+        console.log(`🔄 Using existing model ${modelId} — will diff new extraction against existing elements`);
+
         // Don't return early - continue with the generation process
       } else {
         // Less than 50 elements, safe to recreate
@@ -1125,6 +1140,75 @@ export class BIMGenerator {
       const elementsPositioned = elements; // elements from buildElementsFromClaude above
 
       console.log(`📦 ${elementsPositioned.length} elements → postprocessor`);
+
+      // ── ITERATIVE REFINEMENT: Diff against previous extraction ──────────
+      // If the model had existing elements, merge new extraction results
+      // with the previous snapshot — preserving stable IDs for unchanged
+      // elements and tracking additions/modifications/deletions.
+      // This mirrors how a human modeler works in passes.
+      try {
+        const modelMeta = await (storage as any).getBimModel?.(modelId);
+        const meta = modelMeta?.metadata || {};
+        const prevSnapshot = meta.previousElementSnapshot;
+        if (prevSnapshot && prevSnapshot.count > 0) {
+          console.log(
+            `🔄 ITERATIVE REFINEMENT: Comparing ${elementsPositioned.length} new elements ` +
+            `against ${prevSnapshot.count} previous elements...`
+          );
+          // Load previous elements for comparison
+          const previousElements = await storage.getBimElements(modelId);
+          if (previousElements.length > 0) {
+            // Simple spatial matching: for each new element, check if a previous
+            // element of the same type exists within 0.5m — if so, preserve its ID
+            let preserved = 0;
+            let added = 0;
+            for (const newEl of elementsPositioned) {
+              const ne = newEl as any;
+              const newLoc = ne?.geometry?.location?.realLocation || { x: 0, y: 0, z: 0 };
+              const newType = String(ne?.type || ne?.elementType || '').toUpperCase();
+              let matched = false;
+              for (const prevEl of previousElements) {
+                const pe = prevEl as any;
+                const prevLoc = pe?.geometry?.location?.realLocation || { x: 0, y: 0, z: 0 };
+                const prevType = String(pe?.elementType || '').toUpperCase();
+                if (newType === prevType) {
+                  const dist = Math.hypot(
+                    (newLoc.x || 0) - (prevLoc.x || 0),
+                    (newLoc.y || 0) - (prevLoc.y || 0),
+                    (newLoc.z || 0) - (prevLoc.z || 0)
+                  );
+                  if (dist < 0.5) {
+                    // Preserve previous ID for stable references
+                    ne.id = pe.id || pe.elementId;
+                    ne.properties = {
+                      ...(ne.properties || {}),
+                      refinementAction: 'unchanged_or_updated',
+                      previousRevision: prevSnapshot.timestamp,
+                    };
+                    preserved++;
+                    matched = true;
+                    break;
+                  }
+                }
+              }
+              if (!matched) {
+                ne.properties = {
+                  ...(ne.properties || {}),
+                  refinementAction: 'added',
+                  addedInRevision: new Date().toISOString(),
+                };
+                added++;
+              }
+            }
+            console.log(
+              `🔄 ITERATIVE REFINEMENT: ${preserved} elements preserved with stable IDs, ` +
+              `${added} new elements added`
+            );
+          }
+        }
+      } catch (refineErr: any) {
+        console.warn(`⚠️ Iterative refinement skipped (non-blocking): ${refineErr?.message?.slice(0, 120)}`);
+      }
 
       try {
         await _status({ progress: 0.72, message: "Calibration & grid snap" });

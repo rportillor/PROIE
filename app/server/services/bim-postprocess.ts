@@ -11,6 +11,15 @@ import { placeDetectedSymbolsAsElements, placeDetectedSymbolsAsElements_LEGACY }
 import crypto from "crypto";
 import { detectRasterSymbolsForModel } from "./raster-glyph-locator";
 import { FLOOR_DATUMS } from "./moorings-project-data";
+// ── Human-modeler workflow enhancements (v15.31) ─────────────────────────
+import { establishRelationships } from "./relationship-engine";
+import { upgradeGeometry } from "./geometry-upgrade";
+// Clash detection — imported lazily to avoid breaking if geometry-kernel
+// has missing dependencies; the step is wrapped in try/catch below.
+let runClashDetection: ((elements: any[]) => { clashCount: number; criticalCount: number; results: any[] }) | null = null;
+try {
+  // Dynamic import preparation — actual import happens in the pipeline step
+} catch { /* lazy load */ }
 
 const COLOR_BY_FAMILY: Record<string, string> = {
   STRUCT: "#6B7280", ARCH: "#22C55E",
@@ -301,6 +310,128 @@ export async function postprocessAndSaveBIM_LEGACY(opts: PostOpts) {
     }
   } catch (e: any) {
     console.warn("⚠️ POSTPROCESS: metadata save failed:", e?.message || e);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  HUMAN-MODELER WORKFLOW ENHANCEMENTS (v15.31)
+  //  These steps mirror what a professional 3D modeler does after placing
+  //  elements: upgrade geometry to real profiles, then establish connections.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // PASS 1: Upgrade bounding boxes → parametric profiles
+  // (A human modeler selects the correct family/type, never places raw boxes)
+  try {
+    const upgradeResult = upgradeGeometry(work);
+    work = upgradeResult.elements;
+    console.log(`📐 POSTPROCESS: Geometry upgraded — ${upgradeResult.stats.total} elements now have parametric profiles`);
+  } catch (e: any) {
+    console.warn("⚠️ POSTPROCESS: geometry upgrade failed (non-blocking):", e?.message || e);
+  }
+
+  // PASS 2: Establish parametric relationships
+  // (A human modeler connects doors to walls, beams to columns, etc.)
+  try {
+    const relResult = establishRelationships(work);
+    work = relResult.elements;
+    console.log(
+      `🔗 POSTPROCESS: Relationships established — ` +
+      `${relResult.stats.hostedOpenings} hosted openings, ` +
+      `${relResult.stats.wallJoins} wall joins, ` +
+      `${relResult.stats.beamColumnSnaps} beam-column snaps, ` +
+      `${relResult.stats.slabBounds} slab bounds`
+    );
+
+    // Persist relationship summary to model metadata
+    try {
+      if ((storage as any).updateBimModelMetadata) {
+        await (storage as any).updateBimModelMetadata(modelId, {
+          relationships: {
+            total: relResult.relationships.length,
+            stats: relResult.stats,
+            generatedAt: new Date().toISOString(),
+          },
+        });
+      }
+    } catch { /* non-blocking */ }
+  } catch (e: any) {
+    console.warn("⚠️ POSTPROCESS: relationship engine failed (non-blocking):", e?.message || e);
+  }
+
+  // PASS 3: Clash detection — A human modeler runs clash detection before
+  // submitting the model. We flag hard clashes (structural vs MEP overlaps)
+  // and soft clashes (clearance violations) so the QS knows where RFIs are needed.
+  try {
+    const { runClashDetection: detectClashes } = await import("../bim/clash-detection");
+    // Convert raw elements to the BIMSolid-like format clash detection expects.
+    // We do a lightweight conversion — only elements with real geometry are tested.
+    const testableElements = work
+      .filter((e: any) => {
+        const g = typeof e?.geometry === 'string' ? JSON.parse(e.geometry) : e?.geometry;
+        return g?.location?.realLocation && g?.dimensions;
+      })
+      .map((e: any) => {
+        const g = typeof e?.geometry === 'string' ? JSON.parse(e.geometry) : e?.geometry;
+        const loc = g.location.realLocation;
+        const dims = g.dimensions;
+        const type = String(e.elementType || e.type || '');
+        return {
+          id: e.id,
+          type,
+          name: e.name || type,
+          category: /DUCT|PIPE|LIGHT|SPRINKLER|RECEPTACLE|CONDUIT/i.test(type) ? 'MEP' as const :
+                    /COLUMN|BEAM|SLAB|FOUNDATION/i.test(type) ? 'Structural' as const : 'Architectural' as const,
+          storey: e.storey?.name || '',
+          elevation: e.storey?.elevation || 0,
+          origin: { x: loc.x, y: loc.y, z: loc.z },
+          rotation: g.orientation?.yawRad || 0,
+          mesh: { vertices: new Float32Array(0), indices: new Uint32Array(0), normals: new Float32Array(0) },
+          boundingBox: {
+            min: { x: loc.x - (dims.width || 0) / 2, y: loc.y - (dims.depth || 0) / 2, z: loc.z },
+            max: { x: loc.x + (dims.width || 0) / 2, y: loc.y + (dims.depth || 0) / 2, z: loc.z + (dims.height || 0) },
+          },
+          quantities: { volume: 0, surfaceArea: 0, lateralArea: 0, length: dims.width, width: dims.depth, height: dims.height },
+          material: '', hostId: null, connectedIds: [] as string[],
+        };
+      });
+
+    if (testableElements.length > 10) {
+      const clashResults = detectClashes(testableElements as any, {
+        tolerance: 0.02,
+        clearanceDistance: 0.05,
+        ignoreSameHost: true,
+        ignoreSameStorey: false,
+        maxResults: 200,
+      });
+      const criticalClashes = clashResults.filter((c: any) => c.severity === 'critical' || c.severity === 'major');
+      console.log(
+        `⚠️ POSTPROCESS: Clash detection — ${clashResults.length} total clashes, ` +
+        `${criticalClashes.length} critical/major`
+      );
+
+      // Persist clash summary to model metadata
+      try {
+        if ((storage as any).updateBimModelMetadata) {
+          await (storage as any).updateBimModelMetadata(modelId, {
+            clashDetection: {
+              totalClashes: clashResults.length,
+              criticalClashes: criticalClashes.length,
+              topClashes: clashResults.slice(0, 20).map((c: any) => ({
+                type: c.type,
+                severity: c.severity,
+                elementA: c.elementA,
+                elementB: c.elementB,
+                description: c.description,
+              })),
+              detectedAt: new Date().toISOString(),
+            },
+          });
+        }
+      } catch { /* non-blocking */ }
+    } else {
+      console.log("⚠️ POSTPROCESS: Too few elements with geometry for clash detection — skipped");
+    }
+  } catch (e: any) {
+    console.warn("⚠️ POSTPROCESS: clash detection failed (non-blocking):", e?.message || e);
   }
 
   // 🎯 Raster glyph detection (env-gated)
