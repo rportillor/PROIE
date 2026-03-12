@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import * as THREE from "three";
 // @ts-ignore - Three.js types issue with package exports
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+import { BIMTransformControls, type TransformResult } from "./transform-controls";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { ZoomIn, ZoomOut, Home, Layers, Eye, EyeOff, AlertTriangle } from "lucide-react";
@@ -362,6 +363,50 @@ export default function Viewer3D({ modelId, onElementSelect }: ViewerProps){
   const [showFloorPanel,setShowFloorPanel]=useState(false);
   // ─────────────────────────────────────────────────────────────────────────
   const loadAbortController = useRef<AbortController|null>(null);
+  const transformControls = useRef<BIMTransformControls|null>(null);
+  const moveDebounceTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
+
+  // ── Constraint-propagating move handler ──────────────────────────────────
+  const handleElementMove = useCallback((result: TransformResult) => {
+    if (!modelId || !result.elementId) return;
+    // Debounce: only call API 200ms after last drag event
+    if (moveDebounceTimer.current) clearTimeout(moveDebounceTimer.current);
+    moveDebounceTimer.current = setTimeout(async () => {
+      try {
+        const token = localStorage.getItem("auth_token");
+        const headers: Record<string,string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const resp = await fetch(`/api/bim/models/${modelId}/elements/${result.elementId}/move`, {
+          method: 'POST',
+          credentials: 'include',
+          headers,
+          body: JSON.stringify({
+            position: result.position,
+            rotation: result.rotation,
+          }),
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (!data.affectedElements || !three.current) return;
+
+        // Update affected element meshes in the scene
+        const { scene } = three.current;
+        for (const [affectedId, newPos] of Object.entries(data.affectedElements)) {
+          if (affectedId === result.elementId) continue; // already moved by gizmo
+          const pos = newPos as { origin: {x:number;y:number;z:number}; rotation: number };
+          // Find the mesh for this element in the scene
+          scene.traverse((obj: THREE.Object3D) => {
+            const elData = obj.userData?.element;
+            if (elData && (elData.id === affectedId || elData.globalId === affectedId)) {
+              // BIM Z-up → Three.js Y-up
+              obj.position.set(pos.origin.x, pos.origin.z, pos.origin.y);
+              obj.rotation.y = -(pos.rotation || 0);
+            }
+          });
+        }
+      } catch { /* non-blocking */ }
+    }, 200);
+  }, [modelId]);
 
   useEffect(()=>{
     if(!mountRef.current) return;
@@ -448,6 +493,13 @@ export default function Viewer3D({ modelId, onElementSelect }: ViewerProps){
     const ro = new ResizeObserver(()=>{ if(!three.current||!mountRef.current) return; const w=mountRef.current.clientWidth,h=mountRef.current.clientHeight||640; camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.setSize(w,h);});
     ro.observe(container);
 
+    // ── Transform controls for constraint-propagating move ────────────────
+    try {
+      const tc = new BIMTransformControls(scene, camera, renderer.domElement, controls);
+      tc.onTransformChange(handleElementMove);
+      transformControls.current = tc;
+    } catch { /* TransformControls may not load in some environments */ }
+
     // ── Raycaster click handler for element selection ──────────────────────
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
@@ -501,9 +553,15 @@ export default function Viewer3D({ modelId, onElementSelect }: ViewerProps){
             sectionDesignation: elData.properties?.sectionDesignation || elData.properties?.profileName,
             properties: elData.properties,
           });
+          // Attach transform gizmo to clicked element for constraint-propagating move
+          if (obj && transformControls.current) {
+            transformControls.current.attach(obj);
+          }
         }
-      } else if (onElementSelect) {
-        onElementSelect(null);
+      } else {
+        // Clicked empty space — detach gizmo and deselect
+        if (transformControls.current) transformControls.current.detach();
+        if (onElementSelect) onElementSelect(null);
       }
     };
 
@@ -511,7 +569,7 @@ export default function Viewer3D({ modelId, onElementSelect }: ViewerProps){
     renderer.domElement.addEventListener('pointerup', onPointerUp);
 
     setReady(true);
-    return ()=>{ cancelAnimationFrame(id); ro.disconnect(); renderer.domElement.removeEventListener('pointerdown', onPointerDown); renderer.domElement.removeEventListener('pointerup', onPointerUp); renderer.dispose(); while(scene.children.length) scene.remove(scene.children[0]); container.removeChild(renderer.domElement); three.current=null; setReady(false); };
+    return ()=>{ cancelAnimationFrame(id); ro.disconnect(); renderer.domElement.removeEventListener('pointerdown', onPointerDown); renderer.domElement.removeEventListener('pointerup', onPointerUp); if(transformControls.current) { transformControls.current.dispose(); transformControls.current=null; } renderer.dispose(); while(scene.children.length) scene.remove(scene.children[0]); container.removeChild(renderer.domElement); three.current=null; setReady(false); };
   },[]);
 
   // ── Fetch storey list whenever modelId changes ─────────────────────────────

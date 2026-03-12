@@ -27,9 +27,11 @@ import {
   createTransactionStack, applyEdit, applyBatchEdit,
   undoTransaction, redoTransaction, canUndo, canRedo,
   getTransactionHistory, exportTransactionLog,
-  filterElements, solveConstraints,
+  filterElements, solveConstraints, propagateWithGraph,
   type TransactionStack, type Constraint, type SelectionFilter,
 } from '../bim/parameter-engine';
+
+import { buildGraphFromElements, type RelationshipGraph } from '../bim/relationship-graph';
 
 // Phase 4: Clash Resolution
 import {
@@ -66,6 +68,7 @@ export const advancedBimRouter = Router();
 const modelTransactionStacks = new Map<string, TransactionStack>();
 const modelConstraints = new Map<string, Constraint[]>();
 const modelElements = new Map<string, Map<string, BIMSolid>>();
+const modelGraphs = new Map<string, RelationshipGraph>();
 
 function getOrCreateStack(modelId: string): TransactionStack {
   if (!modelTransactionStacks.has(modelId)) {
@@ -171,6 +174,11 @@ async function loadElementsMap(modelId: string): Promise<Map<string, BIMSolid>> 
     }
     modelConstraints.set(modelId, existing);
   }
+
+  // Build and cache the relationship graph for constraint propagation
+  const graph = buildGraphFromElements(map);
+  modelGraphs.set(modelId, graph);
+  console.log(`🔗 [GRAPH] Built relationship graph: ${graph.nodeCount} nodes, ${graph.edgeCount} edges`);
 
   modelElements.set(modelId, map);
   return map;
@@ -1046,6 +1054,97 @@ advancedBimRouter.patch('/bim/models/:modelId/elements/:elementId', async (req: 
       affectedElementIds: lastResult?.affectedElementIds || [],
       canUndo: canUndo(stack),
       canRedo: canRedo(stack),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/bim/models/:modelId/elements/:elementId/move
+ * Move an element with full graph-based constraint propagation.
+ * Returns all affected elements with their updated positions so the
+ * client can update meshes in bulk — like Revit's move tool.
+ */
+advancedBimRouter.post('/bim/models/:modelId/elements/:elementId/move', async (req: Request, res: Response) => {
+  try {
+    const { modelId, elementId } = req.params;
+    const { position, rotation } = req.body; // { position: {x,y,z}, rotation?: number }
+    const elements = await loadElementsMap(modelId);
+    const element = elements.get(elementId);
+
+    if (!element) {
+      return res.status(404).json({ error: `Element ${elementId} not found` });
+    }
+
+    const graph = modelGraphs.get(modelId);
+    const oldOrigin = { ...element.origin };
+    const oldRotation = element.rotation;
+    const newOrigin = {
+      x: position?.x ?? oldOrigin.x,
+      y: position?.y ?? oldOrigin.y,
+      z: position?.z ?? oldOrigin.z,
+    };
+    const newRotation = rotation ?? oldRotation;
+
+    // Record transaction
+    let stack = modelTransactionStacks.get(modelId);
+    if (!stack) {
+      stack = createTransactionStack();
+      modelTransactionStacks.set(modelId, stack);
+    }
+
+    // Apply the primary move
+    const primaryChanges: Array<{ elementId: string; property: string; oldValue: any; newValue: any }> = [];
+    if (newOrigin.x !== oldOrigin.x) {
+      primaryChanges.push({ elementId, property: 'origin.x', oldValue: oldOrigin.x, newValue: newOrigin.x });
+      element.origin = { ...element.origin, x: newOrigin.x };
+    }
+    if (newOrigin.y !== oldOrigin.y) {
+      primaryChanges.push({ elementId, property: 'origin.y', oldValue: oldOrigin.y, newValue: newOrigin.y });
+      element.origin = { ...element.origin, y: newOrigin.y };
+    }
+    if (newOrigin.z !== oldOrigin.z) {
+      primaryChanges.push({ elementId, property: 'origin.z', oldValue: oldOrigin.z, newValue: newOrigin.z });
+      element.origin = { ...element.origin, z: newOrigin.z };
+    }
+    if (newRotation !== oldRotation) {
+      primaryChanges.push({ elementId, property: 'rotation', oldValue: oldRotation, newValue: newRotation });
+      element.rotation = newRotation;
+    }
+
+    // Propagate through relationship graph (BFS with loop prevention)
+    let propagatedChanges: Array<{ elementId: string; property: string; oldValue: any; newValue: any }> = [];
+    if (graph) {
+      propagatedChanges = propagateWithGraph(
+        elementId, oldOrigin, newOrigin, oldRotation, newRotation,
+        elements, graph, 5,
+      );
+    }
+
+    // Also run constraint solver for any remaining constraint types
+    const constraints = modelConstraints.get(modelId) || [];
+    const constraintResult = solveConstraints(constraints, elements, 5, 0.01);
+
+    // Collect all affected elements with their new positions
+    const affectedIds = new Set<string>([elementId]);
+    for (const c of propagatedChanges) affectedIds.add(c.elementId);
+    for (const c of constraintResult.adjustments) affectedIds.add(c.elementId);
+
+    const affectedElements: Record<string, { origin: any; rotation: number }> = {};
+    for (const aid of affectedIds) {
+      const el = elements.get(aid);
+      if (el) affectedElements[aid] = { origin: { ...el.origin }, rotation: el.rotation };
+    }
+
+    res.json({
+      success: true,
+      movedElement: { origin: { ...element.origin }, rotation: element.rotation },
+      affectedElementIds: [...affectedIds],
+      affectedElements,
+      propagatedCount: propagatedChanges.length,
+      constraintAdjustments: constraintResult.adjustments.length,
+      converged: constraintResult.converged,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

@@ -813,6 +813,191 @@ export function applyBatchEdit(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+//  GRAPH-AWARE PROPAGATION — BFS walk with per-edge-type strategies
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import { type RelationshipGraph, type EdgeType } from './relationship-graph';
+
+/**
+ * Propagation strategy: given a position/rotation delta and a relationship edge
+ * type, compute the property changes needed on the target element.
+ */
+type PropagationStrategy = (
+  delta: { dx: number; dy: number; dz: number; dRotation: number },
+  source: BIMSolid,
+  target: BIMSolid,
+  edgeType: EdgeType,
+) => PropertyChange[];
+
+/** Strategy: hosted elements follow their host's position and rotation */
+const hostedFollowHost: PropagationStrategy = (delta, _source, target) => {
+  const changes: PropertyChange[] = [];
+  if (delta.dx !== 0) {
+    changes.push({ elementId: target.id, property: 'origin.x', oldValue: target.origin.x, newValue: target.origin.x + delta.dx });
+    target.origin = { ...target.origin, x: target.origin.x + delta.dx };
+  }
+  if (delta.dy !== 0) {
+    changes.push({ elementId: target.id, property: 'origin.y', oldValue: target.origin.y, newValue: target.origin.y + delta.dy });
+    target.origin = { ...target.origin, y: target.origin.y + delta.dy };
+  }
+  if (delta.dz !== 0) {
+    changes.push({ elementId: target.id, property: 'origin.z', oldValue: target.origin.z, newValue: target.origin.z + delta.dz });
+    target.origin = { ...target.origin, z: target.origin.z + delta.dz };
+  }
+  if (delta.dRotation !== 0) {
+    changes.push({ elementId: target.id, property: 'rotation', oldValue: target.rotation, newValue: target.rotation + delta.dRotation });
+    target.rotation += delta.dRotation;
+  }
+  return changes;
+};
+
+/** Strategy: connected wall endpoint adjusts at join point */
+const wallJoinAdjust: PropagationStrategy = (delta, source, target) => {
+  const changes: PropertyChange[] = [];
+  // Only adjust if target wall's origin was close to source wall's origin or endpoint
+  const srcLen = source.quantities.length || 3;
+  const cos = Math.cos(source.rotation);
+  const sin = Math.sin(source.rotation);
+  const srcEnd = { x: source.origin.x + cos * srcLen, y: source.origin.y + sin * srcLen };
+
+  // Check which endpoint of the target was at the join
+  const distToOrigin = Math.hypot(target.origin.x - (source.origin.x - delta.dx), target.origin.y - (source.origin.y - delta.dy));
+  const distToEnd = Math.hypot(target.origin.x - (srcEnd.x - delta.dx), target.origin.y - (srcEnd.y - delta.dy));
+
+  // Target's origin was near the join point — move it
+  if (distToOrigin < 0.5 || distToEnd < 0.5) {
+    if (delta.dx !== 0) {
+      changes.push({ elementId: target.id, property: 'origin.x', oldValue: target.origin.x, newValue: target.origin.x + delta.dx });
+      target.origin = { ...target.origin, x: target.origin.x + delta.dx };
+    }
+    if (delta.dy !== 0) {
+      changes.push({ elementId: target.id, property: 'origin.y', oldValue: target.origin.y, newValue: target.origin.y + delta.dy });
+      target.origin = { ...target.origin, y: target.origin.y + delta.dy };
+    }
+  }
+  return changes;
+};
+
+/** Strategy: beam endpoint re-snaps to column center when column moves */
+const beamReSnapToColumn: PropagationStrategy = (delta, source, target) => {
+  const changes: PropertyChange[] = [];
+  // Column (source) moved — beam (target) endpoint should follow
+  // Only move if beam origin was near old column position
+  const oldColX = source.origin.x - delta.dx;
+  const oldColY = source.origin.y - delta.dy;
+  const dist = Math.hypot(target.origin.x - oldColX, target.origin.y - oldColY);
+  if (dist < 0.5) {
+    if (delta.dx !== 0) {
+      changes.push({ elementId: target.id, property: 'origin.x', oldValue: target.origin.x, newValue: target.origin.x + delta.dx });
+      target.origin = { ...target.origin, x: target.origin.x + delta.dx };
+    }
+    if (delta.dy !== 0) {
+      changes.push({ elementId: target.id, property: 'origin.y', oldValue: target.origin.y, newValue: target.origin.y + delta.dy });
+      target.origin = { ...target.origin, y: target.origin.y + delta.dy };
+    }
+  }
+  return changes;
+};
+
+/** Strategy: slab edge adjusts when bounding wall moves */
+const slabEdgeAdjust: PropagationStrategy = (delta, source, target) => {
+  const changes: PropertyChange[] = [];
+  const currentWidth = target.quantities.width || 10;
+  const halfW = currentWidth / 2;
+  const oldWallX = source.origin.x - delta.dx;
+  // Check if wall was on positive or negative edge of slab
+  const onPosEdge = Math.abs(oldWallX - (target.origin.x + halfW)) < 1.0;
+  const onNegEdge = Math.abs(oldWallX - (target.origin.x - halfW)) < 1.0;
+  if (onPosEdge || onNegEdge) {
+    const newWidth = currentWidth + delta.dx * (onPosEdge ? 1 : -1);
+    if (newWidth > 0.5) { // sanity check
+      changes.push({ elementId: target.id, property: 'quantities.width', oldValue: currentWidth, newValue: newWidth });
+      target.quantities = { ...target.quantities, width: newWidth };
+    }
+  }
+  return changes;
+};
+
+/** Strategy map: edge type → propagation strategy */
+const STRATEGIES: Partial<Record<EdgeType, PropagationStrategy>> = {
+  'hosts': hostedFollowHost,
+  'wall_join': wallJoinAdjust,
+  'column_to_beam': beamReSnapToColumn,
+  'wall_bounds_slab': slabEdgeAdjust,
+  // Reverse directions don't propagate (door doesn't move wall, beam doesn't move column)
+  // 'hosted_in': no propagation
+  // 'beam_to_column': no propagation
+  // 'slab_bounded_by': no propagation
+};
+
+/**
+ * Graph-aware constraint propagation with BFS walk and loop prevention.
+ * Replaces the simple rule-based propagateChange() when a relationship graph
+ * is available. Handles cascading (wall → door → door hardware) with depth limit.
+ */
+export function propagateWithGraph(
+  sourceElementId: string,
+  oldOrigin: Vec3,
+  newOrigin: Vec3,
+  oldRotation: number,
+  newRotation: number,
+  elements: Map<string, BIMSolid>,
+  graph: RelationshipGraph,
+  maxDepth: number = 5,
+): PropertyChange[] {
+  const allChanges: PropertyChange[] = [];
+  const delta = {
+    dx: newOrigin.x - oldOrigin.x,
+    dy: newOrigin.y - oldOrigin.y,
+    dz: newOrigin.z - oldOrigin.z,
+    dRotation: newRotation - oldRotation,
+  };
+
+  // No movement — nothing to propagate
+  if (Math.abs(delta.dx) < 0.0001 && Math.abs(delta.dy) < 0.0001 &&
+      Math.abs(delta.dz) < 0.0001 && Math.abs(delta.dRotation) < 0.0001) {
+    return allChanges;
+  }
+
+  // BFS walk with loop prevention (built into the graph's bfsWalk)
+  for (const node of graph.bfsWalk(sourceElementId, maxDepth)) {
+    const strategy = STRATEGIES[node.edgeType];
+    if (!strategy) continue; // no propagation for this edge type
+
+    const parent = elements.get(node.parentId!);
+    const target = elements.get(node.elementId);
+    if (!parent || !target) continue;
+
+    // For cascading: use the delta relative to the parent's movement
+    // At depth 1, delta is from the original source. At deeper levels,
+    // we use the parent's accumulated delta from earlier changes.
+    const parentDelta = node.depth === 1 ? delta : (() => {
+      // Find how much the parent moved from our earlier propagation
+      const parentChanges = allChanges.filter(c => c.elementId === node.parentId);
+      let pdx = 0, pdy = 0, pdz = 0, pdr = 0;
+      for (const c of parentChanges) {
+        if (c.property === 'origin.x') pdx = (c.newValue as number) - (c.oldValue as number);
+        if (c.property === 'origin.y') pdy = (c.newValue as number) - (c.oldValue as number);
+        if (c.property === 'origin.z') pdz = (c.newValue as number) - (c.oldValue as number);
+        if (c.property === 'rotation') pdr = (c.newValue as number) - (c.oldValue as number);
+      }
+      return { dx: pdx, dy: pdy, dz: pdz, dRotation: pdr };
+    })();
+
+    // Skip if parent didn't actually move (no cascading needed)
+    if (Math.abs(parentDelta.dx) < 0.0001 && Math.abs(parentDelta.dy) < 0.0001 &&
+        Math.abs(parentDelta.dz) < 0.0001 && Math.abs(parentDelta.dRotation) < 0.0001) {
+      continue;
+    }
+
+    const changes = strategy(parentDelta, parent, target, node.edgeType);
+    allChanges.push(...changes);
+  }
+
+  return allChanges;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 //  ELEMENT SELECTION & FILTERING
 // ═══════════════════════════════════════════════════════════════════════════════
 
