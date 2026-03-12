@@ -187,6 +187,7 @@ bimGenerateRouter.post("/bim/models/:modelId/generate", async (req: Request, res
           endX: properties.end?.x,
           endY: properties.end?.y,
           material: e.material || properties.material,
+          sectionDesignation: properties.sectionDesignation || properties.profileName || properties.steelSection || properties.memberSize,
           source: 'ai_modeled',
           properties,
         };

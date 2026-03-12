@@ -50,13 +50,31 @@ export default function ModelProperties({
                 <span className="text-gray-600">Type:</span>
                 <span className="font-medium" data-testid="component-type">{selectedElement.type}</span>
               </div>
+              {selectedElement.name && selectedElement.name !== selectedElement.type && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Name:</span>
+                  <span className="font-medium" data-testid="component-name">{selectedElement.name}</span>
+                </div>
+              )}
               {selectedElement.material && (
                 <div className="flex justify-between">
                   <span className="text-gray-600">Material:</span>
                   <span className="font-medium" data-testid="component-material">{selectedElement.material}</span>
                 </div>
               )}
-              {selectedElement.dimensions?.height && (
+              {selectedElement.sectionDesignation && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Section:</span>
+                  <span className="font-medium" data-testid="component-section">{selectedElement.sectionDesignation}</span>
+                </div>
+              )}
+              {selectedElement.storey && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Storey:</span>
+                  <span className="font-medium" data-testid="component-storey">{selectedElement.storey}</span>
+                </div>
+              )}
+              {selectedElement.dimensions?.height != null && selectedElement.dimensions.height > 0 && (
                 <div className="flex justify-between">
                   <span className="text-gray-600">Height:</span>
                   <span className="font-medium" data-testid="component-height">
@@ -64,7 +82,39 @@ export default function ModelProperties({
                   </span>
                 </div>
               )}
-              {selectedElement.volume && (
+              {selectedElement.dimensions?.width != null && selectedElement.dimensions.width > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Width:</span>
+                  <span className="font-medium" data-testid="component-width">
+                    {formatLength(selectedElement.dimensions.width, unitSystem, showBothUnits)}
+                  </span>
+                </div>
+              )}
+              {selectedElement.dimensions?.length != null && selectedElement.dimensions.length > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Length:</span>
+                  <span className="font-medium" data-testid="component-length">
+                    {formatLength(selectedElement.dimensions.length, unitSystem, showBothUnits)}
+                  </span>
+                </div>
+              )}
+              {selectedElement.dimensions?.depth != null && selectedElement.dimensions.depth > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Depth:</span>
+                  <span className="font-medium" data-testid="component-depth">
+                    {formatLength(selectedElement.dimensions.depth, unitSystem, showBothUnits)}
+                  </span>
+                </div>
+              )}
+              {selectedElement.dimensions?.thickness != null && selectedElement.dimensions.thickness > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Thickness:</span>
+                  <span className="font-medium" data-testid="component-thickness">
+                    {formatLength(selectedElement.dimensions.thickness, unitSystem, showBothUnits)}
+                  </span>
+                </div>
+              )}
+              {selectedElement.volume != null && selectedElement.volume > 0 && (
                 <div className="flex justify-between">
                   <span className="text-gray-600">Volume:</span>
                   <span className="font-medium" data-testid="component-volume">
@@ -72,10 +122,10 @@ export default function ModelProperties({
                   </span>
                 </div>
               )}
-              {selectedElement.area && (
+              {selectedElement.area != null && selectedElement.area > 0 && (
                 <div className="flex justify-between">
                   <span className="text-gray-600">Area:</span>
-                  <span className="font-medium">
+                  <span className="font-medium" data-testid="component-area">
                     {formatArea(selectedElement.area, unitSystem, showBothUnits)}
                   </span>
                 </div>

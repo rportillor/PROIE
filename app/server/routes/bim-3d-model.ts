@@ -64,6 +64,7 @@ bim3DRouter.post('/bim/models/:modelId/build-3d', async (req: Request, res: Resp
         endX: properties.end?.x,
         endY: properties.end?.y,
         material: e.material || properties.material,
+        sectionDesignation: properties.sectionDesignation || properties.profileName || properties.steelSection || properties.memberSize,
         source: 'ai_modeled',
         properties,
       };
@@ -242,7 +243,10 @@ bim3DRouter.post('/bim/models/:modelId/clash-check', async (req: Request, res: R
         length: Number(dims.length) || undefined, width: Number(dims.width) || undefined,
         height: Number(dims.height) || undefined, thickness: Number(dims.thickness) || undefined,
         x: Number(loc.x) || 0, y: Number(loc.y) || 0, z: Number(loc.z) || 0,
-        material: e.material, source: 'ai_modeled',
+        material: e.material,
+        sectionDesignation: properties.sectionDesignation || properties.profileName || properties.steelSection || properties.memberSize,
+        source: 'ai_modeled',
+        properties,
       };
     });
 

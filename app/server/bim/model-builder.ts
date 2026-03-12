@@ -25,11 +25,13 @@ import {
 } from './geometry-kernel';
 
 import {
-  type BIMSolid, type WallParams, type WallOpeningDef,
+  type BIMSolid, type WallParams, type WallOpeningDef, type WallAssembly, type MaterialLayer,
   createWall, createColumn, createBeam, createSlab, createFooting, createStair,
   createDuct, createPipe, createCableTray, createFixture,
   inferWallAssembly, WALL_ASSEMBLIES, serializeBIMSolid,
 } from './parametric-elements';
+
+import { lookupSteelSection, parseSectionFromText, type SteelSectionData } from './steel-sections-db';
 
 import { importIFC, type IFCImportResult } from './ifc-import-engine';
 import { parseDXF, convertDXFToBIM, isDXFContent, type DXFImportResult } from './dwg-dxf-import';
@@ -66,8 +68,9 @@ export interface RawBIMInput {
   startX?: number; startY?: number;   // wall start
   endX?: number; endY?: number;       // wall end
 
-  // Material
+  // Material & steel section
   material?: string;
+  sectionDesignation?: string;   // e.g. "W10x49", "HSS6x6x3/8"
 
   // For openings
   hostId?: string;           // wall ID that hosts this door/window
@@ -185,7 +188,30 @@ export function buildModel(
       end = vec2(raw.length || 5, 0);
     }
 
-    const assembly = inferWallAssembly(raw.material, isExterior);
+    // Prefer extracted thickness from AI over assembly defaults
+    let assembly = inferWallAssembly(raw.material, isExterior);
+    if (raw.thickness && raw.thickness > 0) {
+      // Build a custom single-layer assembly from the extracted thickness
+      const extractedThickness = raw.thickness;
+      const materialName = raw.material || (isExterior ? 'Exterior Assembly' : 'Interior Assembly');
+      const customAssembly: WallAssembly = {
+        id: `CUSTOM_${raw.id}`,
+        name: `${materialName} (extracted)`,
+        layers: [{
+          name: materialName,
+          thickness: extractedThickness,
+          material: materialName,
+          isStructural: true,
+          density: /CONCRETE|CAST/i.test(materialName) ? 2400
+            : /CMU|BLOCK|MASONRY/i.test(materialName) ? 2100
+            : /STEEL|METAL/i.test(materialName) ? 7850
+            : /BRICK/i.test(materialName) ? 1920
+            : undefined,
+        }],
+        totalThickness: extractedThickness,
+      };
+      assembly = customAssembly;
+    }
 
     const result = createWall({
       id: raw.id,
@@ -247,12 +273,45 @@ export function buildModel(
     const elevation = raw.elevation ?? storeyInfo?.elevation ?? 0;
     const height = raw.height || storeyInfo?.floorToFloorHeight || 3.0;
 
-    const shape = raw.diameter ? 'circular' as const
-      : raw.properties?.shape === 'w-section' ? 'w-section' as const
-      : 'rectangular' as const;
+    // Try to resolve steel section from designation or name
+    const sectionData = resolveSteelSection(raw);
 
-    const width = raw.diameter || raw.width || 0.4;
-    const depth = raw.diameter || raw.depth || raw.width || 0.4;
+    let shape: 'rectangular' | 'circular' | 'w-section';
+    let width: number;
+    let depth: number;
+    let flangeWidth: number | undefined;
+    let webThickness: number | undefined;
+    let flangeThickness: number | undefined;
+
+    if (raw.diameter) {
+      shape = 'circular';
+      width = raw.diameter;
+      depth = raw.diameter;
+    } else if (sectionData && sectionData.shape === 'w-section') {
+      shape = 'w-section';
+      width = sectionData.flangeWidth;
+      depth = sectionData.depth;
+      flangeWidth = sectionData.flangeWidth;
+      webThickness = sectionData.webThickness;
+      flangeThickness = sectionData.flangeThickness;
+    } else if (sectionData && (sectionData.shape === 'hss-rect' || sectionData.shape === 'hss-round')) {
+      shape = sectionData.shape === 'hss-round' ? 'circular' : 'rectangular';
+      width = sectionData.flangeWidth;
+      depth = sectionData.depth;
+    } else if (raw.properties?.shape === 'w-section') {
+      shape = 'w-section';
+      width = raw.properties.flangeWidth || raw.width || 0.254;
+      depth = raw.depth || raw.properties.depth || 0.254;
+      flangeWidth = raw.properties.flangeWidth;
+      webThickness = raw.properties.webThickness;
+      flangeThickness = raw.properties.flangeThickness;
+    } else {
+      shape = 'rectangular';
+      width = raw.width || raw.depth || 0.4;
+      depth = raw.depth || raw.width || 0.4;
+    }
+
+    const material = raw.material || (sectionData ? 'Steel' : 'Concrete');
 
     elements.push(createColumn({
       id: raw.id,
@@ -261,7 +320,10 @@ export function buildModel(
       width, depth, height,
       storey, elevation,
       shape,
-      material: raw.material || 'Concrete',
+      flangeWidth,
+      webThickness,
+      flangeThickness,
+      material,
       source: (raw.source as BIMSolid['source']) || 'ai_modeled',
     }));
   }
@@ -276,15 +338,58 @@ export function buildModel(
     const start = vec3(raw.startX || raw.x || 0, raw.startY || raw.y || 0, elevation + beamHeight);
     const end = vec3(raw.endX || (raw.x || 0) + (raw.length || 5), raw.endY || raw.y || 0, elevation + beamHeight);
 
+    // Try to resolve steel section from designation or name
+    const sectionData = resolveSteelSection(raw);
+
+    let beamShape: 'rectangular' | 'w-section' | 'circular';
+    let beamWidth: number;
+    let beamDepth: number;
+    let flangeWidth: number | undefined;
+    let webThickness: number | undefined;
+    let flangeThickness: number | undefined;
+
+    if (sectionData && sectionData.shape === 'w-section') {
+      beamShape = 'w-section';
+      beamWidth = sectionData.flangeWidth;
+      beamDepth = sectionData.depth;
+      flangeWidth = sectionData.flangeWidth;
+      webThickness = sectionData.webThickness;
+      flangeThickness = sectionData.flangeThickness;
+    } else if (sectionData && sectionData.shape === 'hss-round') {
+      beamShape = 'circular';
+      beamWidth = sectionData.depth;
+      beamDepth = sectionData.depth;
+    } else if (sectionData && sectionData.shape === 'hss-rect') {
+      beamShape = 'rectangular';
+      beamWidth = sectionData.flangeWidth;
+      beamDepth = sectionData.depth;
+    } else if (raw.properties?.shape === 'w-section') {
+      beamShape = 'w-section';
+      beamWidth = raw.properties.flangeWidth || raw.width || 0.254;
+      beamDepth = raw.depth || raw.height || raw.properties.depth || 0.254;
+      flangeWidth = raw.properties.flangeWidth;
+      webThickness = raw.properties.webThickness;
+      flangeThickness = raw.properties.flangeThickness;
+    } else {
+      beamShape = 'rectangular';
+      beamWidth = raw.width || 0.3;
+      beamDepth = raw.depth || raw.height || 0.5;
+    }
+
+    const material = raw.material || (sectionData ? 'Steel' : 'Concrete');
+
     elements.push(createBeam({
       id: raw.id,
       name: raw.name || `Beam ${raw.id}`,
       start, end,
-      width: raw.width || 0.3,
-      depth: raw.depth || raw.height || 0.5,
+      width: beamWidth,
+      depth: beamDepth,
       storey, elevation,
-      shape: 'rectangular',
-      material: raw.material || 'Concrete',
+      shape: beamShape,
+      flangeWidth,
+      webThickness,
+      flangeThickness,
+      material,
       source: (raw.source as BIMSolid['source']) || 'ai_modeled',
     }));
   }
@@ -573,6 +678,53 @@ export async function importFile(
     stats: {},
     warnings: [`Unrecognized file format: ${ext}`],
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  STEEL SECTION RESOLUTION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Try to resolve a steel section from the raw element data.
+ * Checks (in order):
+ *   1. raw.sectionDesignation (explicit field)
+ *   2. raw.properties.sectionDesignation
+ *   3. raw.properties.profileName
+ *   4. raw.name (parse W/HSS designation from free text)
+ *   5. raw.material (parse from material string like "Steel W10x49")
+ */
+function resolveSteelSection(raw: RawBIMInput): SteelSectionData | null {
+  // 1. Explicit designation field
+  if (raw.sectionDesignation) {
+    const section = lookupSteelSection(raw.sectionDesignation);
+    if (section) return section;
+  }
+
+  // 2-3. Properties object
+  const props = raw.properties || {};
+  for (const key of ['sectionDesignation', 'profileName', 'section', 'steelSection', 'memberSize']) {
+    if (props[key]) {
+      const section = lookupSteelSection(props[key]);
+      if (section) return section;
+      // Also try parsing from free text
+      const parsed = parseSectionFromText(props[key]);
+      if (parsed) return lookupSteelSection(parsed);
+    }
+  }
+
+  // 4. Parse from element name
+  if (raw.name) {
+    const parsed = parseSectionFromText(raw.name);
+    if (parsed) return lookupSteelSection(parsed);
+  }
+
+  // 5. Parse from material string
+  if (raw.material) {
+    const parsed = parseSectionFromText(raw.material);
+    if (parsed) return lookupSteelSection(parsed);
+  }
+
+  return null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

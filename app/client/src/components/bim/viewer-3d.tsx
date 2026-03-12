@@ -21,10 +21,13 @@ export interface ViewerProps {
 export interface SelectedElement {
   expressID?: number;
   type: string;
+  name?: string;
   material?: string;
-  dimensions?: { height?: number; width?: number; length?: number };
+  dimensions?: { height?: number; width?: number; length?: number; depth?: number; thickness?: number };
   volume?: number;
   area?: number;
+  storey?: string;
+  sectionDesignation?: string;
   properties?: Record<string, any>;
 }
 
@@ -342,7 +345,7 @@ function getWallRotation(e:any) {
   return Math.atan2(dy, dx); // Rotation in radians
 }
 
-export default function Viewer3D({ modelId }: ViewerProps){
+export default function Viewer3D({ modelId, onElementSelect }: ViewerProps){
   const mountRef = useRef<HTMLDivElement|null>(null);
   const three = useRef<{renderer:THREE.WebGLRenderer, scene:THREE.Scene, camera:THREE.PerspectiveCamera, controls:OrbitControls} | null>(null);
   const [ready,setReady]=useState(false);
@@ -444,8 +447,71 @@ export default function Viewer3D({ modelId }: ViewerProps){
     let id:number; const tick=()=>{controls.update(); renderer.render(scene,camera); id=requestAnimationFrame(tick)}; id=requestAnimationFrame(tick);
     const ro = new ResizeObserver(()=>{ if(!three.current||!mountRef.current) return; const w=mountRef.current.clientWidth,h=mountRef.current.clientHeight||640; camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.setSize(w,h);});
     ro.observe(container);
+
+    // ── Raycaster click handler for element selection ──────────────────────
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    let pointerDownPos = { x: 0, y: 0 };
+
+    const onPointerDown = (ev: PointerEvent) => { pointerDownPos = { x: ev.clientX, y: ev.clientY }; };
+    const onPointerUp = (ev: PointerEvent) => {
+      // Only treat as click if pointer didn't move (not an orbit drag)
+      const dx = ev.clientX - pointerDownPos.x;
+      const dy = ev.clientY - pointerDownPos.y;
+      if (Math.sqrt(dx * dx + dy * dy) > 5) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+
+      const intersects = raycaster.intersectObjects(scene.children, true);
+      let hit: THREE.Intersection | null = null;
+      for (const inter of intersects) {
+        let obj: THREE.Object3D | null = inter.object;
+        while (obj) {
+          if (obj.userData?.element) { hit = inter; break; }
+          obj = obj.parent;
+        }
+        if (hit) break;
+      }
+
+      if (hit) {
+        let obj: THREE.Object3D | null = hit.object;
+        while (obj && !obj.userData?.element) obj = obj.parent;
+        const elData = obj?.userData?.element;
+        if (elData && onElementSelect) {
+          const dims = elData.geometry?.dimensions || elData.properties?.dimensions || {};
+          const quantities = elData.quantities || {};
+          onElementSelect({
+            expressID: undefined,
+            type: elData.elementType || elData.type || 'Unknown',
+            name: elData.name || elData.elementType,
+            material: elData.material || elData.properties?.material,
+            dimensions: {
+              height: quantities.height || Number(dims.height) || undefined,
+              width: quantities.width || Number(dims.width) || undefined,
+              length: quantities.length || Number(dims.length) || undefined,
+              depth: quantities.thickness || Number(dims.depth) || undefined,
+              thickness: quantities.thickness || Number(dims.thickness) || undefined,
+            },
+            volume: quantities.volume || Number(elData.properties?.volume) || undefined,
+            area: quantities.surfaceArea || Number(elData.properties?.area) || undefined,
+            storey: elData.storeyName || elData.storey,
+            sectionDesignation: elData.properties?.sectionDesignation || elData.properties?.profileName,
+            properties: elData.properties,
+          });
+        }
+      } else if (onElementSelect) {
+        onElementSelect(null);
+      }
+    };
+
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    renderer.domElement.addEventListener('pointerup', onPointerUp);
+
     setReady(true);
-    return ()=>{ cancelAnimationFrame(id); ro.disconnect(); renderer.dispose(); while(scene.children.length) scene.remove(scene.children[0]); container.removeChild(renderer.domElement); three.current=null; setReady(false); };
+    return ()=>{ cancelAnimationFrame(id); ro.disconnect(); renderer.domElement.removeEventListener('pointerdown', onPointerDown); renderer.domElement.removeEventListener('pointerup', onPointerUp); renderer.dispose(); while(scene.children.length) scene.remove(scene.children[0]); container.removeChild(renderer.domElement); three.current=null; setReady(false); };
   },[]);
 
   // ── Fetch storey list whenever modelId changes ─────────────────────────────
@@ -882,18 +948,19 @@ export default function Viewer3D({ modelId }: ViewerProps){
           geo.translate(0, thick/2, 0); // Bottom edge at origin
           color = 0x8B4513; // Brown for roof
         } else if(isColumn){
-          // Columns: Vertical, square cross-section
-          const size = Math.min(dims.width, dims.depth, 0.6); // Max 60cm square
-          geo = new THREE.BoxGeometry(size, dims.height, size);
+          // Columns: Use actual extracted dimensions — no artificial caps
+          const colW = dims.width || dims.depth || 0.4;
+          const colD = dims.depth || dims.width || 0.4;
+          geo = new THREE.BoxGeometry(colW, dims.height, colD);
           geo.translate(0, dims.height/2, 0); // Bottom edge at origin
           color = 0x708090; // Steel gray
           materialProps.metalness = 0.6;
         } else if(isBeam){
-          // Beams: Horizontal, rectangular
-          const height = Math.min(dims.height, 0.8); // Typical beam height
-          const width = Math.min(dims.width, 0.4);   // Typical beam width
-          geo = new THREE.BoxGeometry(dims.depth, height, width);
-          geo.translate(0, height/2, 0); // Bottom edge at origin
+          // Beams: Use actual extracted dimensions — no artificial caps
+          const bH = dims.height || 0.5;
+          const bW = dims.width || 0.3;
+          geo = new THREE.BoxGeometry(dims.depth || 5, bH, bW);
+          geo.translate(0, bH/2, 0); // Bottom edge at origin
           color = 0x708090; // Steel gray
           materialProps.metalness = 0.6;
         } else if(isDoor){

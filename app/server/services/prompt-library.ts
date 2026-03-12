@@ -249,6 +249,13 @@ REQUIRED EXTRACTIONS:
    Include: overall building, room, opening, structural member, clearance dimensions.
    Flag: dimension chains that do not close, contradictory dimensions across sheets.
 
+   STRUCTURAL MEMBER SIZES: For EVERY beam, column, girder, joist, brace, and
+   structural element, extract the SECTION DESIGNATION (e.g., W10x49, W14x22,
+   HSS6x6x3/8, W21x44, C10x30, L4x4x1/4) and record it in the Dimension column
+   as "sectionDesignation". Also extract: depth, flange width, web thickness if
+   given in details/schedules. If a member is shown but its section size is not
+   specified, record as GAP with type PARAMETER_MISSING.
+
 3. LEVELS / GRADES / ELEVATIONS TABLE —
    Columns: Level Name | Raw Value | Elevation | Datum | Reference Sheet | Evidence Ref
    Include: floor-to-floor heights, top of steel, top of slab, grade elevations.
@@ -259,9 +266,18 @@ REQUIRED EXTRACTIONS:
    Include: concrete mix, steel grades, wall assemblies, insulation, finishes.
    Flag: "or equal" without approved alternatives, missing spec references.
 
-5. STRUCTURAL SYSTEMS — Type (steel frame, concrete, masonry, wood), lateral system,
-   foundation type, transfer conditions.
+5. STRUCTURAL SYSTEMS AND MEMBER SCHEDULE —
+   Type (steel frame, concrete, masonry, wood), lateral system, foundation type,
+   transfer conditions.
    Columns: System | Type | Location | Specification | Evidence Ref
+
+   MEMBER SCHEDULE (CRITICAL): Extract a table of ALL structural members with:
+   Columns: Member Mark | Element Type (Beam/Column/Brace/Joist/Girder) |
+   Section Designation (e.g. W10x49, HSS6x6x3/8) | Material Grade (e.g. A992,
+   A500 Gr.B) | Length/Height | Location (Grid/Level) | Evidence Ref
+   This data is essential for accurate 3D modeling. If member schedules or
+   structural plans show sections, extract EVERY entry. If sections are not
+   shown, record each member as GAP with PARAMETER_MISSING.
 
 6. MEP SYSTEM TYPES AND EQUIPMENT TAGS —
    Columns: System Name | System Type | Service | Equipment Tag | Location | Evidence Ref
@@ -326,8 +342,11 @@ REQUIRED EXTRACTIONS:
 
 1. ELEMENT INDEX —
    Columns: Element ID | ID Type (GUID/UniqueId) | Category | Family | Type |
-   Tag | Level | Workset | Host ID | System | Evidence Ref
+   Tag | Level | Workset | Host ID | System | Section Designation | Evidence Ref
    This is the master register of all model elements.
+   For structural members (beams, columns, braces): the Section Designation
+   column MUST contain the steel section (e.g., W10x49, HSS6x6x3/8) or
+   concrete size (e.g., 400x400mm, 600mm dia). If not available, mark as GAP.
 
 2. CATEGORY / TYPE ROLLUPS —
    Columns: Category | Type | Count | Total Length (m/ft) | Total Area (m²/ft²) |
